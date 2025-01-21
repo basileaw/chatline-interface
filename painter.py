@@ -1,3 +1,4 @@
+# painter.py
 from dataclasses import dataclass
 from typing import Optional, List, Dict
 import json
@@ -55,22 +56,27 @@ class Pattern:
     remove_delimiters: bool
 
 class Paint:
+    """Processes text streams and applies pattern-based ANSI styling."""
+    
     def __init__(self, patterns: List[Dict] = None, base_color: str = COLORS['GREEN']):
         self.base_color = base_color
         self.active_patterns = []
         self.patterns = [Pattern(**p) for p in (patterns or DEFAULT_PATTERNS)]
         
+        # Validate pattern characters are unique
         used_chars = set()
         for p in self.patterns:
             if p.start in used_chars or p.end in used_chars:
                 raise ValueError(f"Pattern '{p.name}' uses a character that's already in use")
             used_chars.update([p.start, p.end])
         
+        # Create lookup maps for efficient pattern matching
         self.by_name = {p.name: p for p in self.patterns}
         self.start_map = {p.start: p for p in self.patterns}
         self.end_map = {p.end: p for p in self.patterns}
 
     def get_style(self) -> str:
+        """Get current ANSI style based on active patterns."""
         color = self.base_color
         italic = False
         for name in self.active_patterns:
@@ -80,6 +86,7 @@ class Paint:
         return (FORMATS['ITALIC_ON'] if italic else FORMATS['ITALIC_OFF']) + color
 
     def process_chunk(self, chunk: str) -> None:
+        """Process a chunk of text, applying patterns and styles in real-time."""
         if not chunk: return
         output = []
         i = 0
@@ -114,7 +121,8 @@ class Paint:
         print("".join(output), end='', flush=True)
 
 
-if __name__ == "__main__":
+def run_demo():
+    """Demo using the generator from the imported module."""
     from generator import generate_stream
     painter = Paint()
     
@@ -140,3 +148,6 @@ if __name__ == "__main__":
         except json.JSONDecodeError:
             continue
     print('\n')
+
+if __name__ == "__main__":
+    run_demo()

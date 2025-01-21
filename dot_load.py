@@ -1,5 +1,10 @@
-import threading, time, asyncio, sys, json
-from typing import Callable, Generator, Any, AsyncGenerator
+# dot_load.py
+import threading
+import time
+import asyncio
+import sys
+import json
+from typing import Callable, Generator, Any, AsyncGenerator, Union
 
 class DotLoader:
     """A loading animation that displays animated dots/punctuation while awaiting streamed responses.
