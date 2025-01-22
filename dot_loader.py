@@ -4,11 +4,21 @@ import time
 import threading
 import asyncio
 import json
-from helpers import hide_cursor, show_cursor
+from output_handler import FORMATS, OutputHandler, RawOutputHandler
+
+def hide_cursor():
+    if sys.stdout.isatty():
+        sys.stdout.write("\033[?25l")
+        sys.stdout.flush()
+
+def show_cursor():
+    if sys.stdout.isatty():
+        sys.stdout.write("\033[?25h")
+        sys.stdout.flush()
 
 class DotLoader:
-    def __init__(self, prompt, interval=0.4):
-        # Punctuation logic:
+    def __init__(self, prompt, interval=0.4, output_handler=None):
+        # Punctuation logic
         if prompt.endswith(("?", "!")):
             self.prompt, self.dot_char, self.dots = prompt[:-1], prompt[-1], 1
         elif prompt.endswith("."):
@@ -21,6 +31,7 @@ class DotLoader:
         self.anim_done = threading.Event()
         self.stop_evt = threading.Event()
         self.th = None
+        self.output_handler = output_handler or RawOutputHandler()
 
     def _animate(self):
         hide_cursor()
@@ -59,9 +70,8 @@ class DotLoader:
                             sys.stdout.write("\n")
                             sys.stdout.flush()
                         txt = data["choices"][0]["delta"].get("content", "")
-                        accumulated.append(txt)
-                        sys.stdout.write(txt)
-                        sys.stdout.flush()
+                        raw_txt = self.output_handler.process_and_write(txt)
+                        accumulated.append(raw_txt)
                     except json.JSONDecodeError:
                         pass
                 await asyncio.sleep(0)
@@ -69,19 +79,9 @@ class DotLoader:
             self.stop_evt.set()
             if self.th.is_alive():
                 self.th.join()
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+            if isinstance(self.output_handler, OutputHandler):
+                sys.stdout.write(FORMATS['RESET'])
+            sys.stdout.write("\n")
+            sys.stdout.flush()
         return "".join(accumulated)
 
-if __name__ == "__main__":
-    async def test_loader():
-        from generator import generate_stream
-        test_conv = [
-            {"role": "system", "content": "Be helpful."},
-            {"role": "user", "content": "Say hello!"}
-        ]
-        loader = DotLoader("Testing")
-        result = await loader.run_with_loading(generate_stream(test_conv))
-        print("Result:", result)
-
-    asyncio.run(test_loader())
