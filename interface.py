@@ -20,14 +20,17 @@ def show_cursor():
         sys.stdout.write("\033[?25h")
         sys.stdout.flush()
 
-def scroll_up(lines, prompt, delay=0.1):
+def scroll_up(styled_lines, prompt, delay=0.1):
+    lines = styled_lines.splitlines()
     for i in range(len(lines)+1):
         clear_screen()
         for ln in lines[i:]:
-            print(ln)
+            sys.stdout.write(ln + '\n')
         if i < len(lines):
-            print()
-        print(prompt, end="", flush=True)
+            sys.stdout.write('\n')
+        sys.stdout.write(FORMATS['RESET'])  # Reset all formatting
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
         time.sleep(delay)
 
 class StreamHandler:
@@ -50,8 +53,8 @@ async def main():
         {"role": "user", "content": "Introduce yourself in 3 lines, 7 words each..."}
     ]
     
-    intro = await stream_handler.stream_message(conv, "Loading", output_handler=output_handler)
-    conv.append({"role": "assistant", "content": intro})
+    intro_raw, intro_styled = await stream_handler.stream_message(conv, "Loading", output_handler=output_handler)
+    conv.append({"role": "assistant", "content": intro_raw})
     
     while True:
         show_cursor()
@@ -63,11 +66,11 @@ async def main():
         if not user:
             continue
             
-        scroll_up(intro.splitlines(), f"> {user}", 0.08)
+        scroll_up(intro_styled, f"> {user}", 0.08)
         conv.append({"role": "user", "content": user})
-        reply = await stream_handler.stream_message(conv, f"> {user}", output_handler=output_handler)
-        conv.append({"role": "assistant", "content": reply})
-        intro = reply
+        reply_raw, reply_styled = await stream_handler.stream_message(conv, f"> {user}", output_handler=output_handler)
+        conv.append({"role": "assistant", "content": reply_raw})
+        intro_styled = reply_styled
 
 if __name__ == "__main__":
     try:

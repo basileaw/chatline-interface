@@ -4,7 +4,7 @@ import time
 import threading
 import asyncio
 import json
-from output_handler import FORMATS, OutputHandler, RawOutputHandler
+from output_handler import OutputHandler, RawOutputHandler, FORMATS
 
 def hide_cursor():
     if sys.stdout.isatty():
@@ -50,7 +50,8 @@ class DotLoader:
             show_cursor()
 
     async def run_with_loading(self, stream):
-        accumulated = []
+        accumulated_raw = []
+        accumulated_styled = []
         first_chunk = True
         self.th = threading.Thread(target=self._animate, daemon=True)
         self.th.start()
@@ -70,8 +71,9 @@ class DotLoader:
                             sys.stdout.write("\n")
                             sys.stdout.flush()
                         txt = data["choices"][0]["delta"].get("content", "")
-                        raw_txt = self.output_handler.process_and_write(txt)
-                        accumulated.append(raw_txt)
+                        raw_txt, styled_txt = self.output_handler.process_and_write(txt)
+                        accumulated_raw.append(raw_txt)
+                        accumulated_styled.append(styled_txt)
                     except json.JSONDecodeError:
                         pass
                 await asyncio.sleep(0)
@@ -83,5 +85,5 @@ class DotLoader:
                 sys.stdout.write(FORMATS['RESET'])
             sys.stdout.write("\n")
             sys.stdout.flush()
-        return "".join(accumulated)
+        return "".join(accumulated_raw), "".join(accumulated_styled)
 

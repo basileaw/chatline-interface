@@ -85,8 +85,8 @@ class OutputHandler:
             if p.italic: italic = True
         return (FORMATS['ITALIC_ON'] if italic else FORMATS['ITALIC_OFF']) + color
 
-    def process_and_write(self, chunk: str) -> str:
-        """Process a chunk and write it to stdout, return raw text."""
+    def process_chunk(self, chunk: str) -> str:
+        """Process a chunk and return styled text."""
         if not chunk: return ""
         output = []
         i = 0
@@ -118,12 +118,14 @@ class OutputHandler:
             output.append(ch)
             i += 1
         
-        # Write styled output to stdout
-        sys.stdout.write("".join(output))
+        return "".join(output)
+
+    def process_and_write(self, chunk: str) -> tuple[str, str]:
+        """Process a chunk, write to stdout, and return both raw and styled text."""
+        styled_text = self.process_chunk(chunk)
+        sys.stdout.write(styled_text)
         sys.stdout.flush()
-        
-        # Return original text for history
-        return chunk
+        return chunk, styled_text
 
 class RawOutputHandler:
     """Simple output handler that writes raw text without styling."""
@@ -131,9 +133,9 @@ class RawOutputHandler:
     def __init__(self):
         pass
     
-    def process_and_write(self, chunk: str) -> str:
-        """Write raw text to stdout and return it unchanged."""
+    def process_and_write(self, chunk: str) -> tuple[str, str]:
+        """Write raw text to stdout and return both raw and styled versions (same in this case)."""
         sys.stdout.write(chunk)
         sys.stdout.flush()
-        return chunk
+        return chunk, chunk
 
