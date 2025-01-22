@@ -148,8 +148,8 @@ class ReverseStreamer:
                 sys.stdout.flush()
                 time.sleep(self.delay)
         
-        # Final clear and show message without dots
+        # Final clear and show message without dots (no newline to prepare for input)
         self.clear_screen()
-        sys.stdout.write(msg_without_dots + "\n")
+        sys.stdout.write(msg_without_dots)  # No newline at the end
         sys.stdout.write(FORMATS['RESET'])
         sys.stdout.flush()

@@ -17,7 +17,7 @@ def show_cursor():
         sys.stdout.flush()
 
 class DotLoader:
-    def __init__(self, prompt, interval=0.4, output_handler=None):
+    def __init__(self, prompt, interval=0.4, output_handler=None, reuse_prompt=False):
         # Punctuation logic
         if prompt.endswith(("?", "!")):
             self.prompt, self.dot_char, self.dots = prompt[:-1], prompt[-1], 1
@@ -32,15 +32,26 @@ class DotLoader:
         self.stop_evt = threading.Event()
         self.th = None
         self.output_handler = output_handler or RawOutputHandler()
+        self.reuse_prompt = reuse_prompt
 
     def _animate(self):
         hide_cursor()
         try:
             while not self.stop_evt.is_set():
-                sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
+                if self.reuse_prompt:
+                    dot_position = len(self.prompt) + 2
+                    sys.stdout.write(f"\r{' '*80}\r")
+                    sys.stdout.write(self.prompt)
+                    sys.stdout.write(f"{self.dot_char*self.dots}")
+                else:
+                    sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
                 sys.stdout.flush()
                 if self.resolved and self.dots == 3:
-                    sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\n")
+                    if not self.reuse_prompt:
+                        sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\n")
+                    else:
+                        sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}")
+                        sys.stdout.write("\033[1B")
                     sys.stdout.flush()
                     self.anim_done.set()
                     break
@@ -86,4 +97,3 @@ class DotLoader:
             sys.stdout.write("\n")
             sys.stdout.flush()
         return "".join(accumulated_raw), "".join(accumulated_styled)
-

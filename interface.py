@@ -1,6 +1,7 @@
 import sys
 import asyncio
 import time
+import readline
 from output_handler import OutputHandler, FORMATS
 from generator import generate_stream
 from reverse_stream import ReverseStreamer
@@ -42,8 +43,7 @@ class StreamHandler:
         loader = DotLoader(prompt_line, output_handler=output_handler)
         stream = self.generator_func(conversation)
         raw_text, styled_text = await loader.run_with_loading(stream)
-        # Get the final prompt with dots
-        final_prompt = f"{loader.prompt}{loader.dot_char * 3}"  # Always 3 dots when resolved
+        final_prompt = f"{loader.prompt}{loader.dot_char * 3}"
         return raw_text, styled_text, final_prompt
 
 async def main():
@@ -58,7 +58,7 @@ async def main():
     
     intro_raw, intro_styled, intro_prompt = await stream_handler.stream_message(conv, "Loading", output_handler=output_handler)
     conv.append({"role": "assistant", "content": intro_raw})
-    last_prompt = intro_prompt  # Track the last prompt with dots
+    last_prompt = intro_prompt
     
     while True:
         show_cursor()
@@ -71,22 +71,42 @@ async def main():
             continue
             
         if user.lower() == "retry":
-            # Initialize reverse streamer and perform reverse streaming with the complete prompt
+            # Initialize reverse streamer and perform reverse streaming
             reverse_streamer = ReverseStreamer(output_handler)
             await reverse_streamer.reverse_stream(intro_styled, last_prompt)
             
-            # Clean up and exit
+            # Set up for new input with previous message
             show_cursor()
-            sys.stdout.write(FORMATS['RESET'])
+            
+            # Get the previous message without prompt
+            prev_message = conv[-2]['content']
+            
+            # Set up readline with the previous message
+            readline.set_startup_hook(lambda: readline.insert_text(prev_message))
+            try:
+                final_message = input("\r> ").strip()
+            finally:
+                readline.set_startup_hook()
+                
+            # Clear screen and start fresh with the final message
+            clear_screen()
+            sys.stdout.write(f"> {final_message}")
             sys.stdout.flush()
-            break
+            
+            # Add to conversation and start dotloader
+            conv.append({"role": "user", "content": final_message})
+            reply_raw, reply_styled, reply_prompt = await stream_handler.stream_message(conv, f"> {final_message}", output_handler=output_handler)
+            conv.append({"role": "assistant", "content": reply_raw})
+            intro_styled = reply_styled
+            last_prompt = reply_prompt
+            continue  # Skip the regular flow (which includes scrolling)
             
         scroll_up(intro_styled, f"> {user}", 0.08)
         conv.append({"role": "user", "content": user})
         reply_raw, reply_styled, reply_prompt = await stream_handler.stream_message(conv, f"> {user}", output_handler=output_handler)
         conv.append({"role": "assistant", "content": reply_raw})
         intro_styled = reply_styled
-        last_prompt = reply_prompt  # Update the last prompt
+        last_prompt = reply_prompt
 
 if __name__ == "__main__":
     try:
