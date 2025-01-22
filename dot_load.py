@@ -47,15 +47,15 @@ class DotLoader:
             sys.stdout.write('\033[?25h')  # Show cursor
             sys.stdout.flush()
         
-    async def run_with_loading(self, stream_generator: Callable[..., Generator[str, None, None]] | 
-                             Callable[..., AsyncGenerator[str, None]], *args, **kwargs) -> None:
+    async def run_with_loading(self, stream_generator: Union[Generator[str, None, None],
+                                                              AsyncGenerator[str, None]], *args, **kwargs) -> None:
         """Runs a streaming generator with loading animation until first chunk arrives."""
         try:
             self.animation_thread = threading.Thread(target=self._animate, daemon=True)
             self.animation_thread.start()
             first_chunk = True
             
-            for chunk in stream_generator(*args, **kwargs):
+            for chunk in stream_generator:
                 if chunk.startswith('data: '):
                     try:
                         data = json.loads(chunk.replace('data: ', '').strip())
