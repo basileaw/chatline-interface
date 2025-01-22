@@ -39,7 +39,7 @@ def generate_stream(messages, max_gen_len=1024, temperature=0.9):
     try:
         # delay for 5 seconds before starting the response
         
-        time.sleep(5)
+        time.sleep(0)
         response = runtime.converse_stream(
             modelId=MODEL_ID,
             messages=[{"role": m["role"], "content": [{"text": m["content"]}]}
