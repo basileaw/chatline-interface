@@ -143,13 +143,12 @@ class ReverseStreamer:
         if num_dots > 0:
             for i in range(num_dots - 1, -1, -1):
                 self.clear_screen()
-                sys.stdout.write(msg_without_dots + '.' * i + "\n")
+                sys.stdout.write(msg_without_dots + '.' * i)
                 sys.stdout.write(FORMATS['RESET'])
                 sys.stdout.flush()
                 time.sleep(self.delay)
         
-        # Final clear and show message without dots (no newline to prepare for input)
+        # Just clear the screen and don't write anything
         self.clear_screen()
-        sys.stdout.write(msg_without_dots)  # No newline at the end
         sys.stdout.write(FORMATS['RESET'])
         sys.stdout.flush()

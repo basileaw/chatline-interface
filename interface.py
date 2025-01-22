@@ -1,10 +1,14 @@
 import sys
 import asyncio
 import time
-import readline
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import FormattedText
 from output_handler import OutputHandler, FORMATS
 from generator import generate_stream
 from reverse_stream import ReverseStreamer
+
+# Initialize prompt session once
+prompt_session = PromptSession()
 
 def clear_screen():
     if sys.stdout.isatty():
@@ -20,6 +24,21 @@ def show_cursor():
     if sys.stdout.isatty():
         sys.stdout.write("\033[?25h")
         sys.stdout.flush()
+
+async def get_user_input(default_text=""):
+    """Wrapper for prompt_toolkit with non-editable prefix"""
+    # Create prompt with non-editable prefix
+    prompt = FormattedText([
+        ('class:prompt', '> ')  # This part will be non-editable
+    ])
+    
+    # Get input with optional default text
+    result = await prompt_session.prompt_async(
+        prompt,
+        default=default_text,
+    )
+    
+    return result.strip()
 
 def scroll_up(styled_lines, prompt, delay=0.1):
     lines = styled_lines.splitlines()
@@ -62,9 +81,8 @@ async def main():
     
     while True:
         show_cursor()
-        sys.stdout.write("\n> ")
-        sys.stdout.flush()
-        user = input().strip()
+        sys.stdout.write("\n")  # Add extra newline for spacing
+        user = await get_user_input()  # Regular input
         hide_cursor()
         
         if not user:
@@ -75,27 +93,24 @@ async def main():
             reverse_streamer = ReverseStreamer(output_handler)
             await reverse_streamer.reverse_stream(intro_styled, last_prompt)
             
-            # Set up for new input with previous message
-            show_cursor()
-            
             # Get the previous message without prompt
             prev_message = conv[-2]['content']
             
-            # Set up readline with the previous message
-            readline.set_startup_hook(lambda: readline.insert_text(prev_message))
-            try:
-                final_message = input("\r> ").strip()
-            finally:
-                readline.set_startup_hook()
-                
+            # Get input with previous message as default
+            show_cursor()
+            final_message = await get_user_input(default_text=prev_message)
+            hide_cursor()
+            
             # Clear screen and start fresh with the final message
             clear_screen()
-            sys.stdout.write(f"> {final_message}")
-            sys.stdout.flush()
+            # No need to write the message - dotloader will handle it
             
             # Add to conversation and start dotloader
             conv.append({"role": "user", "content": final_message})
-            reply_raw, reply_styled, reply_prompt = await stream_handler.stream_message(conv, f"> {final_message}", output_handler=output_handler)
+            reply_raw, reply_styled, reply_prompt = await stream_handler.stream_message(
+                conv, f"> {final_message}", 
+                output_handler=output_handler
+            )
             conv.append({"role": "assistant", "content": reply_raw})
             intro_styled = reply_styled
             last_prompt = reply_prompt
@@ -103,7 +118,10 @@ async def main():
             
         scroll_up(intro_styled, f"> {user}", 0.08)
         conv.append({"role": "user", "content": user})
-        reply_raw, reply_styled, reply_prompt = await stream_handler.stream_message(conv, f"> {user}", output_handler=output_handler)
+        reply_raw, reply_styled, reply_prompt = await stream_handler.stream_message(
+            conv, f"> {user}", 
+            output_handler=output_handler
+        )
         conv.append({"role": "assistant", "content": reply_raw})
         intro_styled = reply_styled
         last_prompt = reply_prompt
