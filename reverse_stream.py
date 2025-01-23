@@ -14,11 +14,9 @@ class StyledWord:
 class ReverseStreamer:
     """Handles reverse streaming of styled text"""
     
-    def __init__(self, output_handler: OutputHandler, delay: float = 0.08, silent: bool = False):
+    def __init__(self, output_handler: OutputHandler, delay: float = 0.08):
         self.output_handler = output_handler
         self.delay = delay
-        self.silent = silent
-        self._initial_content = None
     
     def split_into_styled_words(self, text: str) -> List[StyledWord]:
         """Split text into words while preserving styling"""
@@ -84,17 +82,18 @@ class ReverseStreamer:
             sys.stdout.write("\033[2J\033[H")
             sys.stdout.flush()
 
-    def perform_screen_update(self, content: str, preserved_msg: str):
-        """Wrapper for all screen updates. This method can be overridden for testing."""
+    def perform_screen_update(self, content: str, preserved_msg: str, no_spacing: bool = False):
+        """Wrapper for all screen updates."""
         self.clear_screen()
         sys.stdout.write(FORMATS['RESET'])
         
-        # Always maintain the exact layout structure
         if content:
-            sys.stdout.write(preserved_msg + "\n\n")
+            if preserved_msg:
+                # Only add double newlines if we're not in no_spacing mode
+                spacing = "" if no_spacing else "\n\n"
+                sys.stdout.write(preserved_msg + spacing)
             sys.stdout.write(content)
         else:
-            # For the final state, just write the preserved message without extra newlines
             sys.stdout.write(preserved_msg)
             
         sys.stdout.write(FORMATS['RESET'])
@@ -102,12 +101,16 @@ class ReverseStreamer:
 
     def format_lines(self, lines: List[List[StyledWord]]) -> str:
         """Format lines into a single string with proper styling"""
-        output = []
+        formatted_lines = []
         current_style = FORMATS['RESET'] + self.output_handler.base_color
         
         for line in lines:
-            line_style = FORMATS['RESET'] + self.output_handler.base_color
             line_content = []
+            # Add initial style for the line
+            if current_style:
+                line_content.append(current_style)
+                
+            # Process each word in the line
             for word in line:
                 new_style = self.get_style(word.active_patterns)
                 if new_style != current_style:
@@ -115,12 +118,19 @@ class ReverseStreamer:
                     current_style = new_style
                 line_content.append(word.styled_text)
                 line_content.append(" ")
-            output.append("".join(line_content).rstrip())
-            if line_style != current_style:
-                output.append(line_style)
-                current_style = line_style
+                
+            # Create the full line with styles inline
+            formatted_line = "".join(line_content).rstrip()
+            if formatted_line:  # Only add non-empty lines
+                formatted_lines.append(formatted_line)
         
-        return "\n".join(filter(None, output))
+        # Join only the actual content lines
+        result = "\n".join(formatted_lines)
+        # Ensure style is reset at the end if needed
+        if current_style != FORMATS['RESET'] + self.output_handler.base_color:
+            result += FORMATS['RESET'] + self.output_handler.base_color
+            
+        return result
 
     def get_style(self, active_patterns: List[str]) -> str:
         """Get ANSI style string for current pattern state"""
@@ -136,9 +146,6 @@ class ReverseStreamer:
 
     async def reverse_stream_dots(self, preserved_msg: str) -> str:
         """Handle the dot removal animation. Returns the final message without dots."""
-        if self.silent:
-            return preserved_msg
-            
         msg_without_dots = preserved_msg.rstrip('.')
         num_dots = len(preserved_msg) - len(msg_without_dots)
         
@@ -157,24 +164,21 @@ class ReverseStreamer:
         sys.stdout.flush()
     
     async def reverse_stream(self, styled_text: str, preserved_msg: str) -> None:
-        """Perform reverse streaming animation"""
-        # Store initial content for comparison
-        self._initial_content = styled_text
-        
         # Split into lines and words
         lines = [self.split_into_styled_words(line) for line in styled_text.splitlines()]
         
-        # Process lines from bottom to top (excluding preserved message)
+        # Use no_spacing if there's no preserved message (silent retry)
+        no_spacing = not bool(preserved_msg)
+        
         for line_idx in range(len(lines) - 1, -1, -1):
-            # Remove words from right to left
             while lines[line_idx]:
-                lines[line_idx].pop()  # Remove last word
+                lines[line_idx].pop()
                 formatted_content = self.format_lines(lines)
-                self.perform_screen_update(formatted_content, preserved_msg)
+                self.perform_screen_update(formatted_content, preserved_msg, no_spacing=no_spacing)
                 time.sleep(self.delay)
         
-        # Only do dot animation in regular mode
-        if not self.silent and preserved_msg:
+        # Handle dot animation separately and get final message
+        if preserved_msg:
             await self.reverse_stream_dots(preserved_msg)
         
         # Prepare for next input

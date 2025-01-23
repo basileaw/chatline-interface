@@ -106,7 +106,7 @@ class StreamHandler:
 
     async def handle_retry(self, conv_manager, intro_styled, last_prompt, output_handler):
         """Handle retry command flow"""
-        reverse_streamer = ReverseStreamer(output_handler, silent=False)
+        reverse_streamer = ReverseStreamer(output_handler)  # No silent parameter
         await reverse_streamer.reverse_stream(intro_styled, self._preserved_prompt)
         
         prev_message = conv_manager.get_last_user_message()
@@ -119,7 +119,7 @@ class StreamHandler:
 
     async def handle_silent_retry(self, conv_manager, intro_styled, output_handler):
         """Handle silent retry flow"""
-        reverse_streamer = ReverseStreamer(output_handler, silent=True)
+        reverse_streamer = ReverseStreamer(output_handler)  # No silent parameter
         await reverse_streamer.reverse_stream(intro_styled, "")
         
         prev_message = conv_manager.get_last_user_message()
