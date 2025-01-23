@@ -72,7 +72,7 @@ class StreamHandler:
     def __init__(self, generator_func):
         self.generator_func = generator_func
         self._last_message_silent = False
-        self._preserved_prompt = ""  # New state variable for prompt preservation
+        self._preserved_prompt = ""  # State variable for prompt preservation
 
     def show_cursor(self):
         """Show the terminal cursor"""
@@ -106,7 +106,7 @@ class StreamHandler:
 
     async def handle_retry(self, conv_manager, intro_styled, last_prompt, output_handler):
         """Handle retry command flow"""
-        reverse_streamer = ReverseStreamer(output_handler)
+        reverse_streamer = ReverseStreamer(output_handler, silent=False)
         await reverse_streamer.reverse_stream(intro_styled, self._preserved_prompt)
         
         prev_message = conv_manager.get_last_user_message()
@@ -119,8 +119,7 @@ class StreamHandler:
 
     async def handle_silent_retry(self, conv_manager, intro_styled, output_handler):
         """Handle silent retry flow"""
-        reverse_streamer = ReverseStreamer(output_handler)
-        # For silent retry, always use empty preserved message
+        reverse_streamer = ReverseStreamer(output_handler, silent=True)
         await reverse_streamer.reverse_stream(intro_styled, "")
         
         prev_message = conv_manager.get_last_user_message()

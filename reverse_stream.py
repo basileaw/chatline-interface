@@ -14,9 +14,11 @@ class StyledWord:
 class ReverseStreamer:
     """Handles reverse streaming of styled text"""
     
-    def __init__(self, output_handler: OutputHandler, delay: float = 0.08):
+    def __init__(self, output_handler: OutputHandler, delay: float = 0.08, silent: bool = False):
         self.output_handler = output_handler
         self.delay = delay
+        self.silent = silent
+        self._initial_content = None
     
     def split_into_styled_words(self, text: str) -> List[StyledWord]:
         """Split text into words while preserving styling"""
@@ -86,14 +88,15 @@ class ReverseStreamer:
         """Wrapper for all screen updates. This method can be overridden for testing."""
         self.clear_screen()
         sys.stdout.write(FORMATS['RESET'])
-        # Only add newlines if there's content to display
+        
+        # Always maintain the exact layout structure
         if content:
-            if preserved_msg:  # Only show preserved message if it exists
-                sys.stdout.write(preserved_msg + "\n\n")
+            sys.stdout.write(preserved_msg + "\n\n")
             sys.stdout.write(content)
         else:
             # For the final state, just write the preserved message without extra newlines
             sys.stdout.write(preserved_msg)
+            
         sys.stdout.write(FORMATS['RESET'])
         sys.stdout.flush()
 
@@ -133,6 +136,9 @@ class ReverseStreamer:
 
     async def reverse_stream_dots(self, preserved_msg: str) -> str:
         """Handle the dot removal animation. Returns the final message without dots."""
+        if self.silent:
+            return preserved_msg
+            
         msg_without_dots = preserved_msg.rstrip('.')
         num_dots = len(preserved_msg) - len(msg_without_dots)
         
@@ -152,6 +158,9 @@ class ReverseStreamer:
     
     async def reverse_stream(self, styled_text: str, preserved_msg: str) -> None:
         """Perform reverse streaming animation"""
+        # Store initial content for comparison
+        self._initial_content = styled_text
+        
         # Split into lines and words
         lines = [self.split_into_styled_words(line) for line in styled_text.splitlines()]
         
@@ -164,8 +173,8 @@ class ReverseStreamer:
                 self.perform_screen_update(formatted_content, preserved_msg)
                 time.sleep(self.delay)
         
-        # Only do dot animation if we have a preserved message (for regular retry)
-        if preserved_msg:
+        # Only do dot animation in regular mode
+        if not self.silent and preserved_msg:
             await self.reverse_stream_dots(preserved_msg)
         
         # Prepare for next input
