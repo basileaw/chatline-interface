@@ -1,9 +1,6 @@
-# interface.py
-
 import sys
 import asyncio
 import time
-import json
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import FormattedText
 from output_handler import OutputHandler, FORMATS
@@ -74,6 +71,8 @@ class ConversationManager:
 class StreamHandler:
     def __init__(self, generator_func):
         self.generator_func = generator_func
+        self._last_message_silent = False
+        self._preserved_prompt = ""  # New state variable for prompt preservation
 
     def show_cursor(self):
         """Show the terminal cursor"""
@@ -105,34 +104,29 @@ class StreamHandler:
         final_prompt = f"{loader.prompt}{loader.dot_char * 3}"
         return raw_text, styled_text, final_prompt
 
-    async def stream_silent(self, conversation, output_handler=None):
-        """Stream without any visual feedback"""
-        raw_text = ""
-        stream = self.generator_func(conversation)
-        for chunk in stream:
-            try:
-                if chunk.strip() == "data: [DONE]":
-                    break
-                if chunk.strip().startswith("data: "):
-                    data = json.loads(chunk.strip()[6:])
-                    txt = data["choices"][0]["delta"].get("content", "")
-                    raw_text += txt
-            except:
-                continue
-        styled_text = output_handler.process_chunk(raw_text) if output_handler else raw_text
-        return raw_text, styled_text, ""
-
     async def handle_retry(self, conv_manager, intro_styled, last_prompt, output_handler):
         """Handle retry command flow"""
         reverse_streamer = ReverseStreamer(output_handler)
-        await reverse_streamer.reverse_stream(intro_styled, last_prompt)
+        await reverse_streamer.reverse_stream(intro_styled, self._preserved_prompt)
         
         prev_message = conv_manager.get_last_user_message()
         final_message = await self.get_input(default_text=prev_message, add_newline=False)
         
         clear_screen()
         conv_manager.add_user_message(final_message)
+        self._last_message_silent = False  # Ensure we're in regular mode
         return await self.process_message(conv_manager, final_message, output_handler)
+
+    async def handle_silent_retry(self, conv_manager, intro_styled, output_handler):
+        """Handle silent retry flow"""
+        reverse_streamer = ReverseStreamer(output_handler)
+        # For silent retry, always use empty preserved message
+        await reverse_streamer.reverse_stream(intro_styled, "")
+        
+        prev_message = conv_manager.get_last_user_message()
+        conv_manager.add_user_message(prev_message)
+        self._last_message_silent = True  # Ensure we stay in silent mode
+        return await self.process_silent_message(conv_manager, prev_message, output_handler)
 
     async def handle_message(self, conv_manager, user_input, intro_styled, output_handler):
         """Handle regular message flow"""
@@ -148,6 +142,8 @@ class StreamHandler:
             output_handler=output_handler
         )
         conv_manager.add_assistant_message(reply_raw)
+        self._last_message_silent = False  # Explicitly set to False
+        self._preserved_prompt = reply_prompt  # Save the prompt
         return reply_raw, reply_styled, reply_prompt
 
     async def process_silent_message(self, conv_manager, message, output_handler):
@@ -157,6 +153,8 @@ class StreamHandler:
         stream = self.generator_func(conv_manager.get_conversation())
         raw_text, styled_text = await loader.run_with_loading(stream)
         conv_manager.add_assistant_message(raw_text)
+        self._last_message_silent = True
+        self._preserved_prompt = ""  # Clear the prompt for silent messages
         return raw_text, styled_text, ""
 
 async def main():
@@ -169,9 +167,9 @@ async def main():
         'Be helpful, concise, and honest. Use text styles:\n- "quotes" for dialogue\n- [brackets] for observations\n- _underscores_ for emphasis'
     )
     
-    # Initial setup - now using process_silent_message
+    # Initial setup - using process_silent_message
     conv_manager.add_user_message("Introduce yourself in 3 lines, 7 words each...")
-    _, intro_styled, last_prompt = await stream_handler.process_silent_message(
+    _, intro_styled, _ = await stream_handler.process_silent_message(
         conv_manager, 
         "Introduce yourself in 3 lines, 7 words each...", 
         output_handler
@@ -183,9 +181,15 @@ async def main():
             continue
             
         if user.lower() == "retry":
-            _, intro_styled, last_prompt = await stream_handler.handle_retry(
-                conv_manager, intro_styled, last_prompt, output_handler
-            )
+            if stream_handler._last_message_silent:
+                _, intro_styled, last_prompt = await stream_handler.handle_silent_retry(
+                    conv_manager, intro_styled, output_handler
+                )
+            else:
+                # Use the preserved prompt for regular retry
+                _, intro_styled, last_prompt = await stream_handler.handle_retry(
+                    conv_manager, intro_styled, stream_handler._preserved_prompt, output_handler
+                )
         else:
             _, intro_styled, last_prompt = await stream_handler.handle_message(
                 conv_manager, user, intro_styled, output_handler

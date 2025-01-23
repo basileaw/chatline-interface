@@ -1,5 +1,3 @@
-# reverse_stream.py
-
 import sys
 import time
 from dataclasses import dataclass
@@ -90,7 +88,8 @@ class ReverseStreamer:
         sys.stdout.write(FORMATS['RESET'])
         # Only add newlines if there's content to display
         if content:
-            sys.stdout.write(preserved_msg + "\n\n")
+            if preserved_msg:  # Only show preserved message if it exists
+                sys.stdout.write(preserved_msg + "\n\n")
             sys.stdout.write(content)
         else:
             # For the final state, just write the preserved message without extra newlines
@@ -113,12 +112,12 @@ class ReverseStreamer:
                     current_style = new_style
                 line_content.append(word.styled_text)
                 line_content.append(" ")
-            output.append("".join(line_content).rstrip())  # Remove trailing space and add explicit newline control
+            output.append("".join(line_content).rstrip())
             if line_style != current_style:
                 output.append(line_style)
                 current_style = line_style
         
-        return "\n".join(filter(None, output))  # Filter out empty lines to avoid double newlines
+        return "\n".join(filter(None, output))
 
     def get_style(self, active_patterns: List[str]) -> str:
         """Get ANSI style string for current pattern state"""
@@ -165,8 +164,9 @@ class ReverseStreamer:
                 self.perform_screen_update(formatted_content, preserved_msg)
                 time.sleep(self.delay)
         
-        # Handle dot animation separately and get final message
-        await self.reverse_stream_dots(preserved_msg)
+        # Only do dot animation if we have a preserved message (for regular retry)
+        if preserved_msg:
+            await self.reverse_stream_dots(preserved_msg)
         
         # Prepare for next input
         self.prepare_for_input()
