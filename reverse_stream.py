@@ -1,3 +1,5 @@
+# reverse_stream.py
+
 import sys
 import time
 from dataclasses import dataclass
@@ -82,35 +84,42 @@ class ReverseStreamer:
             sys.stdout.write("\033[2J\033[H")
             sys.stdout.flush()
 
-    def redraw_screen(self, lines: List[List[StyledWord]], preserved_msg: str):
-        """Redraw the screen with current state"""
+    def perform_screen_update(self, content: str, preserved_msg: str):
+        """Wrapper for all screen updates. This method can be overridden for testing."""
         self.clear_screen()
-        
-        # Write preserved message with no formatting
         sys.stdout.write(FORMATS['RESET'])
-        sys.stdout.write(preserved_msg + "\n\n")
-        
-        # Track current style state
+        # Only add newlines if there's content to display
+        if content:
+            sys.stdout.write(preserved_msg + "\n\n")
+            sys.stdout.write(content)
+        else:
+            # For the final state, just write the preserved message without extra newlines
+            sys.stdout.write(preserved_msg)
+        sys.stdout.write(FORMATS['RESET'])
+        sys.stdout.flush()
+
+    def format_lines(self, lines: List[List[StyledWord]]) -> str:
+        """Format lines into a single string with proper styling"""
+        output = []
         current_style = FORMATS['RESET'] + self.output_handler.base_color
         
-        # Write remaining lines
         for line in lines:
             line_style = FORMATS['RESET'] + self.output_handler.base_color
+            line_content = []
             for word in line:
                 new_style = self.get_style(word.active_patterns)
                 if new_style != current_style:
-                    sys.stdout.write(new_style)
+                    line_content.append(new_style)
                     current_style = new_style
-                sys.stdout.write(word.styled_text)
-                sys.stdout.write(" ")
-            sys.stdout.write("\n")
+                line_content.append(word.styled_text)
+                line_content.append(" ")
+            output.append("".join(line_content).rstrip())  # Remove trailing space and add explicit newline control
             if line_style != current_style:
-                sys.stdout.write(line_style)
+                output.append(line_style)
                 current_style = line_style
         
-        sys.stdout.write(FORMATS['RESET'])
-        sys.stdout.flush()
-    
+        return "\n".join(filter(None, output))  # Filter out empty lines to avoid double newlines
+
     def get_style(self, active_patterns: List[str]) -> str:
         """Get ANSI style string for current pattern state"""
         color = self.output_handler.base_color
@@ -122,6 +131,25 @@ class ReverseStreamer:
             if pattern.italic:
                 italic = True
         return (FORMATS['ITALIC_ON'] if italic else FORMATS['ITALIC_OFF']) + color
+
+    async def reverse_stream_dots(self, preserved_msg: str) -> str:
+        """Handle the dot removal animation. Returns the final message without dots."""
+        msg_without_dots = preserved_msg.rstrip('.')
+        num_dots = len(preserved_msg) - len(msg_without_dots)
+        
+        if num_dots > 0:
+            for i in range(num_dots - 1, -1, -1):
+                content = msg_without_dots + '.' * i
+                self.perform_screen_update("", content)
+                time.sleep(self.delay)
+        
+        return msg_without_dots
+    
+    def prepare_for_input(self):
+        """Prepare the terminal for user input after streaming"""
+        self.clear_screen()
+        sys.stdout.write(FORMATS['RESET'])
+        sys.stdout.flush()
     
     async def reverse_stream(self, styled_text: str, preserved_msg: str) -> None:
         """Perform reverse streaming animation"""
@@ -133,22 +161,12 @@ class ReverseStreamer:
             # Remove words from right to left
             while lines[line_idx]:
                 lines[line_idx].pop()  # Remove last word
-                self.redraw_screen(lines, preserved_msg)
+                formatted_content = self.format_lines(lines)
+                self.perform_screen_update(formatted_content, preserved_msg)
                 time.sleep(self.delay)
         
-        # Now remove dots one by one if they exist
-        msg_without_dots = preserved_msg.rstrip('.')
-        num_dots = len(preserved_msg) - len(msg_without_dots)
+        # Handle dot animation separately and get final message
+        await self.reverse_stream_dots(preserved_msg)
         
-        if num_dots > 0:
-            for i in range(num_dots - 1, -1, -1):
-                self.clear_screen()
-                sys.stdout.write(msg_without_dots + '.' * i)
-                sys.stdout.write(FORMATS['RESET'])
-                sys.stdout.flush()
-                time.sleep(self.delay)
-        
-        # Just clear the screen and don't write anything
-        self.clear_screen()
-        sys.stdout.write(FORMATS['RESET'])
-        sys.stdout.flush()
+        # Prepare for next input
+        self.prepare_for_input()

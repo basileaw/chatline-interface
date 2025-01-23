@@ -17,7 +17,7 @@ def show_cursor():
         sys.stdout.flush()
 
 class DotLoader:
-    def __init__(self, prompt, interval=0.4, output_handler=None, reuse_prompt=False):
+    def __init__(self, prompt, interval=0.4, output_handler=None, reuse_prompt=False, no_animation=False):
         # Punctuation logic
         if prompt.endswith(("?", "!")):
             self.prompt, self.dot_char, self.dots = prompt[:-1], prompt[-1], 1
@@ -33,6 +33,7 @@ class DotLoader:
         self.th = None
         self.output_handler = output_handler or RawOutputHandler()
         self.reuse_prompt = reuse_prompt
+        self.no_animation = no_animation
 
     def _animate(self):
         hide_cursor()
@@ -64,8 +65,11 @@ class DotLoader:
         accumulated_raw = []
         accumulated_styled = []
         first_chunk = True
-        self.th = threading.Thread(target=self._animate, daemon=True)
-        self.th.start()
+
+        if not self.no_animation:
+            self.th = threading.Thread(target=self._animate, daemon=True)
+            self.th.start()
+
         try:
             for chunk in stream:
                 content = chunk.strip()
@@ -77,10 +81,11 @@ class DotLoader:
                         if first_chunk:
                             self.resolved = True
                             first_chunk = False
-                            while not self.anim_done.is_set():
-                                await asyncio.sleep(0.05)
-                            sys.stdout.write("\n")
-                            sys.stdout.flush()
+                            if not self.no_animation:
+                                while not self.anim_done.is_set():
+                                    await asyncio.sleep(0.05)
+                                sys.stdout.write("\n")
+                                sys.stdout.flush()
                         txt = data["choices"][0]["delta"].get("content", "")
                         raw_txt, styled_txt = self.output_handler.process_and_write(txt)
                         accumulated_raw.append(raw_txt)
@@ -90,10 +95,11 @@ class DotLoader:
                 await asyncio.sleep(0)
         finally:
             self.stop_evt.set()
-            if self.th.is_alive():
+            if not self.no_animation and self.th and self.th.is_alive():
                 self.th.join()
             if isinstance(self.output_handler, OutputHandler):
                 sys.stdout.write(FORMATS['RESET'])
+            # Always write a newline at the end of the message
             sys.stdout.write("\n")
             sys.stdout.flush()
         return "".join(accumulated_raw), "".join(accumulated_styled)
