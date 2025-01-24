@@ -16,90 +16,153 @@ def show_cursor():
         sys.stdout.write("\033[?25h")
         sys.stdout.flush()
 
+class AdaptiveBuffer:
+    def __init__(self, window_size=15):
+        self.buf = []
+        self.times = []
+        self.wsize = window_size
+        self.last_rel = time.time()
+    
+    def calc_interval(self):
+        if len(self.times) < 2: return 0.08
+        intervals = [t2 - t1 for t1, t2 in zip(self.times[-self.wsize:], self.times[-self.wsize+1:])]
+        return 0.08 if not intervals else (sum(intervals)/len(intervals))*0.5
+
+    async def add(self, chunk, out):
+        now = time.time()
+        self.buf.append(chunk)
+        self.times.append(now)
+        if len(self.times) > self.wsize*2:
+            self.times = self.times[-self.wsize:]
+        if len(self.buf) > self.wsize:
+            return await self.release_some(out)
+        return "", ""
+
+    async def release_some(self, out):
+        interval = self.calc_interval()
+        raw_acc, style_acc = "", ""
+        while self.buf and (time.time() - self.last_rel) >= interval:
+            c = self.buf.pop(0)
+            raw, styled = out.process_and_write(c)
+            raw_acc += raw; style_acc += styled
+            self.last_rel = time.time()
+            await asyncio.sleep(0)
+        return raw_acc, style_acc
+
+    async def flush(self, out):
+        r, s = "", ""
+        while self.buf:
+            rr, ss = await self.release_some(out)
+            r += rr; s += ss
+            if not self.buf: break
+        return r, s
+
+
 class DotLoader:
     def __init__(self, prompt, interval=0.4, output_handler=None, reuse_prompt=False, no_animation=False):
-        # Punctuation logic
         if prompt.endswith(("?", "!")):
             self.prompt, self.dot_char, self.dots = prompt[:-1], prompt[-1], 1
         elif prompt.endswith("."):
             self.prompt, self.dot_char, self.dots = prompt[:-1], ".", 1
         else:
             self.prompt, self.dot_char, self.dots = prompt, ".", 0
-
         self.interval = interval
         self.resolved = False
         self.anim_done = threading.Event()
         self.stop_evt = threading.Event()
         self.th = None
-        self.output_handler = output_handler or RawOutputHandler()
-        self.reuse_prompt = reuse_prompt
-        self.no_animation = no_animation
+        self.out = output_handler or RawOutputHandler()
+        self.reuse = reuse_prompt
+        self.no_anim = no_animation
 
     def _animate(self):
         hide_cursor()
         try:
             while not self.stop_evt.is_set():
-                if self.reuse_prompt:
-                    dot_position = len(self.prompt) + 2
-                    sys.stdout.write(f"\r{' '*80}\r")
-                    sys.stdout.write(self.prompt)
-                    sys.stdout.write(f"{self.dot_char*self.dots}")
+                if self.reuse:
+                    sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
                 else:
                     sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
                 sys.stdout.flush()
+
                 if self.resolved and self.dots == 3:
-                    if not self.reuse_prompt:
-                        sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\n")
+                    if not self.reuse:
+                        sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\n\n")
                     else:
-                        sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}")
-                        sys.stdout.write("\033[1B")
+                        sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\033[2B")
                     sys.stdout.flush()
                     self.anim_done.set()
                     break
-                self.dots = min(self.dots + 1, 3) if self.resolved else (self.dots + 1) % 4
+                if self.resolved:
+                    self.dots = min(self.dots + 1, 3)
+                else:
+                    self.dots = (self.dots + 1) % 4
                 time.sleep(self.interval)
-        finally:
-            show_cursor()
+        except Exception:
+            hide_cursor()
+            raise
+
+    async def _replay_chunks(self, stored, abuf):
+        if not stored: return "", ""
+        stored.sort(key=lambda x: x[1])
+        r_acc, s_acc = "", ""
+        for i, (txt, ts) in enumerate(stored):
+            if i > 0:
+                await asyncio.sleep(ts - stored[i-1][1])
+            rr, ss = await abuf.add(txt, self.out)
+            r_acc += rr; s_acc += ss
+        return r_acc, s_acc
 
     async def run_with_loading(self, stream):
-        accumulated_raw = []
-        accumulated_styled = []
-        first_chunk = True
+        raw, styled = "", ""
+        abuf = AdaptiveBuffer()
+        stored = []
+        store_mode = True
 
-        if not self.no_animation:
+        if not self.no_anim:
             self.th = threading.Thread(target=self._animate, daemon=True)
             self.th.start()
 
         try:
             for chunk in stream:
-                content = chunk.strip()
-                if content == "data: [DONE]":
-                    break
-                if content.startswith("data: "):
+                c = chunk.strip()
+                if c == "data: [DONE]": break
+                if c.startswith("data: "):
                     try:
-                        data = json.loads(content[6:])
-                        if first_chunk:
-                            self.resolved = True
-                            first_chunk = False
-                            if not self.no_animation:
-                                while not self.anim_done.is_set():
-                                    await asyncio.sleep(0.05)
-                                sys.stdout.write("\n")
-                                sys.stdout.flush()
+                        data = json.loads(c[6:])
                         txt = data["choices"][0]["delta"].get("content", "")
-                        raw_txt, styled_txt = self.output_handler.process_and_write(txt)
-                        accumulated_raw.append(raw_txt)
-                        accumulated_styled.append(styled_txt)
+                        if txt:
+                            if not self.resolved:
+                                self.resolved = True
+                            now = time.time()
+                            if store_mode:
+                                if not self.anim_done.is_set():
+                                    stored.append((txt, now))
+                                else:
+                                    store_mode = False
+                                    r1, s1 = await self._replay_chunks(stored, abuf)
+                                    raw += r1; styled += s1
+                                    stored.clear()
+                                    r2, s2 = await abuf.add(txt, self.out)
+                                    raw += r2; styled += s2
+                            else:
+                                r3, s3 = await abuf.add(txt, self.out)
+                                raw += r3; styled += s3
                     except json.JSONDecodeError:
                         pass
                 await asyncio.sleep(0)
         finally:
             self.stop_evt.set()
-            if not self.no_animation and self.th and self.th.is_alive():
+            if not self.no_anim and self.th and self.th.is_alive():
                 self.th.join()
-            if isinstance(self.output_handler, OutputHandler):
+            if store_mode:
+                r4, s4 = await self._replay_chunks(stored, abuf)
+                raw += r4; styled += s4
+            rr, ss = await abuf.flush(self.out)
+            raw += rr; styled += ss
+            if isinstance(self.out, OutputHandler):
                 sys.stdout.write(FORMATS['RESET'])
-            # Always write a newline at the end of the message
             sys.stdout.write("\n")
             sys.stdout.flush()
-        return "".join(accumulated_raw), "".join(accumulated_styled)
+
+        return raw, styled

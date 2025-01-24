@@ -21,7 +21,7 @@ async def get_user_input(default_text=""):
     result = await prompt_session.prompt_async(prompt, default=default_text)
     return result.strip()
 
-def scroll_up(styled_lines, prompt, delay=0.1):
+def scroll_up(styled_lines, prompt, delay=0.2):
     lines = styled_lines.splitlines()
     for i in range(len(lines)+1):
         clear_screen()
