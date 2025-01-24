@@ -73,13 +73,15 @@ def generate_stream(messages, max_gen_len=1024, temperature=0.9):
 
 if __name__ == "__main__":
     if bedrock.get_foundation_model(modelIdentifier=MODEL_ID).get('modelDetails', {}).get('responseStreamingSupported'):
+        print("\nRaw chunks:")
         for o in generate_stream([
             {"role": "user", "content": "Tell me a joke about computers."},
             {"role": "system", "content": "Be helpful and humorous."}
         ]):
+            print(f"\nChunk: {o}")
             try:
                 data = json.loads(o.replace('data: ', '').strip())
                 if data != '[DONE]':
-                    print(data['choices'][0]['delta']['content'], end='', flush=True)
+                    print("Parsed content:", data['choices'][0]['delta']['content'], end='', flush=True)
             except json.JSONDecodeError:
                 continue

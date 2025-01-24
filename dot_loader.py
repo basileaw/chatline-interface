@@ -54,7 +54,8 @@ class AdaptiveBuffer:
         while self.buf:
             rr, ss = await self.release_some(out)
             r += rr; s += ss
-            if not self.buf: break
+            if not self.buf:
+                break
         return r, s
 
 
@@ -126,7 +127,8 @@ class DotLoader:
         try:
             for chunk in stream:
                 c = chunk.strip()
-                if c == "data: [DONE]": break
+                if c == "data: [DONE]":
+                    break
                 if c.startswith("data: "):
                     try:
                         data = json.loads(c[6:])
@@ -160,8 +162,16 @@ class DotLoader:
                 raw += r4; styled += s4
             rr, ss = await abuf.flush(self.out)
             raw += rr; styled += ss
+
+            # <-- KEY: flush the OutputHandler to ensure no leftover partial lines
+            if hasattr(self.out, 'flush'):
+                self.out.flush()
+
+            # Optionally reset style
             if isinstance(self.out, OutputHandler):
                 sys.stdout.write(FORMATS['RESET'])
+                sys.stdout.flush()
+
             sys.stdout.write("\n")
             sys.stdout.flush()
 
