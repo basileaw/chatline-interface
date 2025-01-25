@@ -1,4 +1,4 @@
-# interface.py 
+# interface.py
 
 import sys
 import asyncio
@@ -10,7 +10,7 @@ from output_handler import OutputHandler
 from generator import generate_stream
 from reverse_stream import ReverseStreamer
 from dot_loader import DotLoader
-from painter import FORMATS
+from painter import TextPainter, COLORS, FORMATS
 from utilities import (
     clear_screen, 
     get_visible_length,
@@ -58,22 +58,6 @@ async def get_user_input(default_text=""):
     prompt = FormattedText([('class:prompt', '> ')])
     result = await prompt_session.prompt_async(prompt, default=default_text)
     return result.strip()
-
-class ConversationManager:
-    def __init__(self, system_prompt):
-        self.conversation = [{"role": "system", "content": system_prompt}]
-
-    def add_message(self, role, content):
-        self.conversation.append({"role": role, "content": content})
-
-    def get_last_user_message(self):
-        for msg in reversed(self.conversation):
-            if msg["role"] == "user":
-                return msg["content"]
-        return None
-
-    def get_conversation(self):
-        return self.conversation
 
 class StreamHandler:
     def __init__(self, generator_func):
@@ -137,9 +121,29 @@ class StreamHandler:
         conv_manager.add_message("user", user_input)
         return await self.process_message(conv_manager, user_input, output_handler)
 
+class ConversationManager:
+    def __init__(self, system_prompt):
+        self.conversation = [{"role": "system", "content": system_prompt}]
+
+    def add_message(self, role, content):
+        self.conversation.append({"role": role, "content": content})
+
+    def get_last_user_message(self):
+        for msg in reversed(self.conversation):
+            if msg["role"] == "user":
+                return msg["content"]
+        return None
+
+    def get_conversation(self):
+        return self.conversation
+
 async def main():
     clear_screen()
-    output_handler = OutputHandler()
+    
+    # Initialize core components
+    text_painter = TextPainter(base_color=COLORS['GREEN'])
+    output_handler = OutputHandler(text_painter)
+    
     global stream_handler
     stream_handler = StreamHandler(generate_stream)
     

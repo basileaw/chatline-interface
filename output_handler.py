@@ -1,9 +1,8 @@
 # output_handler.py
 
 import sys
-import shutil
 from typing import Optional, List, Dict, Tuple
-from painter import TextPainter, FORMATS, COLORS, Pattern
+from painter import TextPainter, FORMATS
 from utilities import (
     get_visible_length,
     handle_long_word,
@@ -14,8 +13,14 @@ from utilities import (
 class OutputHandler:
     """Handles terminal output management and word wrapping."""
     
-    def __init__(self, patterns: List[Dict] = None, base_color=COLORS['GREEN']):
-        self.painter = TextPainter(patterns, base_color)
+    def __init__(self, text_painter: TextPainter):
+        """
+        Initialize OutputHandler with injected TextPainter.
+        
+        Args:
+            text_painter: TextPainter instance for styling text
+        """
+        self.painter = text_painter
         self.current_line_length = 0
         self.word_buffer = ""
 
