@@ -53,7 +53,7 @@ def get_visible_length(text):
             
     return visible_length
 
-def scroll_up(styled_lines, prompt, delay=0.2):
+def scroll_up(styled_lines, prompt, delay=0.5):
     term_width = shutil.get_terminal_size().columns
     paragraphs = styled_lines.split('\n')
     display_lines = []

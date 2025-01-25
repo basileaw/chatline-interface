@@ -172,7 +172,7 @@ class DotLoader:
                 sys.stdout.write(FORMATS['RESET'])
                 sys.stdout.flush()
 
-            sys.stdout.write("\n")
+            # sys.stdout.write("\n")
             sys.stdout.flush()
 
         return raw, styled
