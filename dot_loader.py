@@ -9,18 +9,11 @@ from typing import Tuple, List, Any
 from output_handler import OutputHandler, RawOutputHandler
 from painter import FORMATS
 from adaptive_buffer import AdaptiveBuffer
-
-def hide_cursor():
-    """Hide the terminal cursor."""
-    if sys.stdout.isatty():
-        sys.stdout.write("\033[?25l")
-        sys.stdout.flush()
-
-def show_cursor():
-    """Show the terminal cursor."""
-    if sys.stdout.isatty():
-        sys.stdout.write("\033[?25h")
-        sys.stdout.flush()
+from utilities import (
+    hide_cursor,
+    show_cursor,
+    write_and_flush
+)
 
 class DotLoader:
     """
@@ -31,17 +24,7 @@ class DotLoader:
     def __init__(self, prompt: str, interval: float = 0.4, 
                  output_handler: Any = None, reuse_prompt: bool = False,
                  no_animation: bool = False):
-        """
-        Initialize the dot loader.
-        
-        Args:
-            prompt: Base prompt text
-            interval: Animation interval in seconds
-            output_handler: Handler for processing output
-            reuse_prompt: Whether to reuse the prompt line
-            no_animation: Whether to disable animation
-        """
-        # Handle different prompt endings
+        """Initialize the dot loader."""
         if prompt.endswith(("?", "!")):
             self.prompt = prompt[:-1]
             self.dot_char = prompt[-1]
@@ -71,18 +54,16 @@ class DotLoader:
             while not self.stop_evt.is_set():
                 # Clear line and write current state
                 if self.reuse:
-                    sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
+                    write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
                 else:
-                    sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
-                sys.stdout.flush()
+                    write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
 
                 # Handle animation completion
                 if self.resolved and self.dots == 3:
                     if not self.reuse:
-                        sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\n\n")
+                        write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\n\n")
                     else:
-                        sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\033[2B")
-                    sys.stdout.flush()
+                        write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\033[2B")
                     time.sleep(self.interval)
                     self.anim_done.set()
                     break
@@ -101,24 +82,13 @@ class DotLoader:
 
     async def _replay_chunks(self, stored: List[Tuple[str, float]], 
                            abuf: AdaptiveBuffer) -> Tuple[str, str]:
-        """
-        Replay stored chunks through the buffer with original timing.
-        
-        Args:
-            stored: List of (chunk, timestamp) pairs
-            abuf: AdaptiveBuffer instance
-            
-        Returns:
-            Tuple[str, str]: Accumulated raw and styled output
-        """
+        """Replay stored chunks through the buffer with original timing."""
         if not stored:
             return "", ""
             
-        # Sort chunks by timestamp
         stored.sort(key=lambda x: x[1])
         raw_acc, style_acc = "", ""
         
-        # Replay chunks with original timing
         for i, (txt, ts) in enumerate(stored):
             if i > 0:
                 await asyncio.sleep(ts - stored[i-1][1])
@@ -129,22 +99,13 @@ class DotLoader:
         return raw_acc, style_acc
 
     async def run_with_loading(self, stream: Any) -> Tuple[str, str]:
-        """
-        Process a stream of content with loading animation.
-        
-        Args:
-            stream: Content stream to process
-            
-        Returns:
-            Tuple[str, str]: Final raw and styled output
-        """
+        """Process a stream of content with loading animation."""
         raw, styled = "", ""
         abuf = AdaptiveBuffer()
         stored = []
         store_mode = True
         first_chunk = True
 
-        # Start animation if enabled
         if not self.no_anim:
             self.th = threading.Thread(target=self._animate, daemon=True)
             self.th.start()
@@ -163,8 +124,7 @@ class DotLoader:
                             if first_chunk:
                                 self.resolved = True
                                 if not self.no_anim:
-                                    await asyncio.get_event_loop().run_in_executor(
-                                        None, self.anim_done.wait)
+                                    await asyncio.get_event_loop().run_in_executor(None, self.anim_done.wait)
                                 first_chunk = False
                             
                             now = time.time()
@@ -193,12 +153,10 @@ class DotLoader:
                 await asyncio.sleep(0)
                 
         finally:
-            # Cleanup
             self.stop_evt.set()
             if not self.no_anim and self.th and self.th.is_alive():
                 self.th.join()
                 
-            # Process any remaining content
             if store_mode:
                 r4, s4 = await self._replay_chunks(stored, abuf)
                 raw += r4
@@ -208,14 +166,12 @@ class DotLoader:
             raw += rr
             styled += ss
             
-            # Handle final styling
             if hasattr(self.out, 'flush'):
                 final_styled = self.out.flush()
                 if final_styled:
                     styled += final_styled
                     
             if isinstance(self.out, OutputHandler):
-                sys.stdout.write(FORMATS['RESET'])
-                sys.stdout.flush()
+                write_and_flush(FORMATS['RESET'])
                 
             return raw, styled

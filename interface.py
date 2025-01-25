@@ -11,50 +11,16 @@ from generator import generate_stream
 from reverse_stream import ReverseStreamer
 from dot_loader import DotLoader
 from painter import FORMATS
+from utilities import (
+    clear_screen, 
+    get_visible_length,
+    split_into_display_lines,
+    write_and_flush,
+    manage_cursor
+)
 
 prompt_session = PromptSession()
 stream_handler = None
-
-def clear_screen():
-    if sys.stdout.isatty():
-        sys.stdout.write("\033[2J\033[H")
-        sys.stdout.flush()
-
-def split_into_display_lines(text, width):
-    display_lines = []
-    words = text.split()
-    current_line = []
-    current_length = 0
-    
-    for word in words:
-        word_length = len(word) + (1 if current_length > 0 else 0)
-        if current_length + word_length <= width:
-            current_line.append(word)
-            current_length += word_length
-        else:
-            if current_line:
-                display_lines.append(' '.join(current_line))
-            current_line = [word]
-            current_length = len(word)
-    
-    if current_line:
-        display_lines.append(' '.join(current_line))
-    return display_lines
-
-def get_visible_length(text):
-    """Get visible length of text, ignoring ANSI escape codes"""
-    in_escape = False
-    visible_length = 0
-    
-    for char in text:
-        if char == '\033':
-            in_escape = True
-        elif in_escape and char.isalpha():
-            in_escape = False
-        elif not in_escape:
-            visible_length += 1
-            
-    return visible_length
 
 def scroll_up(styled_lines, prompt, delay=0.5):
     term_width = shutil.get_terminal_size().columns
@@ -83,10 +49,9 @@ def scroll_up(styled_lines, prompt, delay=0.5):
     for i in range(len(display_lines) + 1):
         clear_screen()
         for ln in display_lines[i:]:
-            sys.stdout.write(ln + '\n')
-        sys.stdout.write(FORMATS['RESET'])
-        sys.stdout.write(prompt)
-        sys.stdout.flush()
+            write_and_flush(ln + '\n')
+        write_and_flush(FORMATS['RESET'])
+        write_and_flush(prompt)
         time.sleep(delay)
 
 async def get_user_input(default_text=""):
@@ -116,18 +81,12 @@ class StreamHandler:
         self._last_message_silent = False
         self._preserved_prompt = ""
 
-    def _manage_cursor(self, show: bool):
-        if sys.stdout.isatty():
-            cmd = "\033[?25h" if show else "\033[?25l"
-            sys.stdout.write(cmd)
-            sys.stdout.flush()
-
     async def get_input(self, default_text="", add_newline=True):
-        self._manage_cursor(True)
+        manage_cursor(True)
         if add_newline:
-            sys.stdout.write("\n")
+            write_and_flush("\n")
         result = await get_user_input(default_text)
-        self._manage_cursor(False)
+        manage_cursor(False)
         return result
 
     async def stream_message(self, conversation, prompt_line, output_handler=None):
@@ -227,5 +186,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     finally:
         if stream_handler:
-            stream_handler._manage_cursor(True)
-            sys.stdout.write(FORMATS['RESET'])
+            manage_cursor(True)
+            write_and_flush(FORMATS['RESET'])

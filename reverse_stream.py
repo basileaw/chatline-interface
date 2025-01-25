@@ -1,11 +1,14 @@
 # reverse_stream.py
 
-import sys
 import time
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 from painter import FORMATS
 from output_handler import OutputHandler
+from utilities import (
+    clear_screen,
+    write_and_flush
+)
 
 @dataclass
 class StyledWord:
@@ -113,20 +116,17 @@ class ReverseStreamer:
 
     def update_screen(self, content: str = "", preserved_msg: str = "", no_spacing: bool = False):
         """Update the terminal screen with formatted content."""
-        if sys.stdout.isatty():
-            sys.stdout.write("\033[2J\033[H")  # Clear screen and reset cursor
-            sys.stdout.write(FORMATS['RESET'])
+        clear_screen()
+        
+        if content:
+            if preserved_msg:
+                spacing = "" if no_spacing else "\n\n"
+                write_and_flush(preserved_msg + spacing)
+            write_and_flush(content)
+        else:
+            write_and_flush(preserved_msg)
             
-            if content:
-                if preserved_msg:
-                    spacing = "" if no_spacing else "\n\n"
-                    sys.stdout.write(preserved_msg + spacing)
-                sys.stdout.write(content)
-            else:
-                sys.stdout.write(preserved_msg)
-                
-            sys.stdout.write(FORMATS['RESET'])
-            sys.stdout.flush()
+        write_and_flush(FORMATS['RESET'])
 
     async def reverse_stream_dots(self, preserved_msg: str) -> str:
         """Animate the removal of dots from the preserved message."""
