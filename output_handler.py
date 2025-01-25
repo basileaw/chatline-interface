@@ -158,6 +158,8 @@ class OutputHandler:
 
     def flush(self):
         """Flush any remaining buffered content and ensure proper spacing."""
+        styled_out = ""  # Track styled output just like process_and_write does
+        
         if self.word_buffer:
             width = shutil.get_terminal_size().columns
             word_length = self.get_visible_length(self.word_buffer)
@@ -167,25 +169,31 @@ class OutputHandler:
                 for idx, chunk in enumerate(word_chunks):
                     if idx > 0:
                         sys.stdout.write("\n")
+                        styled_out += "\n"  # Add to styled output
                     styled_chunk = self.process_chunk_for_ansi(chunk)
                     sys.stdout.write(styled_chunk)
+                    styled_out += styled_chunk  # Add to styled output
             else:
                 if self.current_line_length + word_length > width:
                     sys.stdout.write("\n")
+                    styled_out += "\n"  # Add to styled output
                 styled_word = self.process_chunk_for_ansi(self.word_buffer)
                 sys.stdout.write(styled_word)
+                styled_out += styled_word  # Add to styled output
             
             self.word_buffer = ""
 
         # Always ensure a newline at the end of response
-        if self.current_line_length > 0:  # If we're not already at the start of a line
+        if self.current_line_length > 0:
             sys.stdout.write("\n")
+            styled_out += "\n"  # Add to styled output
 
-        
         sys.stdout.write(FORMATS['RESET'])
         sys.stdout.flush()
         self.active_patterns.clear()
         self.current_line_length = 0
+
+        return styled_out  # Return accumulated styled text
 
 class RawOutputHandler:
     """Simple pass-through handler for raw output."""

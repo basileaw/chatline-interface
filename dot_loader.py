@@ -163,16 +163,17 @@ class DotLoader:
             rr, ss = await abuf.flush(self.out)
             raw += rr; styled += ss
 
-            # <-- KEY: flush the OutputHandler to ensure no leftover partial lines
+            # Get any remaining styled text from flush
             if hasattr(self.out, 'flush'):
-                self.out.flush()
+                final_styled = self.out.flush()
+                if final_styled:  # Add to our accumulated styled text
+                    styled += final_styled
 
-            # Optionally reset style
+            # Reset style
             if isinstance(self.out, OutputHandler):
                 sys.stdout.write(FORMATS['RESET'])
                 sys.stdout.flush()
 
-            # sys.stdout.write("\n")
             sys.stdout.flush()
 
         return raw, styled
