@@ -1,4 +1,3 @@
-# dot_loader.py
 import sys
 import time
 import threading
@@ -58,7 +57,6 @@ class AdaptiveBuffer:
                 break
         return r, s
 
-
 class DotLoader:
     def __init__(self, prompt, interval=0.4, output_handler=None, reuse_prompt=False, no_animation=False):
         if prompt.endswith(("?", "!")):
@@ -92,6 +90,7 @@ class DotLoader:
                     else:
                         sys.stdout.write(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\033[2B")
                     sys.stdout.flush()
+                    time.sleep(self.interval)  # Add pause after final dots
                     self.anim_done.set()
                     break
                 if self.resolved:
@@ -119,6 +118,7 @@ class DotLoader:
         abuf = AdaptiveBuffer()
         stored = []
         store_mode = True
+        first_chunk = True
 
         if not self.no_anim:
             self.th = threading.Thread(target=self._animate, daemon=True)
@@ -134,8 +134,13 @@ class DotLoader:
                         data = json.loads(c[6:])
                         txt = data["choices"][0]["delta"].get("content", "")
                         if txt:
-                            if not self.resolved:
+                            if first_chunk:
                                 self.resolved = True
+                                # Wait for animation to complete before processing first chunk
+                                if not self.no_anim:
+                                    await asyncio.get_event_loop().run_in_executor(None, self.anim_done.wait)
+                                first_chunk = False
+                            
                             now = time.time()
                             if store_mode:
                                 if not self.anim_done.is_set():

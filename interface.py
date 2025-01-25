@@ -81,8 +81,8 @@ def scroll_up(styled_lines, prompt, delay=0.5):
         clear_screen()
         for ln in display_lines[i:]:
             sys.stdout.write(ln + '\n')
-        if i < len(display_lines):
-            sys.stdout.write('\n')
+        # if i < len(display_lines):  // Remove this conditional newline
+        #     sys.stdout.write('\n')
         sys.stdout.write(FORMATS['RESET'])
         sys.stdout.write(prompt)
         sys.stdout.flush()
