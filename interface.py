@@ -6,10 +6,11 @@ import time
 import shutil
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import FormattedText
-from output_handler import OutputHandler, FORMATS
+from output_handler import OutputHandler
 from generator import generate_stream
 from reverse_stream import ReverseStreamer
 from dot_loader import DotLoader
+from painter import FORMATS
 
 prompt_session = PromptSession()
 stream_handler = None
@@ -83,8 +84,6 @@ def scroll_up(styled_lines, prompt, delay=0.5):
         clear_screen()
         for ln in display_lines[i:]:
             sys.stdout.write(ln + '\n')
-        # if i < len(display_lines):  // Remove this conditional newline
-        #     sys.stdout.write('\n')
         sys.stdout.write(FORMATS['RESET'])
         sys.stdout.write(prompt)
         sys.stdout.flush()
@@ -189,7 +188,8 @@ async def main():
         'Be helpful, concise, and honest. Use text styles:\n'
         '- "quotes" for dialogue\n'
         '- [brackets] for observations\n'
-        '- _underscores_ for emphasis'
+        '- _underscores_ for emphasis\n'
+        '- *asterisks* for bold text'
     )
     
     intro_msg = "Introduce yourself in 3 lines, 7 words each..."
@@ -199,21 +199,28 @@ async def main():
     )
     
     while True:
-        user = await stream_handler.get_input()
-        if not user:
+        try:
+            user = await stream_handler.get_input()
+            if not user:
+                continue
+                
+            if user.lower() == "retry":
+                _, intro_styled, _ = await stream_handler.handle_retry(
+                    conv_manager, 
+                    intro_styled, 
+                    output_handler,
+                    silent=stream_handler._last_message_silent
+                )
+            else:
+                _, intro_styled, _ = await stream_handler.handle_message(
+                    conv_manager, user, intro_styled, output_handler
+                )
+        except KeyboardInterrupt:
+            print("\nExiting...")
+            break
+        except Exception as e:
+            print(f"\nAn error occurred: {str(e)}")
             continue
-            
-        if user.lower() == "retry":
-            _, intro_styled, _ = await stream_handler.handle_retry(
-                conv_manager, 
-                intro_styled, 
-                output_handler,
-                silent=stream_handler._last_message_silent
-            )
-        else:
-            _, intro_styled, _ = await stream_handler.handle_message(
-                conv_manager, user, intro_styled, output_handler
-            )
 
 if __name__ == "__main__":
     try:

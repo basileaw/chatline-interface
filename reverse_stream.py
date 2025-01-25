@@ -4,7 +4,8 @@ import sys
 import time
 from dataclasses import dataclass
 from typing import List
-from output_handler import OutputHandler, FORMATS
+from painter import FORMATS
+from output_handler import OutputHandler
 
 @dataclass
 class StyledWord:
@@ -15,20 +16,31 @@ class StyledWord:
 class ReverseStreamer:
     def __init__(self, output_handler: OutputHandler, delay: float = 0.08):
         self.output_handler = output_handler
+        self.painter = self.output_handler.painter
         self.delay = delay
     
     def get_style(self, active_patterns: List[str]) -> str:
-        color = self.output_handler.base_color
+        """Get the combined ANSI style string for a set of active patterns."""
+        color = self.painter.base_color
         italic = False
+        bold = False
+        
         for name in active_patterns:
-            pattern = self.output_handler.by_name[name]
+            pattern = self.painter.by_name[name]
             if pattern.color:
                 color = pattern.color
             if pattern.italic:
                 italic = True
-        return (FORMATS['ITALIC_ON'] if italic else FORMATS['ITALIC_OFF']) + color
+            if pattern.bold:
+                bold = True
+                
+        style = color
+        if italic: style += FORMATS['ITALIC_ON']
+        if bold: style += FORMATS['BOLD_ON']
+        return style
 
     def split_into_styled_words(self, text: str) -> List[StyledWord]:
+        """Split text into styled words while preserving formatting."""
         words = []
         current = {'word': [], 'styled': [], 'patterns': []}
         
@@ -36,15 +48,15 @@ class ReverseStreamer:
         while i < len(text):
             char = text[i]
             
-            if char in self.output_handler.start_map:
-                pattern = self.output_handler.start_map[char]
+            if char in self.painter.start_map:
+                pattern = self.painter.start_map[char]
                 current['patterns'].append(pattern.name)
                 if not pattern.remove_delimiters:
                     current['word'].append(char)
                     current['styled'].append(char)
                     
-            elif current['patterns'] and char in self.output_handler.end_map:
-                pattern = self.output_handler.by_name[current['patterns'][-1]]
+            elif current['patterns'] and char in self.painter.end_map:
+                pattern = self.painter.by_name[current['patterns'][-1]]
                 if char == pattern.end:
                     if not pattern.remove_delimiters:
                         current['word'].append(char)
@@ -76,8 +88,9 @@ class ReverseStreamer:
         return words
 
     def format_lines(self, lines: List[List[StyledWord]]) -> str:
+        """Format lines of styled words into a complete styled string."""
         formatted_lines = []
-        current_style = FORMATS['RESET'] + self.output_handler.base_color
+        current_style = FORMATS['RESET'] + self.painter.base_color
         
         for line in lines:
             line_content = [current_style]
@@ -93,12 +106,13 @@ class ReverseStreamer:
                 formatted_lines.append(formatted_line)
         
         result = "\n".join(formatted_lines)
-        if current_style != FORMATS['RESET'] + self.output_handler.base_color:
-            result += FORMATS['RESET'] + self.output_handler.base_color
+        if current_style != FORMATS['RESET'] + self.painter.base_color:
+            result += FORMATS['RESET'] + self.painter.base_color
             
         return result
 
     def update_screen(self, content: str = "", preserved_msg: str = "", no_spacing: bool = False):
+        """Update the terminal screen with formatted content."""
         if sys.stdout.isatty():
             sys.stdout.write("\033[2J\033[H")  # Clear screen and reset cursor
             sys.stdout.write(FORMATS['RESET'])
@@ -115,6 +129,7 @@ class ReverseStreamer:
             sys.stdout.flush()
 
     async def reverse_stream_dots(self, preserved_msg: str) -> str:
+        """Animate the removal of dots from the preserved message."""
         msg_without_dots = preserved_msg.rstrip('.')
         num_dots = len(preserved_msg) - len(msg_without_dots)
         
@@ -125,6 +140,7 @@ class ReverseStreamer:
         return msg_without_dots
 
     async def reverse_stream(self, styled_text: str, preserved_msg: str) -> None:
+        """Animate the reverse streaming of styled text."""
         lines = [self.split_into_styled_words(line) for line in styled_text.splitlines()]
         no_spacing = not bool(preserved_msg)
         

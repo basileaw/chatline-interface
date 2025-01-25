@@ -5,7 +5,8 @@ import time
 import threading
 import asyncio
 import json
-from output_handler import OutputHandler, RawOutputHandler, FORMATS
+from output_handler import OutputHandler, RawOutputHandler
+from painter import FORMATS
 
 def hide_cursor():
     if sys.stdout.isatty():
@@ -139,7 +140,6 @@ class DotLoader:
                             if first_chunk:
                                 self.resolved = True
                                 if not self.no_anim:
-                                    # Wait for animation to complete before processing first chunk
                                     await asyncio.get_event_loop().run_in_executor(None, self.anim_done.wait)
                                 first_chunk = False
                             
@@ -150,18 +150,14 @@ class DotLoader:
                                 else:
                                     store_mode = False
                                     r1, s1 = await self._replay_chunks(stored, abuf)
-                                    raw += r1
-                                    styled += s1
+                                    raw += r1; styled += s1
                                     stored.clear()
                                     r2, s2 = await abuf.add(txt, self.out)
-                                    raw += r2
-                                    styled += s2
+                                    raw += r2; styled += s2
                             else:
                                 r3, s3 = await abuf.add(txt, self.out)
-                                raw += r3
-                                styled += s3
-                                
-                            # Small pause between chunks
+                                raw += r3; styled += s3
+                            
                             await asyncio.sleep(0.01)
                             
                     except json.JSONDecodeError:
@@ -181,13 +177,11 @@ class DotLoader:
             rr, ss = await abuf.flush(self.out)
             raw += rr; styled += ss
             
-            # Get any remaining styled text from flush
             if hasattr(self.out, 'flush'):
                 final_styled = self.out.flush()
-                if final_styled:  # Add to our accumulated styled text
+                if final_styled:
                     styled += final_styled
                     
-            # Reset style
             if isinstance(self.out, OutputHandler):
                 sys.stdout.write(FORMATS['RESET'])
                 sys.stdout.flush()
