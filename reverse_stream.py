@@ -4,7 +4,6 @@ import time
 from dataclasses import dataclass
 from typing import List, Optional
 from painter import FORMATS
-from output_handler import OutputHandler
 from utilities import (
     clear_screen,
     write_and_flush
@@ -17,9 +16,20 @@ class StyledWord:
     active_patterns: List[str]
 
 class ReverseStreamer:
-    def __init__(self, output_handler: OutputHandler, delay: float = 0.08):
-        self.output_handler = output_handler
-        self.painter = self.output_handler.painter
+    """
+    Handles reverse streaming of text with styling and animations.
+    """
+    def __init__(self, text_painter, delay: float = 0.08):
+        """
+        Initialize ReverseStreamer with direct TextPainter dependency.
+        
+        Args:
+            text_painter: TextPainter instance for text styling
+            delay: Animation delay in seconds
+        """
+        if not text_painter:
+            raise ValueError("TextPainter must be provided")
+        self.painter = text_painter  # Direct reference to TextPainter
         self.delay = delay
     
     def get_style(self, active_patterns: List[str]) -> str:

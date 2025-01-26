@@ -75,7 +75,7 @@ class StreamHandler:
         return result
 
     async def stream_message(self, conversation, prompt_line, output_handler=None):
-        adaptive_buffer = AdaptiveBuffer()  # Create buffer instance
+        adaptive_buffer = AdaptiveBuffer()
         loader = DotLoader(prompt_line, adaptive_buffer=adaptive_buffer, output_handler=output_handler)
         stream = self.generator_func(conversation)
         raw_text, styled_text = await loader.run_with_loading(stream)
@@ -83,7 +83,7 @@ class StreamHandler:
 
     async def process_message(self, conv_manager, message, output_handler, silent=False):
         if silent:
-            adaptive_buffer = AdaptiveBuffer()  # Create buffer instance
+            adaptive_buffer = AdaptiveBuffer()
             loader = DotLoader("", adaptive_buffer=adaptive_buffer, output_handler=output_handler, no_animation=True)
             stream = self.generator_func(conv_manager.get_conversation())
             raw_text, styled_text = await loader.run_with_loading(stream)
@@ -103,7 +103,8 @@ class StreamHandler:
             return raw_text, styled_text, final_prompt
 
     async def handle_retry(self, conv_manager, intro_styled, output_handler, silent=False):
-        reverse_streamer = ReverseStreamer(output_handler)
+        # Create ReverseStreamer with TextPainter from OutputHandler
+        reverse_streamer = ReverseStreamer(output_handler.painter)
         preserved_msg = "" if silent else self._preserved_prompt
         
         await reverse_streamer.reverse_stream(intro_styled, preserved_msg)
