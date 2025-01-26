@@ -1,10 +1,12 @@
 # factories.py
 
-from typing import Optional, Any
+from typing import Optional
 from adaptive_buffer import AsyncAdaptiveBuffer
 from dot_loader import AsyncDotLoader
 from reverse_stream import ReverseStreamer
 from output_handler import OutputHandler
+from interface_manager import AsyncInterfaceManager
+from screen_manager import AsyncScreenManager
 
 class StreamComponentFactory:
     """Factory for creating stream-related components."""
@@ -17,6 +19,22 @@ class StreamComponentFactory:
             text_painter: TextPainter instance for styling
         """
         self.text_painter = text_painter
+        self._interface_manager = None
+        self._screen_manager = None
+        
+    @property
+    def screen_manager(self) -> AsyncScreenManager:
+        """Lazy initialization of screen manager."""
+        if self._screen_manager is None:
+            self._screen_manager = AsyncScreenManager()
+        return self._screen_manager
+        
+    @property
+    def interface_manager(self) -> AsyncInterfaceManager:
+        """Lazy initialization of interface manager."""
+        if self._interface_manager is None:
+            self._interface_manager = AsyncInterfaceManager()
+        return self._interface_manager
 
     def create_adaptive_buffer(self) -> AsyncAdaptiveBuffer:
         """Create a new AsyncAdaptiveBuffer instance."""
