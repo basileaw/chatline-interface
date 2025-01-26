@@ -11,6 +11,7 @@ from generator import generate_stream
 from reverse_stream import ReverseStreamer
 from dot_loader import DotLoader
 from painter import TextPainter, COLORS, FORMATS
+from adaptive_buffer import AdaptiveBuffer
 from utilities import (
     clear_screen, 
     get_visible_length,
@@ -74,14 +75,16 @@ class StreamHandler:
         return result
 
     async def stream_message(self, conversation, prompt_line, output_handler=None):
-        loader = DotLoader(prompt_line, output_handler=output_handler)
+        adaptive_buffer = AdaptiveBuffer()  # Create buffer instance
+        loader = DotLoader(prompt_line, adaptive_buffer=adaptive_buffer, output_handler=output_handler)
         stream = self.generator_func(conversation)
         raw_text, styled_text = await loader.run_with_loading(stream)
         return raw_text, styled_text, f"{loader.prompt}{loader.dot_char * 3}"
 
     async def process_message(self, conv_manager, message, output_handler, silent=False):
         if silent:
-            loader = DotLoader("", output_handler=output_handler, no_animation=True)
+            adaptive_buffer = AdaptiveBuffer()  # Create buffer instance
+            loader = DotLoader("", adaptive_buffer=adaptive_buffer, output_handler=output_handler, no_animation=True)
             stream = self.generator_func(conv_manager.get_conversation())
             raw_text, styled_text = await loader.run_with_loading(stream)
             conv_manager.add_message("assistant", raw_text)

@@ -8,7 +8,6 @@ import json
 from typing import Tuple, List, Any
 from output_handler import OutputHandler, RawOutputHandler
 from painter import FORMATS
-from adaptive_buffer import AdaptiveBuffer
 from utilities import (
     hide_cursor,
     show_cursor,
@@ -21,10 +20,20 @@ class DotLoader:
     Provides visual feedback during processing and manages content buffering.
     """
     
-    def __init__(self, prompt: str, interval: float = 0.4, 
-                 output_handler: Any = None, reuse_prompt: bool = False,
-                 no_animation: bool = False):
-        """Initialize the dot loader."""
+    def __init__(self, prompt: str, adaptive_buffer: Any = None, 
+                 interval: float = 0.4, output_handler: Any = None, 
+                 reuse_prompt: bool = False, no_animation: bool = False):
+        """
+        Initialize the dot loader.
+        
+        Args:
+            prompt: The prompt text to display
+            adaptive_buffer: Buffer instance for managing text flow
+            interval: Animation interval in seconds
+            output_handler: Handler for text output
+            reuse_prompt: Whether to reuse the prompt line
+            no_animation: Whether to disable animation
+        """
         if prompt.endswith(("?", "!")):
             self.prompt = prompt[:-1]
             self.dot_char = prompt[-1]
@@ -46,6 +55,7 @@ class DotLoader:
         self.out = output_handler or RawOutputHandler()
         self.reuse = reuse_prompt
         self.no_anim = no_animation
+        self.buffer = adaptive_buffer
 
     def _animate(self) -> None:
         """Run the dot animation in a separate thread."""
@@ -80,8 +90,7 @@ class DotLoader:
             hide_cursor()
             raise
 
-    async def _replay_chunks(self, stored: List[Tuple[str, float]], 
-                           abuf: AdaptiveBuffer) -> Tuple[str, str]:
+    async def _replay_chunks(self, stored: List[Tuple[str, float]]) -> Tuple[str, str]:
         """Replay stored chunks through the buffer with original timing."""
         if not stored:
             return "", ""
@@ -92,7 +101,7 @@ class DotLoader:
         for i, (txt, ts) in enumerate(stored):
             if i > 0:
                 await asyncio.sleep(ts - stored[i-1][1])
-            raw, styled = await abuf.add(txt, self.out)
+            raw, styled = await self.buffer.add(txt, self.out)
             raw_acc += raw
             style_acc += styled
             
@@ -100,8 +109,10 @@ class DotLoader:
 
     async def run_with_loading(self, stream: Any) -> Tuple[str, str]:
         """Process a stream of content with loading animation."""
+        if not self.buffer:
+            raise ValueError("AdaptiveBuffer must be provided")
+            
         raw, styled = "", ""
-        abuf = AdaptiveBuffer()
         stored = []
         store_mode = True
         first_chunk = True
@@ -133,15 +144,15 @@ class DotLoader:
                                     stored.append((txt, now))
                                 else:
                                     store_mode = False
-                                    r1, s1 = await self._replay_chunks(stored, abuf)
+                                    r1, s1 = await self._replay_chunks(stored)
                                     raw += r1
                                     styled += s1
                                     stored.clear()
-                                    r2, s2 = await abuf.add(txt, self.out)
+                                    r2, s2 = await self.buffer.add(txt, self.out)
                                     raw += r2
                                     styled += s2
                             else:
-                                r3, s3 = await abuf.add(txt, self.out)
+                                r3, s3 = await self.buffer.add(txt, self.out)
                                 raw += r3
                                 styled += s3
                             
@@ -158,11 +169,11 @@ class DotLoader:
                 self.th.join()
                 
             if store_mode:
-                r4, s4 = await self._replay_chunks(stored, abuf)
+                r4, s4 = await self._replay_chunks(stored)
                 raw += r4
                 styled += s4
                 
-            rr, ss = await abuf.flush(self.out)
+            rr, ss = await self.buffer.flush(self.out)
             raw += rr
             styled += ss
             
