@@ -1,9 +1,9 @@
 # interface.py
 
-import sys
 import asyncio
 import time
 import shutil
+import logging
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import FormattedText
 from output_handler import OutputHandler
@@ -12,125 +12,64 @@ from painter import TextPainter, COLORS, FORMATS
 from stream_handler import StreamHandler
 from factories import StreamComponentFactory
 from utilities import (
-    clear_screen, 
-    get_visible_length,
-    split_into_display_lines,
+    clear_screen,
     write_and_flush,
     manage_cursor
 )
 
-prompt_session = PromptSession()
-stream_handler = None
-
-def scroll_up(styled_lines, prompt, delay=0.5):
-    term_width = shutil.get_terminal_size().columns
-    paragraphs = styled_lines.split('\n')
-    display_lines = []
-    
-    for paragraph in paragraphs:
-        if not paragraph.strip():
-            display_lines.append('')
-            continue
-            
-        current_line = ''
-        words = paragraph.split()
-        
-        for word in words:
-            test_line = current_line + (' ' if current_line else '') + word
-            if get_visible_length(test_line) <= term_width:
-                current_line = test_line
-            else:
-                display_lines.append(current_line)
-                current_line = word
-                
-        if current_line:
-            display_lines.append(current_line)
-    
-    for i in range(len(display_lines) + 1):
-        clear_screen()
-        for ln in display_lines[i:]:
-            write_and_flush(ln + '\n')
-        write_and_flush(FORMATS['RESET'])
-        write_and_flush(prompt)
-        time.sleep(delay)
-
-async def get_user_input(default_text=""):
-    prompt = FormattedText([('class:prompt', '> ')])
-    result = await prompt_session.prompt_async(prompt, default=default_text)
-    return result.strip()
-
-class ConversationManager:
-    def __init__(self, system_prompt):
-        self.conversation = [{"role": "system", "content": system_prompt}]
-
-    def add_message(self, role, content):
-        self.conversation.append({"role": role, "content": content})
-
-    def get_last_user_message(self):
-        for msg in reversed(self.conversation):
-            if msg["role"] == "user":
-                return msg["content"]
-        return None
-
-    def get_conversation(self):
-        return self.conversation
+# Set up logging
+logging.basicConfig(level=logging.DEBUG, 
+                   format='%(asctime)s - %(levelname)s - %(message)s',
+                   filename='chat_debug.log')
 
 async def main():
-    clear_screen()
-    
-    # Initialize core components
-    text_painter = TextPainter(base_color=COLORS['GREEN'])
-    output_handler = OutputHandler(text_painter)
-    
-    # Create component factory
-    component_factory = StreamComponentFactory(text_painter)
-    
-    # Initialize stream handler with factory
-    global stream_handler
-    stream_handler = StreamHandler(generate_stream, component_factory)
-    
-    conv_manager = ConversationManager(
-        'Be helpful, concise, and honest. Use text styles:\n'
-        '- "quotes" for dialogue\n'
-        '- [brackets] for observations\n'
-        '- _underscores_ for emphasis\n'
-        '- *asterisks* for bold text'
-    )
-    
-    intro_msg = "Introduce yourself in 3 lines, 7 words each..."
-    conv_manager.add_message("user", intro_msg)
-    _, intro_styled, _ = await stream_handler.process_message(
-        conv_manager, intro_msg, output_handler, silent=True
-    )
-    
-    while True:
-        try:
-            user = await stream_handler.get_input()
-            if not user:
+    try:
+        logging.debug("Starting main()")
+        clear_screen()  # Removed await since this is synchronous
+        
+        # Initialize core components
+        logging.debug("Initializing components")
+        text_painter = TextPainter(base_color=COLORS['GREEN'])
+        output_handler = OutputHandler(text_painter)
+        component_factory = StreamComponentFactory(text_painter)
+        stream_handler = StreamHandler(generate_stream, component_factory)
+        
+        logging.debug("Starting intro message")
+        intro_msg = "Introduce yourself in 3 lines, 7 words each..."
+        _, intro_styled, _ = await stream_handler.handle_intro(intro_msg, output_handler)
+        
+        logging.debug("Starting main loop")
+        while True:
+            try:
+                user = await stream_handler.get_input()
+                if not user:
+                    continue
+                    
+                if user.lower() == "retry":
+                    _, intro_styled, _ = await stream_handler.handle_retry(
+                        intro_styled, 
+                        output_handler,
+                        silent=stream_handler.state.is_last_message_silent
+                    )
+                else:
+                    _, intro_styled, _ = await stream_handler.handle_message(
+                        user, intro_styled, output_handler
+                    )
+            except KeyboardInterrupt:
+                print("\nExiting...")
+                break
+            except Exception as e:
+                logging.error(f"Error in main loop: {str(e)}", exc_info=True)
+                print(f"\nAn error occurred: {str(e)}")
                 continue
-                
-            if user.lower() == "retry":
-                _, intro_styled, _ = await stream_handler.handle_retry(
-                    conv_manager, 
-                    intro_styled, 
-                    output_handler,
-                    silent=stream_handler._last_message_silent
-                )
-            else:
-                _, intro_styled, _ = await stream_handler.handle_message(
-                    conv_manager, user, intro_styled, output_handler
-                )
-        except KeyboardInterrupt:
-            print("\nExiting...")
-            break
-        except Exception as e:
-            print(f"\nAn error occurred: {str(e)}")
-            continue
+
+    except Exception as e:
+        logging.error(f"Critical error in main: {str(e)}", exc_info=True)
+        raise
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     finally:
-        if stream_handler:
-            manage_cursor(True)
-            write_and_flush(FORMATS['RESET'])
+        write_and_flush(FORMATS['RESET'])
+        manage_cursor(True)
