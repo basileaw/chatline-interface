@@ -1,6 +1,6 @@
 # reverse_stream.py
 
-import time
+import asyncio
 from dataclasses import dataclass
 from typing import List, Optional
 from painter import FORMATS
@@ -16,22 +16,14 @@ class StyledWord:
     active_patterns: List[str]
 
 class ReverseStreamer:
-    """
-    Handles reverse streaming of text with styling and animations.
-    """
+    """Handles reverse streaming of text with styling and animations."""
+    
     def __init__(self, text_painter, delay: float = 0.08):
-        """
-        Initialize ReverseStreamer with direct TextPainter dependency.
-        
-        Args:
-            text_painter: TextPainter instance for text styling
-            delay: Animation delay in seconds
-        """
         if not text_painter:
             raise ValueError("TextPainter must be provided")
-        self.painter = text_painter  # Direct reference to TextPainter
+        self.painter = text_painter
         self.delay = delay
-    
+        
     def get_style(self, active_patterns: List[str]) -> str:
         """Get the combined ANSI style string for a set of active patterns."""
         color = self.painter.base_color
@@ -124,7 +116,7 @@ class ReverseStreamer:
             
         return result
 
-    def update_screen(self, content: str = "", preserved_msg: str = "", no_spacing: bool = False):
+    async def update_screen(self, content: str = "", preserved_msg: str = "", no_spacing: bool = False):
         """Update the terminal screen with formatted content."""
         clear_screen()
         
@@ -137,6 +129,8 @@ class ReverseStreamer:
             write_and_flush(preserved_msg)
             
         write_and_flush(FORMATS['RESET'])
+        # Brief pause to ensure smooth animation
+        await asyncio.sleep(0.01)
 
     async def reverse_stream_dots(self, preserved_msg: str) -> str:
         """Animate the removal of dots from the preserved message."""
@@ -144,8 +138,8 @@ class ReverseStreamer:
         num_dots = len(preserved_msg) - len(msg_without_dots)
         
         for i in range(num_dots - 1, -1, -1):
-            self.update_screen("", msg_without_dots + '.' * i)
-            time.sleep(self.delay)
+            await self.update_screen("", msg_without_dots + '.' * i)
+            await asyncio.sleep(self.delay)
             
         return msg_without_dots
 
@@ -158,10 +152,10 @@ class ReverseStreamer:
             while lines[line_idx]:
                 lines[line_idx].pop()
                 formatted = self.format_lines(lines)
-                self.update_screen(formatted, preserved_msg, no_spacing)
-                time.sleep(self.delay)
+                await self.update_screen(formatted, preserved_msg, no_spacing)
+                await asyncio.sleep(self.delay)
         
         if preserved_msg:
             await self.reverse_stream_dots(preserved_msg)
             
-        self.update_screen()  # Clear screen for input
+        await self.update_screen()  # Clear screen for input
