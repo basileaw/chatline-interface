@@ -8,10 +8,9 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import FormattedText
 from output_handler import OutputHandler
 from generator import generate_stream
-from reverse_stream import ReverseStreamer
-from dot_loader import DotLoader
 from painter import TextPainter, COLORS, FORMATS
-from adaptive_buffer import AdaptiveBuffer
+from stream_handler import StreamHandler
+from factories import StreamComponentFactory
 from utilities import (
     clear_screen, 
     get_visible_length,
@@ -60,71 +59,6 @@ async def get_user_input(default_text=""):
     result = await prompt_session.prompt_async(prompt, default=default_text)
     return result.strip()
 
-class StreamHandler:
-    def __init__(self, generator_func):
-        self.generator_func = generator_func
-        self._last_message_silent = False
-        self._preserved_prompt = ""
-
-    async def get_input(self, default_text="", add_newline=True):
-        manage_cursor(True)
-        if add_newline:
-            write_and_flush("\n")
-        result = await get_user_input(default_text)
-        manage_cursor(False)
-        return result
-
-    async def stream_message(self, conversation, prompt_line, output_handler=None):
-        adaptive_buffer = AdaptiveBuffer()
-        loader = DotLoader(prompt_line, adaptive_buffer=adaptive_buffer, output_handler=output_handler)
-        stream = self.generator_func(conversation)
-        raw_text, styled_text = await loader.run_with_loading(stream)
-        return raw_text, styled_text, f"{loader.prompt}{loader.dot_char * 3}"
-
-    async def process_message(self, conv_manager, message, output_handler, silent=False):
-        if silent:
-            adaptive_buffer = AdaptiveBuffer()
-            loader = DotLoader("", adaptive_buffer=adaptive_buffer, output_handler=output_handler, no_animation=True)
-            stream = self.generator_func(conv_manager.get_conversation())
-            raw_text, styled_text = await loader.run_with_loading(stream)
-            conv_manager.add_message("assistant", raw_text)
-            self._last_message_silent = True
-            self._preserved_prompt = ""
-            return raw_text, styled_text, ""
-        else:
-            raw_text, styled_text, final_prompt = await self.stream_message(
-                conv_manager.get_conversation(),
-                f"> {message}",
-                output_handler
-            )
-            conv_manager.add_message("assistant", raw_text)
-            self._last_message_silent = False
-            self._preserved_prompt = final_prompt
-            return raw_text, styled_text, final_prompt
-
-    async def handle_retry(self, conv_manager, intro_styled, output_handler, silent=False):
-        # Create ReverseStreamer with TextPainter from OutputHandler
-        reverse_streamer = ReverseStreamer(output_handler.painter)
-        preserved_msg = "" if silent else self._preserved_prompt
-        
-        await reverse_streamer.reverse_stream(intro_styled, preserved_msg)
-        
-        if silent:
-            prev_message = conv_manager.get_last_user_message()
-            conv_manager.add_message("user", prev_message)
-            return await self.process_message(conv_manager, prev_message, output_handler, silent=True)
-        else:
-            prev_message = conv_manager.get_last_user_message()
-            final_message = await self.get_input(default_text=prev_message, add_newline=False)
-            clear_screen()
-            conv_manager.add_message("user", final_message)
-            return await self.process_message(conv_manager, final_message, output_handler)
-
-    async def handle_message(self, conv_manager, user_input, intro_styled, output_handler):
-        scroll_up(intro_styled, f"> {user_input}", 0.08)
-        conv_manager.add_message("user", user_input)
-        return await self.process_message(conv_manager, user_input, output_handler)
-
 class ConversationManager:
     def __init__(self, system_prompt):
         self.conversation = [{"role": "system", "content": system_prompt}]
@@ -148,8 +82,12 @@ async def main():
     text_painter = TextPainter(base_color=COLORS['GREEN'])
     output_handler = OutputHandler(text_painter)
     
+    # Create component factory
+    component_factory = StreamComponentFactory(text_painter)
+    
+    # Initialize stream handler with factory
     global stream_handler
-    stream_handler = StreamHandler(generate_stream)
+    stream_handler = StreamHandler(generate_stream, component_factory)
     
     conv_manager = ConversationManager(
         'Be helpful, concise, and honest. Use text styles:\n'
