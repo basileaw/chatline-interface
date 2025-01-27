@@ -1,4 +1,4 @@
-# streaming_output/painter.py
+# painter.py
 
 from dataclasses import dataclass
 from typing import Optional, List, Dict
@@ -29,7 +29,8 @@ class Pattern:
     remove_delimiters: bool
 
 class TextPainter:
-    def __init__(self, patterns: List[Dict] = None, base_color=COLORS['GREEN']):
+    def __init__(self, utilities, patterns: List[Dict] = None, base_color=COLORS['GREEN']):
+        self.utils = utilities
         default_patterns = [
             {'name': 'quotes', 'start': '"', 'end': '"', 'color': COLORS['PINK'], 
              'italic': False, 'bold': False, 'remove_delimiters': False},
@@ -41,7 +42,7 @@ class TextPainter:
              'italic': False, 'bold': True, 'remove_delimiters': True}
         ]
         self.patterns = [Pattern(**p) for p in (patterns or default_patterns)]
-        self.base_color = base_color
+        self._base_color = base_color
         self.active_patterns: List[str] = []
 
         # Validate patterns
@@ -54,6 +55,19 @@ class TextPainter:
         self.by_name = {p.name: p for p in self.patterns}
         self.start_map = {p.start: p for p in self.patterns}
         self.end_map = {p.end: p for p in self.patterns}
+
+    def get_format(self, name: str) -> str:
+        """Get format by name from FORMATS dictionary."""
+        return FORMATS.get(name, '')
+
+    def get_color(self, name: str) -> str:
+        """Get color by name from COLORS dictionary."""
+        return COLORS.get(name, '')
+
+    @property
+    def base_color(self) -> str:
+        """Get the base color for text."""
+        return self._base_color
 
     def get_style(self) -> str:
         """Get current ANSI style based on active patterns."""
@@ -68,8 +82,8 @@ class TextPainter:
             if pat.bold: bold = True
             
         style = color
-        if italic: style += FORMATS['ITALIC_ON']
-        if bold: style += FORMATS['BOLD_ON']
+        if italic: style += self.get_format('ITALIC_ON')
+        if bold: style += self.get_format('BOLD_ON')
         return style
 
     def process_chunk(self, text: str) -> str:
@@ -78,7 +92,9 @@ class TextPainter:
         out, i = [], 0
         
         if not self.active_patterns:
-            out.append(FORMATS['ITALIC_OFF'] + FORMATS['BOLD_OFF'] + self.base_color)
+            out.append(self.get_format('ITALIC_OFF') + 
+                      self.get_format('BOLD_OFF') + 
+                      self.base_color)
             
         while i < len(text):
             ch = text[i]

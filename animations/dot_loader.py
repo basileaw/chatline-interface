@@ -1,26 +1,41 @@
-# animations/dot_loader.py
-
 import asyncio
 import json
 import time
-from typing import Tuple, List, Any, Optional
-from utilities import (
-    hide_cursor,
-    show_cursor,
-    write_and_flush
-)
-from streaming_output.printer import OutputHandler, RawOutputHandler
+from typing import Tuple, List, Protocol, Optional, Any
+
+# Local protocols to avoid circular imports
+class Utilities(Protocol):
+    def hide_cursor(self) -> None: ...
+    def show_cursor(self) -> None: ...
+    def write_and_flush(self, text: str) -> None: ...
+
+class OutputHandler(Protocol):
+    def process_and_write(self, chunk: str) -> Tuple[str, str]: ...
+    def flush(self) -> Optional[str]: ...
+
+class Buffer(Protocol):
+    async def add(self, chunk: str, output_handler: OutputHandler) -> Tuple[str, str]: ...
+    async def flush(self, output_handler: OutputHandler) -> Tuple[str, str]: ...
+    def reset(self) -> None: ...
 
 class AsyncDotLoader:
     """
     Async dot loader animation.
     Maintains exact same visual behavior while using pure asyncio.
     """
-    
-    def __init__(self, prompt: str, adaptive_buffer: Any = None, 
-                 interval: float = 0.4, output_handler: Any = None, 
-                 reuse_prompt: bool = False, no_animation: bool = False):
-        """Initialize with same parameters as original for compatibility."""
+    def __init__(
+        self,
+        utilities: Utilities,
+        prompt: str,
+        adaptive_buffer: Optional[Buffer] = None,
+        interval: float = 0.4,
+        output_handler: Optional[OutputHandler] = None,
+        reuse_prompt: bool = False,
+        no_animation: bool = False
+    ):
+        """Initialize with dependencies and configuration."""
+        self.utils = utilities
+        
         if prompt.endswith(("?", "!")):
             self.prompt = prompt[:-1]
             self.dot_char = prompt[-1]
@@ -38,26 +53,26 @@ class AsyncDotLoader:
         self.resolved = False
         self.animation_task = None
         self.animation_complete = asyncio.Event()
-        self.out = output_handler or RawOutputHandler()
+        self.out = output_handler
         self.reuse = reuse_prompt
         self.no_anim = no_animation
         self.buffer = adaptive_buffer
-        
+
     async def _animate(self) -> None:
         """Async version of animation loop with identical timing."""
-        hide_cursor()
+        self.utils.hide_cursor()
         try:
             # Initialize display immediately to prevent screen flash
-            write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
+            self.utils.write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
             
             while not self.animation_complete.is_set():
                 await asyncio.sleep(self.interval)
                 
                 if self.resolved and self.dots == 3:
                     if not self.reuse:
-                        write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\n\n")
+                        self.utils.write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\n\n")
                     else:
-                        write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\033[2B")
+                        self.utils.write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\033[2B")
                     self.animation_complete.set()
                     break
                     
@@ -66,17 +81,17 @@ class AsyncDotLoader:
                     self.dots = min(self.dots + 1, 3)
                 else:
                     self.dots = (self.dots + 1) % 4
-                
+                    
                 if self.reuse:
-                    write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
+                    self.utils.write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
                 else:
-                    write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
+                    self.utils.write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
                     
         except Exception:
-            hide_cursor()
+            self.utils.hide_cursor()
             raise
         finally:
-            show_cursor()
+            self.utils.show_cursor()
 
     async def _replay_chunks(self, stored: List[Tuple[str, float]]) -> Tuple[str, str]:
         """Replay stored chunks with original timing."""
@@ -104,29 +119,30 @@ class AsyncDotLoader:
         stored = []
         store_mode = True
         first_chunk = True
-
+        
         if not self.no_anim:
             self.animation_task = asyncio.create_task(self._animate())
             # Ensure animation is started but don't wait for content yet
             await asyncio.sleep(0.01)
-
+            
         try:
             for chunk in stream:
                 c = chunk.strip()
                 if c == "data: [DONE]":
                     break
-                
+                    
                 if c.startswith("data: "):
                     try:
                         data = json.loads(c[6:])
                         txt = data["choices"][0]["delta"].get("content", "")
+                        
                         if txt:
                             if first_chunk:
                                 self.resolved = True
                                 if not self.no_anim:
                                     await self.animation_complete.wait()
                                 first_chunk = False
-                            
+                                
                             now = time.time()
                             if store_mode:
                                 if not self.animation_complete.is_set():
@@ -144,9 +160,8 @@ class AsyncDotLoader:
                                 r3, s3 = await self.buffer.add(txt, self.out)
                                 raw += r3
                                 styled += s3
-                            
+                                
                             await asyncio.sleep(0.01)
-                            
                     except json.JSONDecodeError:
                         pass
                         
@@ -156,6 +171,7 @@ class AsyncDotLoader:
             # Ensure animation completes if we exit early
             self.resolved = True
             self.animation_complete.set()
+            
             if self.animation_task:
                 await self.animation_task
                 
@@ -173,4 +189,4 @@ class AsyncDotLoader:
                 if final_styled:
                     styled += final_styled
                     
-            return raw, styled
+        return raw, styled

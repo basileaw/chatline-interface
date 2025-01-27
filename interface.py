@@ -1,21 +1,14 @@
 # interface.py
 
 import asyncio
-import time
-import shutil
 import logging
-from prompt_toolkit import PromptSession
-from prompt_toolkit.formatted_text import FormattedText
-from streaming_output.printer import OutputHandler
+from typing import Protocol
+from utilities import RealUtilities
+from streaming_output.painter import TextPainter
 from generator import generate_stream
-from streaming_output.painter import TextPainter, COLORS, FORMATS
 from state_managers.stream import StreamHandler
+from state_managers.conversation import ConversationState
 from factories import StreamComponentFactory
-from utilities import (
-    clear_screen,
-    write_and_flush,
-    manage_cursor
-)
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG, 
@@ -25,15 +18,41 @@ logging.basicConfig(level=logging.DEBUG,
 async def main():
     try:
         logging.debug("Starting main()")
-        clear_screen()
         
-        # Initialize core components
-        logging.debug("Initializing components")
-        text_painter = TextPainter(base_color=COLORS['GREEN'])
-        output_handler = OutputHandler(text_painter)
-        component_factory = StreamComponentFactory(text_painter)
-        stream_handler = StreamHandler(generate_stream, component_factory)
+        # Create core dependencies
+        utilities = RealUtilities()
+        painter = TextPainter(utilities=utilities)
         
+        # Create factory with core dependencies
+        component_factory = StreamComponentFactory(
+            utilities=utilities,
+            painter=painter
+        )
+        
+        # Create output handler through factory
+        output_handler = component_factory.create_output_handler()
+        
+        # Create conversation state
+        conversation_state = ConversationState(
+            system_prompt='Be helpful, concise, and honest. Use text styles:\n'
+            '- "quotes" for dialogue\n'
+            '- [brackets] for observations\n'
+            '- _underscores_ for emphasis\n'
+            '- *asterisks* for bold text'
+        )
+        
+        # Create stream handler with dependencies
+        stream_handler = StreamHandler(
+            utilities=utilities,
+            generator_func=generate_stream,
+            component_factory=component_factory,
+            conversation_state=conversation_state
+        )
+        
+        # Clear screen using utilities
+        utilities.clear_screen()
+        
+        # Initial message handling
         logging.debug("Starting intro message")
         intro_msg = "Introduce yourself in 3 lines, 7 words each..."
         _, intro_styled, _ = await stream_handler.handle_intro(intro_msg, output_handler)
@@ -67,9 +86,10 @@ async def main():
         logging.error(f"Critical error in main: {str(e)}", exc_info=True)
         raise
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
     finally:
-        write_and_flush(FORMATS['RESET'])
-        manage_cursor(True)
+        # Clean up using painter and utilities
+        utilities.write_and_flush(painter.get_format('RESET'))
+        utilities.show_cursor()
+
+if __name__ == "__main__":
+    asyncio.run(main())

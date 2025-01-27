@@ -1,7 +1,9 @@
-# streaming_output/buffer.py
-
 import asyncio
-from typing import Tuple, Any
+from typing import Tuple, Protocol
+
+class OutputHandler(Protocol):
+    def process_and_write(self, chunk: str) -> Tuple[str, str]: ...
+    def flush(self) -> str | None: ...
 
 class AsyncAdaptiveBuffer:
     """
@@ -11,7 +13,7 @@ class AsyncAdaptiveBuffer:
     def __init__(self, window_size: int = 15):
         self._buffer_lock = asyncio.Lock()
         
-    async def add(self, chunk: str, output_handler: Any) -> Tuple[str, str]:
+    async def add(self, chunk: str, output_handler: OutputHandler) -> Tuple[str, str]:
         """
         Process a chunk of text immediately.
         
@@ -30,7 +32,7 @@ class AsyncAdaptiveBuffer:
             raw, styled = output_handler.process_and_write(chunk)
             return raw, styled
             
-    async def flush(self, output_handler: Any) -> Tuple[str, str]:
+    async def flush(self, output_handler: OutputHandler) -> Tuple[str, str]:
         """
         Flush any remaining content.
         Since we process immediately, nothing to flush.
