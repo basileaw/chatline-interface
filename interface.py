@@ -4,22 +4,12 @@ import asyncio
 import logging
 from typing import Optional, Protocol
 from utilities import RealUtilities
-from stream.painter import TextPainter
-from stream.printer import OutputHandler
-from stream.buffer import AsyncAdaptiveBuffer
 from animations.dot_loader import AsyncDotLoader
 from animations.reverse_stream import ReverseStreamer
 from state.terminal import TerminalManager
 from state.conversation import ConversationManager
+from state.stream import TextProcessor
 from generator import generate_stream
-
-class Utilities(Protocol):
-    def clear_screen(self) -> None: ...
-    def get_visible_length(self, text: str) -> int: ...
-    def write_and_flush(self, text: str) -> None: ...
-    def hide_cursor(self) -> None: ...
-    def show_cursor(self) -> None: ...
-    def get_terminal_width(self) -> int: ...
 
 # Initialize logging
 logging.basicConfig(
@@ -28,22 +18,30 @@ logging.basicConfig(
     filename='chat_debug.log'
 )
 
+class Utilities(Protocol):
+    def clear_screen(self) -> None: ...
+    def get_visible_length(self, text: str) -> int: ...
+    def write_and_flush(self, text: str) -> None: ...
+    def hide_cursor(self) -> None: ...
+    def show_cursor(self) -> None: ...
+    def get_terminal_width(self) -> int: ...
+    def get_format(self, name: str) -> str: ...
+    def get_base_color(self, color_name: str) -> str: ...
+    def get_style(self, active_patterns: list[str], base_color: str) -> str: ...
+
 class ComponentFactory:
     def __init__(self, utilities: Utilities):
         self.utils = utilities
         
-    def create_output_handler(self) -> OutputHandler:
-        return OutputHandler(TextPainter(self.utils), self.utils)
+    def create_output_handler(self):
+        return TextProcessor(self.utils)
         
-    def create_adaptive_buffer(self) -> AsyncAdaptiveBuffer:
-        return AsyncAdaptiveBuffer()
-        
-    def create_dot_loader(self, prompt: str, output_handler: Optional[OutputHandler] = None,
+    def create_dot_loader(self, prompt: str, output_handler: Optional[TextProcessor] = None,
                          no_animation: bool = False) -> AsyncDotLoader:
         return AsyncDotLoader(
             utilities=self.utils,
             prompt=prompt,
-            adaptive_buffer=self.create_adaptive_buffer(),
+            adaptive_buffer=output_handler,  # Now using output_handler as the buffer
             output_handler=output_handler,
             no_animation=no_animation
         )
@@ -53,8 +51,10 @@ class ComponentFactory:
 
 # Initialize core components
 utilities = RealUtilities()
-factory = ComponentFactory(utilities)
+
+# Initialize managers
 terminal = TerminalManager(utilities)
+factory = ComponentFactory(utilities)
 conversation = ConversationManager(
     terminal=terminal,
     generator_func=generate_stream,

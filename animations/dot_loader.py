@@ -1,4 +1,4 @@
-# animations/dot_loader.py
+# dot_loader.py
 
 import asyncio
 import json
@@ -6,13 +6,9 @@ import time
 from typing import Tuple, List, Protocol, Optional, Any
 
 # Local protocols for non-utilities dependencies
-class OutputHandler(Protocol):
-    def process_and_write(self, chunk: str) -> Tuple[str, str]: ...
-    def flush(self) -> Optional[str]: ...
-
 class Buffer(Protocol):
-    async def add(self, chunk: str, output_handler: OutputHandler) -> Tuple[str, str]: ...
-    async def flush(self, output_handler: OutputHandler) -> Tuple[str, str]: ...
+    async def add(self, chunk: str, output_handler: Any) -> Tuple[str, str]: ...
+    async def flush(self, output_handler: Any) -> Tuple[str, str]: ...
     def reset(self) -> None: ...
 
 class AsyncDotLoader:
@@ -22,11 +18,11 @@ class AsyncDotLoader:
     """
     def __init__(
         self,
-        utilities,  # Removed Protocol since it's defined in interface.py
+        utilities,
         prompt: str,
         adaptive_buffer: Optional[Buffer] = None,
         interval: float = 0.4,
-        output_handler: Optional[OutputHandler] = None,
+        output_handler: Optional[Any] = None,
         reuse_prompt: bool = False,
         no_animation: bool = False
     ):
@@ -55,7 +51,6 @@ class AsyncDotLoader:
         self.no_anim = no_animation
         self.buffer = adaptive_buffer
 
-    # Rest of the class remains unchanged
     async def _animate(self) -> None:
         """Async version of animation loop with identical timing."""
         self.utils.hide_cursor()
@@ -183,7 +178,7 @@ class AsyncDotLoader:
             styled += ss
             
             if hasattr(self.out, 'flush'):
-                final_styled = self.out.flush()
+                _, final_styled = await self.out.flush()  # Now properly awaiting the coroutine
                 if final_styled:
                     styled += final_styled
                     
