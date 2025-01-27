@@ -15,7 +15,7 @@ from generator import generate_stream
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    filename='chat_debug.log'
+    filename='logs/chat_debug.log'
 )
 
 class Utilities(Protocol):
