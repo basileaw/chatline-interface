@@ -1,12 +1,121 @@
+# utilities.py
+
 import sys
 import shutil
 import re
-from typing import List, Optional
+from typing import List, Optional, Dict
+from dataclasses import dataclass
 
 # ANSI handling
 ANSI_REGEX = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 
+# Style constants
+FORMATS = {
+    'RESET': '\033[0m',
+    'ITALIC_ON': '\033[3m',
+    'ITALIC_OFF': '\033[23m',
+    'BOLD_ON': '\033[1m',
+    'BOLD_OFF': '\033[22m'
+}
+
+COLORS = {
+    'GREEN': '\033[38;5;47m',
+    'PINK': '\033[38;5;212m',
+    'BLUE': '\033[38;5;75m'
+}
+
+STYLE_PATTERNS = {
+    'quotes': {
+        'start': '"',
+        'end': '"',
+        'color': 'PINK',
+        'styles': [],
+        'remove_delimiters': False
+    },
+    'brackets': {
+        'start': '[',
+        'end': ']',
+        'color': 'BLUE',
+        'styles': [],
+        'remove_delimiters': False
+    },
+    'emphasis': {
+        'start': '_',
+        'end': '_',
+        'color': None,
+        'styles': ['ITALIC'],
+        'remove_delimiters': True
+    },
+    'strong': {
+        'start': '*',
+        'end': '*',
+        'color': None,
+        'styles': ['BOLD'],
+        'remove_delimiters': True
+    }
+}
+
+@dataclass
+class Pattern:
+    name: str
+    start: str
+    end: str
+    color: Optional[str]
+    styles: List[str]
+    remove_delimiters: bool
+
 class RealUtilities:
+    def __init__(self):
+        # Initialize and validate patterns
+        self.patterns = []
+        for name, config in STYLE_PATTERNS.items():
+            self.patterns.append(Pattern(
+                name=name,
+                start=config['start'],
+                end=config['end'],
+                color=config['color'],
+                styles=config['styles'],
+                remove_delimiters=config['remove_delimiters']
+            ))
+
+        # Validate no duplicate delimiters
+        used = set()
+        for p in self.patterns:
+            if p.start in used or p.end in used:
+                raise ValueError(f"Duplicate delimiter in '{p.name}'")
+            used.update([p.start, p.end])
+
+        # Create lookup maps
+        self.by_name = {p.name: p for p in self.patterns}
+        self.start_map = {p.start: p for p in self.patterns}
+        self.end_map = {p.end: p for p in self.patterns}
+
+    def get_format(self, name: str) -> str:
+        """Get format by name from FORMATS dictionary."""
+        return FORMATS.get(name, '')
+
+    def get_color(self, name: str) -> str:
+        """Get color by name from COLORS dictionary."""
+        return COLORS.get(name, '')
+
+    def get_base_color(self, color_name: str = 'GREEN') -> str:
+        """Get the base color code."""
+        return COLORS[color_name]
+
+    def get_style(self, active_patterns: List[str], base_color: str) -> str:
+        """Get current ANSI style based on active patterns."""
+        color = base_color
+        style_codes = []
+        
+        for name in active_patterns:
+            pat = self.by_name[name]
+            if pat.color:
+                color = COLORS[pat.color]
+            for style in pat.styles:
+                style_codes.append(FORMATS[f'{style}_ON'])
+                
+        return color + ''.join(style_codes)
+
     def get_visible_length(self, text: str) -> int:
         """Get visible length of text, ignoring ANSI escape codes."""
         return len(ANSI_REGEX.sub('', text))
@@ -38,7 +147,6 @@ class RealUtilities:
         sys.stdout.write(text)
         sys.stdout.flush()
 
-    # Helper methods that might be useful for implementations
     def split_into_display_lines(self, text: str, width: Optional[int] = None) -> List[str]:
         """Split text into lines that fit within terminal width."""
         if width is None:

@@ -1,6 +1,8 @@
+# interface.py
+
 import asyncio
 import logging
-from typing import Optional, Protocol, Callable, Dict, Any
+from typing import Optional, Protocol
 from utilities import RealUtilities
 from stream.painter import TextPainter
 from stream.printer import OutputHandler
@@ -19,14 +21,6 @@ class Utilities(Protocol):
     def show_cursor(self) -> None: ...
     def get_terminal_width(self) -> int: ...
 
-class Painter(Protocol):
-    def get_format(self, name: str) -> str: ...
-    def get_color(self, name: str) -> str: ...
-    @property
-    def base_color(self) -> str: ...
-    def process_chunk(self, text: str) -> str: ...
-    def reset(self) -> None: ...
-
 # Initialize logging
 logging.basicConfig(
     level=logging.DEBUG,
@@ -35,12 +29,11 @@ logging.basicConfig(
 )
 
 class ComponentFactory:
-    def __init__(self, utilities: Utilities, painter: Painter):
+    def __init__(self, utilities: Utilities):
         self.utils = utilities
-        self.painter = painter
         
     def create_output_handler(self) -> OutputHandler:
-        return OutputHandler(self.painter, self.utils)
+        return OutputHandler(TextPainter(self.utils), self.utils)
         
     def create_adaptive_buffer(self) -> AsyncAdaptiveBuffer:
         return AsyncAdaptiveBuffer()
@@ -56,15 +49,12 @@ class ComponentFactory:
         )
         
     def create_reverse_streamer(self) -> ReverseStreamer:
-        return ReverseStreamer(self.utils, self.painter)
+        return ReverseStreamer(self.utils)
 
 # Initialize core components
 utilities = RealUtilities()
-painter = TextPainter(utilities=utilities)
-
-# Initialize managers
-terminal = TerminalManager(utilities, painter)
-factory = ComponentFactory(utilities, painter)
+factory = ComponentFactory(utilities)
+terminal = TerminalManager(utilities)
 conversation = ConversationManager(
     terminal=terminal,
     generator_func=generate_stream,
@@ -97,7 +87,6 @@ async def main():
         raise
     finally:
         await terminal.update_display()
-        utilities.write_and_flush(painter.get_format('RESET'))
         utilities.show_cursor()
 
 if __name__ == "__main__":

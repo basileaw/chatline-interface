@@ -1,27 +1,16 @@
-# state/new_terminal.py
+# state/terminal.py
+
 import asyncio
 import time
-from typing import List, Optional, Protocol
+from typing import List, Optional
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import FormattedText
-
-class Utilities(Protocol):
-    def clear_screen(self) -> None: ...
-    def get_visible_length(self, text: str) -> int: ...
-    def write_and_flush(self, text: str) -> None: ...
-    def hide_cursor(self) -> None: ...
-    def show_cursor(self) -> None: ...
-    def get_terminal_width(self) -> int: ...
-
-class Painter(Protocol):
-    def get_format(self, name: str) -> str: ...
 
 class TerminalManager:
     """Manages terminal display and user input operations."""
     
-    def __init__(self, utilities: Utilities, painter: Painter):
+    def __init__(self, utilities):
         self.utils = utilities
-        self.painter = painter
         self.prompt_session = PromptSession()
         self._term_width = self.utils.get_terminal_width()
 
@@ -39,13 +28,13 @@ class TerminalManager:
                 self.utils.write_and_flush('\n')
         await asyncio.sleep(0)
 
-    async def write_prompt(self, prompt: str, style: Optional[str] = None):
+    async def write_prompt(self, prompt: str, style_name: Optional[str] = None):
         """Write a prompt with optional styling."""
-        if style:
-            self.utils.write_and_flush(style)
+        if style_name:
+            self.utils.write_and_flush(self.utils.get_format(style_name))
         self.utils.write_and_flush(prompt)
-        if style:
-            self.utils.write_and_flush(self.painter.get_format('RESET'))
+        if style_name:
+            self.utils.write_and_flush(self.utils.get_format('RESET'))
         await asyncio.sleep(0)
 
     def _prepare_display_lines(self, styled_text: str) -> List[str]:
@@ -75,7 +64,7 @@ class TerminalManager:
         for i in range(len(display_lines) + 1):
             await self.clear()
             await self.write_lines(display_lines[i:])
-            await self.write_prompt(prompt, self.painter.get_format('RESET'))
+            await self.write_prompt(prompt, 'RESET')
             await asyncio.sleep(delay)
 
     async def update_display(self,
@@ -116,6 +105,6 @@ class TerminalManager:
             self.utils.clear_screen()
             for ln in display_lines[i:]:
                 self.utils.write_and_flush(ln + '\n')
-            self.utils.write_and_flush(self.painter.get_format('RESET'))
+            self.utils.write_and_flush(self.utils.get_format('RESET'))
             self.utils.write_and_flush(prompt)
             time.sleep(delay)

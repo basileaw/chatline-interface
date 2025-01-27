@@ -1,7 +1,7 @@
 # printer.py
 
 import sys
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, Tuple
 
 class OutputHandler:
     """Handles terminal output management and word wrapping."""
@@ -107,7 +107,7 @@ class OutputHandler:
             self.utils.write_and_flush("\n")
             styled_out += "\n"
 
-        self.utils.write_and_flush(self.painter.get_format('RESET'))
+        self.utils.write_and_flush(self.utils.get_format('RESET'))
         sys.stdout.flush()
         self.painter.reset()
         self.current_line_length = 0

@@ -1,9 +1,9 @@
+# reverse_stream.py
+
 import asyncio
 from dataclasses import dataclass
-from typing import List, Protocol, Optional
-from stream.painter import FORMATS, COLORS, Pattern, STYLE_PATTERNS
+from typing import List, Protocol
 
-# Add this dataclass for styled words
 @dataclass
 class StyledWord:
     raw_text: str
@@ -14,52 +14,23 @@ class Utilities(Protocol):
     def clear_screen(self) -> None: ...
     def write_and_flush(self, text: str) -> None: ...
     def get_visible_length(self, text: str) -> int: ...
-
-class Painter(Protocol):
     def get_format(self, name: str) -> str: ...
-    @property
-    def base_color(self) -> str: ...
-
-
+    def get_base_color(self, color_name: str) -> str: ...
+    def get_style(self, active_patterns: List[str], base_color: str) -> str: ...
 
 class ReverseStreamer:
     """Handles reverse streaming of text with styling and animations."""
     
-    def __init__(self, utilities: Utilities, painter: Painter):
+    def __init__(self, utilities: Utilities, base_color='GREEN'):
         self.utils = utilities
-        self.painter = painter
+        self._base_color = self.utils.get_base_color(base_color)
         
-        # Convert style patterns to Pattern objects - same as TextPainter
-        self.patterns = []
-        for name, config in STYLE_PATTERNS.items():
-            self.patterns.append(Pattern(
-                name=name,
-                start=config['start'],
-                end=config['end'],
-                color=config['color'],
-                styles=config['styles'],
-                remove_delimiters=config['remove_delimiters']
-            ))
+        # Get pattern maps from utilities
+        self.by_name = self.utils.by_name
+        self.start_map = self.utils.start_map
+        self.end_map = self.utils.end_map
 
-        self.by_name = {p.name: p for p in self.patterns}
-        self.start_map = {p.start: p for p in self.patterns}
-        self.end_map = {p.end: p for p in self.patterns}
-
-    def get_style(self, active_patterns: List[str]) -> str:
-        """Get the combined ANSI style string for a set of active patterns."""
-        color = self.painter.base_color
-        style_codes = []
-        
-        for name in active_patterns:
-            pattern = self.by_name[name]
-            if pattern.color:
-                color = COLORS[pattern.color]
-            for style in pattern.styles:
-                style_codes.append(FORMATS[f'{style}_ON'])
-                
-        return color + ''.join(style_codes)
-
-    def split_into_styled_words(self, text: str) -> List[StyledWord]:  # Return type changed
+    def split_into_styled_words(self, text: str) -> List[StyledWord]:
         """Split text into styled words while preserving formatting."""
         words = []
         current = {'word': [], 'styled': [], 'patterns': []}
@@ -83,7 +54,7 @@ class ReverseStreamer:
                     current['patterns'].pop()
             elif char.isspace():
                 if current['word']:
-                    words.append(StyledWord(  # Changed to StyledWord
+                    words.append(StyledWord(
                         raw_text=''.join(current['word']),
                         styled_text=''.join(current['styled']),
                         active_patterns=current['patterns'].copy()
@@ -95,7 +66,7 @@ class ReverseStreamer:
             i += 1
             
         if current['word']:
-            words.append(StyledWord(  # Changed to StyledWord
+            words.append(StyledWord(
                 raw_text=''.join(current['word']),
                 styled_text=''.join(current['styled']),
                 active_patterns=current['patterns'].copy()
@@ -103,15 +74,15 @@ class ReverseStreamer:
             
         return words
 
-    def format_lines(self, lines: List[List[Pattern]]) -> str:
+    def format_lines(self, lines: List[List[StyledWord]]) -> str:
         """Format lines of styled words into a complete styled string."""
         formatted_lines = []
-        current_style = FORMATS['RESET'] + self.painter.base_color
+        current_style = self.utils.get_format('RESET') + self._base_color
         
         for line in lines:
             line_content = [current_style]
             for word in line:
-                new_style = self.get_style(word.active_patterns)
+                new_style = self.utils.get_style(word.active_patterns, self._base_color)
                 if new_style != current_style:
                     line_content.append(new_style)
                     current_style = new_style
@@ -122,8 +93,8 @@ class ReverseStreamer:
                 formatted_lines.append(formatted_line)
                 
         result = "\n".join(formatted_lines)
-        if current_style != FORMATS['RESET'] + self.painter.base_color:
-            result += FORMATS['RESET'] + self.painter.base_color
+        if current_style != self.utils.get_format('RESET') + self._base_color:
+            result += self.utils.get_format('RESET') + self._base_color
             
         return result
 
@@ -139,7 +110,7 @@ class ReverseStreamer:
         else:
             self.utils.write_and_flush(preserved_msg)
             
-        self.utils.write_and_flush(FORMATS['RESET'])
+        self.utils.write_and_flush(self.utils.get_format('RESET'))
         await asyncio.sleep(0.01)
 
     async def reverse_stream(self, styled_text: str, preserved_msg: str = "", delay: float = 0.08):
@@ -166,6 +137,6 @@ class ReverseStreamer:
         
         for i in range(num_dots - 1, -1, -1):
             await self.update_screen("", msg_without_dots + '.' * i)
-            await asyncio.sleep(self.delay)
+            await asyncio.sleep(0.08)
             
         return msg_without_dots
