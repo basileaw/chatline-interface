@@ -1,4 +1,4 @@
-# async_screen_manager.py
+# state_managers/screen.py
 
 import asyncio
 import shutil
@@ -9,7 +9,7 @@ from utilities import (
     write_and_flush,
     manage_cursor
 )
-from painter import FORMATS
+from streaming_output.painter import FORMATS
 
 class AsyncScreenManager:
     """Manages all screen-related operations asynchronously."""

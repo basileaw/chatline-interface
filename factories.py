@@ -1,23 +1,17 @@
 # factories.py
 
 from typing import Optional
-from adaptive_buffer import AsyncAdaptiveBuffer
-from dot_loader import AsyncDotLoader
-from reverse_stream import ReverseStreamer
-from output_handler import OutputHandler
-from interface_manager import AsyncInterfaceManager
-from screen_manager import AsyncScreenManager
+from streaming_output.buffer import AsyncAdaptiveBuffer
+from animations.dot_loader import AsyncDotLoader
+from animations.reverse_stream import ReverseStreamer
+from streaming_output.printer import OutputHandler
+from state_managers.terminal_io import AsyncInterfaceManager
+from state_managers.screen import AsyncScreenManager
 
 class StreamComponentFactory:
     """Factory for creating stream-related components."""
     
     def __init__(self, text_painter):
-        """
-        Initialize the factory.
-        
-        Args:
-            text_painter: TextPainter instance for styling
-        """
         self.text_painter = text_painter
         self._interface_manager = None
         self._screen_manager = None
@@ -44,14 +38,7 @@ class StreamComponentFactory:
                          prompt: str, 
                          output_handler: Optional[OutputHandler] = None,
                          no_animation: bool = False) -> AsyncDotLoader:
-        """
-        Create a new AsyncDotLoader instance.
-        
-        Args:
-            prompt: The prompt text to display
-            output_handler: Handler for text output
-            no_animation: Whether to disable animation
-        """
+        """Create a new AsyncDotLoader instance."""
         adaptive_buffer = self.create_adaptive_buffer()
         return AsyncDotLoader(
             prompt=prompt,

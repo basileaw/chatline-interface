@@ -1,4 +1,4 @@
-# async_interface_manager.py
+# state_managers/terminal_io.py
 
 import time
 import shutil
@@ -11,7 +11,7 @@ from utilities import (
     write_and_flush,
     manage_cursor
 )
-from painter import FORMATS
+from streaming_output.painter import FORMATS
 
 class AsyncInterfaceManager:
     """Manages user interface interactions asynchronously."""

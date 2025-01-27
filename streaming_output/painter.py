@@ -1,12 +1,15 @@
-import re
+# streaming_output/painter.py
+
 from dataclasses import dataclass
 from typing import Optional, List, Dict
 
-# ANSI Formatting Constants
+# Extended ANSI codes + colors
 FORMATS = {
     'RESET': '\033[0m',
     'ITALIC_ON': '\033[3m',
-    'ITALIC_OFF': '\033[23m'
+    'ITALIC_OFF': '\033[23m',
+    'BOLD_ON': '\033[1m',
+    'BOLD_OFF': '\033[22m'
 }
 
 COLORS = {
@@ -17,31 +20,31 @@ COLORS = {
 
 @dataclass
 class Pattern:
-    """Defines a text styling pattern with color and formatting rules."""
     name: str
     start: str
     end: str
     color: Optional[str]
     italic: bool
+    bold: bool
     remove_delimiters: bool
 
-class Painter:
-    """
-    Handles text styling and ANSI color application.
-    """
-    ANSI_REGEX = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
-
-    def __init__(self, patterns: List[Dict]=None, base_color=COLORS['GREEN']):
+class TextPainter:
+    def __init__(self, patterns: List[Dict] = None, base_color=COLORS['GREEN']):
         default_patterns = [
-            {'name': 'quotes', 'start': '"', 'end': '"', 'color': COLORS['PINK'], 'italic': False, 'remove_delimiters': False},
-            {'name': 'brackets', 'start': '[', 'end': ']', 'color': COLORS['BLUE'], 'italic': False, 'remove_delimiters': False},
-            {'name': 'emphasis', 'start': '_', 'end': '_', 'color': None, 'italic': True, 'remove_delimiters': True}
+            {'name': 'quotes', 'start': '"', 'end': '"', 'color': COLORS['PINK'], 
+             'italic': False, 'bold': False, 'remove_delimiters': False},
+            {'name': 'brackets', 'start': '[', 'end': ']', 'color': COLORS['BLUE'], 
+             'italic': False, 'bold': False, 'remove_delimiters': False},
+            {'name': 'emphasis', 'start': '_', 'end': '_', 'color': None, 
+             'italic': True, 'bold': False, 'remove_delimiters': True},
+            {'name': 'strong', 'start': '*', 'end': '*', 'color': None, 
+             'italic': False, 'bold': True, 'remove_delimiters': True}
         ]
         self.patterns = [Pattern(**p) for p in (patterns or default_patterns)]
         self.base_color = base_color
         self.active_patterns: List[str] = []
 
-        # Validate patterns for overlapping delimiters
+        # Validate patterns
         used = set()
         for p in self.patterns:
             if p.start in used or p.end in used:
@@ -56,26 +59,26 @@ class Painter:
         """Get current ANSI style based on active patterns."""
         color = self.base_color
         italic = False
+        bold = False
+        
         for name in self.active_patterns:
             pat = self.by_name[name]
-            if pat.color: 
-                color = pat.color
-            if pat.italic: 
-                italic = True
-        return (FORMATS['ITALIC_ON'] if italic else FORMATS['ITALIC_OFF']) + color
-
-    def get_visible_length(self, txt: str) -> int:
-        """Get visible length of text, ignoring ANSI escape codes."""
-        return len(self.ANSI_REGEX.sub('', txt))
-
-    def style_text(self, text: str) -> str:
-        """Apply ANSI styling to text based on defined patterns."""
-        if not text: 
-            return ""
+            if pat.color: color = pat.color
+            if pat.italic: italic = True
+            if pat.bold: bold = True
             
+        style = color
+        if italic: style += FORMATS['ITALIC_ON']
+        if bold: style += FORMATS['BOLD_ON']
+        return style
+
+    def process_chunk(self, text: str) -> str:
+        """Process a chunk of text and apply ANSI styling."""
+        if not text: return ""
         out, i = [], 0
+        
         if not self.active_patterns:
-            out.append(FORMATS['ITALIC_OFF'] + self.base_color)
+            out.append(FORMATS['ITALIC_OFF'] + FORMATS['BOLD_OFF'] + self.base_color)
             
         while i < len(text):
             ch = text[i]
@@ -85,7 +88,7 @@ class Painter:
             if self.active_patterns and ch in self.end_map:
                 if ch == self.by_name[self.active_patterns[-1]].end:
                     pat = self.by_name[self.active_patterns[-1]]
-                    if not pat.remove_delimiters:
+                    if not pat.remove_delimiters: 
                         out.append(self.get_style()+ch)
                     self.active_patterns.pop()
                     out.append(self.get_style())
@@ -96,7 +99,7 @@ class Painter:
                 new_pat = self.start_map[ch]
                 self.active_patterns.append(new_pat.name)
                 out.append(self.get_style())
-                if not new_pat.remove_delimiters:
+                if not new_pat.remove_delimiters: 
                     out.append(ch)
                 i += 1
                 continue
@@ -106,6 +109,6 @@ class Painter:
             
         return "".join(out)
 
-    def reset_state(self):
-        """Reset all styling state."""
+    def reset(self) -> None:
+        """Reset all active patterns."""
         self.active_patterns.clear()

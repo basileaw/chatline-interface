@@ -6,10 +6,10 @@ import shutil
 import logging
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import FormattedText
-from output_handler import OutputHandler
+from streaming_output.printer import OutputHandler
 from generator import generate_stream
-from painter import TextPainter, COLORS, FORMATS
-from stream_handler import StreamHandler
+from streaming_output.painter import TextPainter, COLORS, FORMATS
+from state_managers.stream import StreamHandler
 from factories import StreamComponentFactory
 from utilities import (
     clear_screen,
@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.DEBUG,
 async def main():
     try:
         logging.debug("Starting main()")
-        clear_screen()  # Removed await since this is synchronous
+        clear_screen()
         
         # Initialize core components
         logging.debug("Initializing components")
