@@ -1,4 +1,4 @@
-# state_managers/new_terminal_manager.py
+# state/new_terminal.py
 import asyncio
 import time
 from typing import List, Optional, Protocol

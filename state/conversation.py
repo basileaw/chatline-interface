@@ -1,4 +1,4 @@
-# state_managers/new_conversation_manager.py
+# state/new_conversation.py
 from typing import List, Dict, Protocol, Optional, Any, Tuple
 from dataclasses import dataclass
 
@@ -19,9 +19,9 @@ class ComponentFactory(Protocol):
     def create_output_handler(self) -> Any: ...
 
 class ConversationManager:
-    def __init__(self, terminal_manager: TerminalManager, 
+    def __init__(self, terminal: TerminalManager, 
                  generator_func: Any, component_factory: ComponentFactory):
-        self.terminal = terminal_manager
+        self.terminal = terminal
         self.generator = generator_func
         self.factory = component_factory
         self.messages: List[Message] = []

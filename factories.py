@@ -1,10 +1,10 @@
 from typing import Optional, Protocol
-from streaming_output.printer import OutputHandler
-from streaming_output.buffer import AsyncAdaptiveBuffer
+from stream.printer import OutputHandler
+from stream.buffer import AsyncAdaptiveBuffer
 from animations.dot_loader import AsyncDotLoader
 from animations.reverse_stream import ReverseStreamer
-from state_managers.terminal_manager import TerminalManager  # Updated path
-from state_managers.conversation_manager import ConversationManager  # Updated path
+from state.terminal import TerminalManager  # Updated path
+from state.conversation import ConversationManager  # Updated path
 
 class Utilities(Protocol):
     def clear_screen(self) -> None: ...
@@ -28,38 +28,38 @@ class StreamComponentFactory:
     def __init__(self, utilities: Utilities, painter: Painter):
         self.utils = utilities
         self.painter = painter
-        self._terminal_manager = None
-        self._conversation_manager = None
+        self._terminal = None
+        self._conversation = None
         self._generator_func = None
 
     @property
-    def terminal_manager(self) -> TerminalManager:
+    def terminal(self) -> TerminalManager:
         """Lazy initialization of terminal manager."""
-        if self._terminal_manager is None:
-            self._terminal_manager = TerminalManager(
+        if self._terminal is None:
+            self._terminal = TerminalManager(
                 utilities=self.utils,
                 painter=self.painter
             )
-        return self._terminal_manager
+        return self._terminal
 
     @property
-    def conversation_manager(self) -> ConversationManager:
+    def conversation(self) -> ConversationManager:
         """Lazy initialization of conversation manager."""
-        if self._conversation_manager is None:
+        if self._conversation is None:
             if not self._generator_func:
                 raise ValueError("Generator function must be set before accessing conversation manager")
-            self._conversation_manager = ConversationManager(
-                terminal_manager=self.terminal_manager,
+            self._conversation = ConversationManager(
+                terminal=self.terminal,
                 generator_func=self._generator_func,
                 component_factory=self
             )
-        return self._conversation_manager
+        return self._conversation
 
     def set_generator(self, generator_func):
         """Set the generator function for the conversation manager."""
         self._generator_func = generator_func
         # Reset conversation manager if it exists
-        self._conversation_manager = None
+        self._conversation = None
 
     def create_output_handler(self) -> OutputHandler:
         """Create a new OutputHandler instance."""
@@ -93,11 +93,11 @@ class StreamComponentFactory:
             painter=self.painter
         )
 
-    # Compatibility methods - terminal_manager now handles both screen and interface operations
+    # Compatibility methods - terminal now handles both screen and interface operations
     @property
     def screen_manager(self):
-        return self.terminal_manager
+        return self.terminal
 
     @property
     def interface_manager(self):
-        return self.terminal_manager
+        return self.terminal

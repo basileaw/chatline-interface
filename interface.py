@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import Protocol
 from utilities import RealUtilities
-from streaming_output.painter import TextPainter
+from stream.painter import TextPainter
 from generator import generate_stream
 from factories import StreamComponentFactory
 
@@ -31,8 +31,8 @@ async def main():
         logging.debug("Created component factory")
         
         # Get managers from factory
-        terminal = component_factory.terminal_manager
-        conversation = component_factory.conversation_manager
+        terminal = component_factory.terminal
+        conversation = component_factory.conversation
         logging.debug("Got managers from factory")
         
         # Clear screen using terminal manager
