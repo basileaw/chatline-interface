@@ -1,19 +1,17 @@
-# interface.py
-
 import asyncio
 import logging
 from typing import Protocol
 from utilities import RealUtilities
 from streaming_output.painter import TextPainter
 from generator import generate_stream
-from state_managers.stream import StreamHandler
-from state_managers.conversation import ConversationState
 from factories import StreamComponentFactory
 
 # Set up logging
-logging.basicConfig(level=logging.DEBUG, 
-                   format='%(asctime)s - %(levelname)s - %(message)s',
-                   filename='chat_debug.log')
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    filename='chat_debug.log'
+)
 
 async def main():
     try:
@@ -22,58 +20,48 @@ async def main():
         # Create core dependencies
         utilities = RealUtilities()
         painter = TextPainter(utilities=utilities)
+        logging.debug("Created core dependencies")
         
         # Create factory with core dependencies
         component_factory = StreamComponentFactory(
             utilities=utilities,
             painter=painter
         )
+        component_factory.set_generator(generate_stream)
+        logging.debug("Created component factory")
         
-        # Create output handler through factory
-        output_handler = component_factory.create_output_handler()
+        # Get managers from factory
+        terminal = component_factory.terminal_manager
+        conversation = component_factory.conversation_manager
+        logging.debug("Got managers from factory")
         
-        # Create conversation state
-        conversation_state = ConversationState(
-            system_prompt='Be helpful, concise, and honest. Use text styles:\n'
-            '- "quotes" for dialogue\n'
-            '- [brackets] for observations\n'
-            '- _underscores_ for emphasis\n'
-            '- *asterisks* for bold text'
-        )
-        
-        # Create stream handler with dependencies
-        stream_handler = StreamHandler(
-            utilities=utilities,
-            generator_func=generate_stream,
-            component_factory=component_factory,
-            conversation_state=conversation_state
-        )
-        
-        # Clear screen using utilities
-        utilities.clear_screen()
+        # Clear screen using terminal manager
+        await terminal.clear()
+        logging.debug("Cleared screen")
         
         # Initial message handling
-        logging.debug("Starting intro message")
+        logging.debug("About to start intro message")
         intro_msg = "Introduce yourself in 3 lines, 7 words each..."
-        _, intro_styled, _ = await stream_handler.handle_intro(intro_msg, output_handler)
+        _, intro_styled, _ = await conversation.handle_intro(intro_msg)
+        logging.debug("Completed intro handling")
         
         logging.debug("Starting main loop")
         while True:
             try:
-                user = await stream_handler.get_input()
+                logging.debug("Waiting for user input")
+                user = await terminal.get_user_input()
+                logging.debug(f"Got user input: {user}")
+                
                 if not user:
                     continue
                     
                 if user.lower() == "retry":
-                    _, intro_styled, _ = await stream_handler.handle_retry(
-                        intro_styled, 
-                        output_handler,
-                        silent=stream_handler.state.is_last_message_silent
-                    )
+                    logging.debug("Handling retry")
+                    _, intro_styled, _ = await conversation.handle_retry(intro_styled)
                 else:
-                    _, intro_styled, _ = await stream_handler.handle_message(
-                        user, intro_styled, output_handler
-                    )
+                    logging.debug("Handling message")
+                    _, intro_styled, _ = await conversation.handle_message(user, intro_styled)
+                    
             except KeyboardInterrupt:
                 print("\nExiting...")
                 break
@@ -85,11 +73,12 @@ async def main():
     except Exception as e:
         logging.error(f"Critical error in main: {str(e)}", exc_info=True)
         raise
-
+        
     finally:
-        # Clean up using painter and utilities
+        # Clean up using terminal manager
+        await terminal.update_display()
         utilities.write_and_flush(painter.get_format('RESET'))
         utilities.show_cursor()
-
+        
 if __name__ == "__main__":
     asyncio.run(main())

@@ -1,12 +1,11 @@
 from typing import Optional, Protocol
+from streaming_output.printer import OutputHandler
 from streaming_output.buffer import AsyncAdaptiveBuffer
 from animations.dot_loader import AsyncDotLoader
 from animations.reverse_stream import ReverseStreamer
-from streaming_output.printer import OutputHandler
-from state_managers.terminal_io import AsyncInterfaceManager
-from state_managers.screen import AsyncScreenManager
+from state_managers.terminal_manager import TerminalManager  # Updated path
+from state_managers.conversation_manager import ConversationManager  # Updated path
 
-# Local protocols to avoid circular imports
 class Utilities(Protocol):
     def clear_screen(self) -> None: ...
     def get_visible_length(self, text: str) -> int: ...
@@ -27,37 +26,47 @@ class StreamComponentFactory:
     """Factory for creating stream-related components."""
     
     def __init__(self, utilities: Utilities, painter: Painter):
-        """
-        Initialize factory with core dependencies.
-        
-        Args:
-            utilities: Utilities instance for terminal operations
-            painter: Painter instance for text styling
-        """
         self.utils = utilities
         self.painter = painter
-        self._interface_manager = None
-        self._screen_manager = None
+        self._terminal_manager = None
+        self._conversation_manager = None
+        self._generator_func = None
 
     @property
-    def screen_manager(self) -> AsyncScreenManager:
-        """Lazy initialization of screen manager."""
-        if self._screen_manager is None:
-            self._screen_manager = AsyncScreenManager(
+    def terminal_manager(self) -> TerminalManager:
+        """Lazy initialization of terminal manager."""
+        if self._terminal_manager is None:
+            self._terminal_manager = TerminalManager(
                 utilities=self.utils,
                 painter=self.painter
             )
-        return self._screen_manager
+        return self._terminal_manager
 
     @property
-    def interface_manager(self) -> AsyncInterfaceManager:
-        """Lazy initialization of interface manager."""
-        if self._interface_manager is None:
-            self._interface_manager = AsyncInterfaceManager(
-                utilities=self.utils,
-                painter=self.painter
+    def conversation_manager(self) -> ConversationManager:
+        """Lazy initialization of conversation manager."""
+        if self._conversation_manager is None:
+            if not self._generator_func:
+                raise ValueError("Generator function must be set before accessing conversation manager")
+            self._conversation_manager = ConversationManager(
+                terminal_manager=self.terminal_manager,
+                generator_func=self._generator_func,
+                component_factory=self
             )
-        return self._interface_manager
+        return self._conversation_manager
+
+    def set_generator(self, generator_func):
+        """Set the generator function for the conversation manager."""
+        self._generator_func = generator_func
+        # Reset conversation manager if it exists
+        self._conversation_manager = None
+
+    def create_output_handler(self) -> OutputHandler:
+        """Create a new OutputHandler instance."""
+        return OutputHandler(
+            painter=self.painter,
+            utilities=self.utils
+        )
 
     def create_adaptive_buffer(self) -> AsyncAdaptiveBuffer:
         """Create a new AsyncAdaptiveBuffer instance."""
@@ -67,17 +76,7 @@ class StreamComponentFactory:
                          prompt: str,
                          output_handler: Optional[OutputHandler] = None,
                          no_animation: bool = False) -> AsyncDotLoader:
-        """
-        Create a new AsyncDotLoader instance.
-        
-        Args:
-            prompt: The prompt text to display
-            output_handler: Optional output handler for processing text
-            no_animation: Whether to disable animation
-            
-        Returns:
-            AsyncDotLoader: Configured dot loader instance
-        """
+        """Create a new AsyncDotLoader instance."""
         adaptive_buffer = self.create_adaptive_buffer()
         return AsyncDotLoader(
             utilities=self.utils,
@@ -94,9 +93,11 @@ class StreamComponentFactory:
             painter=self.painter
         )
 
-    def create_output_handler(self) -> OutputHandler:
-        """Create a new OutputHandler instance."""
-        return OutputHandler(
-            painter=self.painter,
-            utilities=self.utils
-        )
+    # Compatibility methods - terminal_manager now handles both screen and interface operations
+    @property
+    def screen_manager(self):
+        return self.terminal_manager
+
+    @property
+    def interface_manager(self):
+        return self.terminal_manager
