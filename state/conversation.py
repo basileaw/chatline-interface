@@ -1,5 +1,5 @@
-# state/new_conversation.py
-from typing import List, Dict, Protocol, Optional, Any, Tuple
+# state/conversation.py
+from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
 
 @dataclass
@@ -7,20 +7,8 @@ class Message:
     role: str
     content: str
 
-class TerminalManager(Protocol):
-    async def get_user_input(self, default_text: str = "", add_newline: bool = True) -> str: ...
-    async def clear(self) -> None: ...
-    async def handle_scroll(self, styled_lines: str, prompt: str, delay: float = 0.5) -> None: ...
-
-class ComponentFactory(Protocol):
-    def create_dot_loader(self, prompt: str, output_handler: Any = None, 
-                         no_animation: bool = False) -> Any: ...
-    def create_reverse_streamer(self) -> Any: ...
-    def create_output_handler(self) -> Any: ...
-
 class ConversationManager:
-    def __init__(self, terminal: TerminalManager, 
-                 generator_func: Any, component_factory: ComponentFactory):
+    def __init__(self, terminal, generator_func: Any, component_factory):
         self.terminal = terminal
         self.generator = generator_func
         self.factory = component_factory

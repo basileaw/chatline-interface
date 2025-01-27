@@ -2,7 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass
-from typing import List, Protocol
+from typing import List
 
 @dataclass
 class StyledWord:
@@ -10,18 +10,10 @@ class StyledWord:
     styled_text: str
     active_patterns: List[str]
 
-class Utilities(Protocol):
-    def clear_screen(self) -> None: ...
-    def write_and_flush(self, text: str) -> None: ...
-    def get_visible_length(self, text: str) -> int: ...
-    def get_format(self, name: str) -> str: ...
-    def get_base_color(self, color_name: str) -> str: ...
-    def get_style(self, active_patterns: List[str], base_color: str) -> str: ...
-
 class ReverseStreamer:
     """Handles reverse streaming of text with styling and animations."""
     
-    def __init__(self, utilities: Utilities, base_color='GREEN'):
+    def __init__(self, utilities, base_color='GREEN'):
         self.utils = utilities
         self._base_color = self.utils.get_base_color(base_color)
         
