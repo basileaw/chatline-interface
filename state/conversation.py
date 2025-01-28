@@ -1,4 +1,5 @@
 # state/conversation.py
+
 from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
 
@@ -8,10 +9,11 @@ class Message:
     content: str
 
 class ConversationManager:
-    def __init__(self, terminal, generator_func: Any, component_factory):
+    def __init__(self, terminal, generator_func: Any, component_factory, animations_manager):
         self.terminal = terminal
         self.generator = generator_func
         self.factory = component_factory
+        self.animations = animations_manager
         self.messages: List[Message] = []
         self.is_last_message_silent = False
         self.preserved_prompt = ""
@@ -37,7 +39,7 @@ class ConversationManager:
         output_handler = self.factory.create_output_handler()
         
         # Process in silent mode
-        loader = self.factory.create_dot_loader(
+        loader = self.animations.create_dot_loader(
             "",
             output_handler=output_handler,
             no_animation=True
@@ -63,7 +65,7 @@ class ConversationManager:
         )
         
         self.messages.append(Message(role="user", content=user_input))
-        loader = self.factory.create_dot_loader(
+        loader = self.animations.create_dot_loader(
             f"> {user_input}",
             output_handler=output_handler
         )
@@ -81,7 +83,7 @@ class ConversationManager:
     async def handle_retry(self, intro_styled: str) -> Tuple[str, str, str]:
         """Handle a retry request."""
         output_handler = self.factory.create_output_handler()
-        reverse_streamer = self.factory.create_reverse_streamer()
+        reverse_streamer = self.animations.create_reverse_streamer()
         
         preserved_msg = "" if self.is_last_message_silent else self.preserved_prompt
         await reverse_streamer.reverse_stream(intro_styled, preserved_msg)
@@ -91,7 +93,7 @@ class ConversationManager:
             for msg in reversed(self.messages):
                 if msg.role == "user":
                     self.messages.append(Message(role="user", content=msg.content))
-                    loader = self.factory.create_dot_loader(
+                    loader = self.animations.create_dot_loader(
                         "",
                         output_handler=output_handler,
                         no_animation=True
@@ -118,7 +120,7 @@ class ConversationManager:
             await self.terminal.clear()
             self.messages.append(Message(role="user", content=final_message))
             
-            loader = self.factory.create_dot_loader(
+            loader = self.animations.create_dot_loader(
                 f"> {final_message}",
                 output_handler=output_handler
             )

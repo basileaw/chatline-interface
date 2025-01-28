@@ -2,13 +2,12 @@
 
 import asyncio
 import logging
-from typing import Optional, Protocol
+from typing import Protocol
 from utilities import RealUtilities
-from dot_loader import AsyncDotLoader
-from reverse_stream import ReverseStreamer
 from state.terminal import TerminalManager
 from state.conversation import ConversationManager
 from state.stream import StreamHandler
+from state.animations import AnimationsManager
 from generator import generate_stream
 
 # Initialize logging
@@ -35,28 +34,17 @@ class ComponentFactory:
         
     def create_output_handler(self):
         return StreamHandler(self.utils)
-        
-    def create_dot_loader(self, prompt: str, output_handler: Optional[StreamHandler] = None,
-                         no_animation: bool = False) -> AsyncDotLoader:
-        return AsyncDotLoader(
-            utilities=self.utils,
-            prompt=prompt,
-            adaptive_buffer=output_handler,  # Now using output_handler as the buffer
-            output_handler=output_handler,
-            no_animation=no_animation
-        )
-        
-    def create_reverse_streamer(self) -> ReverseStreamer:
-        return ReverseStreamer(self.utils)
 
 # Initialize core components
 utilities = RealUtilities()
 factory = ComponentFactory(utilities)
 terminal = TerminalManager(utilities)
+animations = AnimationsManager(utilities)
 conversation = ConversationManager(
     terminal=terminal,
     generator_func=generate_stream,
-    component_factory=factory
+    component_factory=factory,
+    animations_manager=animations
 )
 
 async def main():
