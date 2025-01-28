@@ -6,7 +6,7 @@ from typing import Protocol
 from utilities import RealUtilities
 from state.terminal import TerminalManager
 from state.conversation import ConversationManager
-from state.stream import StreamManager
+from state.text import TextProcessor
 from state.animations import AnimationsManager
 from generator import generate_stream
 
@@ -32,11 +32,11 @@ class Utilities(Protocol):
 utilities = RealUtilities()
 terminal = TerminalManager(utilities)
 animations = AnimationsManager(utilities)
-stream = StreamManager(utilities)
+text_processor = TextProcessor(utilities)
 conversation = ConversationManager(
     terminal=terminal,
     generator_func=generate_stream,
-    stream_manager=stream,
+    text_processor=text_processor,
     animations_manager=animations
 )
 

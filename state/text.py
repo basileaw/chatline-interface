@@ -1,11 +1,11 @@
-# state/stream.py
+# state/text.py
 
 import sys
 import asyncio
 from typing import List, Optional, Tuple
 
-class StreamHandler:
-    """Handles text styling, wrapping, and terminal output."""
+class StyledTextHandler:
+    """Handles text styling, wrapping, and formatted output."""
     
     def __init__(self, utilities):
         self.utils = utilities
@@ -173,8 +173,8 @@ class StreamHandler:
         self.word_buffer = ""
         self.current_line_length = 0
 
-class RawOutputHandler:
-    """Simple pass-through handler for raw output."""
+class RawTextHandler:
+    """Simple pass-through handler for raw text output."""
     def __init__(self, utilities):
         self.utils = utilities
         self._buffer_lock = asyncio.Lock()
@@ -197,16 +197,84 @@ class RawOutputHandler:
         """Flush buffer (no-op since we process immediately)."""
         return "", ""
 
-class StreamManager:
-    """Manages stream handling and output processing."""
+class TextProcessor:
+    """Manages text processing and styling operations."""
     
     def __init__(self, utilities):
         self.utils = utilities
         
-    def create_stream_handler(self) -> StreamHandler:
-        """Create a new StreamHandler instance."""
-        return StreamHandler(self.utils)
+    def create_styled_handler(self) -> StyledTextHandler:
+        """Create a new StyledTextHandler instance."""
+        return StyledTextHandler(self.utils)
         
-    def create_raw_output_handler(self) -> RawOutputHandler:
-        """Create a new RawOutputHandler instance."""
-        return RawOutputHandler(self.utils)
+    def create_raw_handler(self) -> RawTextHandler:
+        """Create a new RawTextHandler instance."""
+        return RawTextHandler(self.utils)
+        
+    def split_into_styled_words(self, text: str, patterns: dict) -> List[dict]:
+        """Split text into styled words while preserving formatting."""
+        words = []
+        current = {'word': [], 'styled': [], 'patterns': []}
+        i = 0
+        
+        while i < len(text):
+            char = text[i]
+            
+            if char in patterns['start_map']:
+                pattern = patterns['start_map'][char]
+                current['patterns'].append(pattern.name)
+                if not pattern.remove_delimiters:
+                    current['word'].append(char)
+                    current['styled'].append(char)
+            elif current['patterns'] and char in patterns['end_map']:
+                pattern = patterns['by_name'][current['patterns'][-1]]
+                if char == pattern.end:
+                    if not pattern.remove_delimiters:
+                        current['word'].append(char)
+                        current['styled'].append(char)
+                    current['patterns'].pop()
+            elif char.isspace():
+                if current['word']:
+                    words.append({
+                        'raw_text': ''.join(current['word']),
+                        'styled_text': ''.join(current['styled']),
+                        'active_patterns': current['patterns'].copy()
+                    })
+                    current = {'word': [], 'styled': [], 'patterns': []}
+            else:
+                current['word'].append(char)
+                current['styled'].append(char)
+            i += 1
+            
+        if current['word']:
+            words.append({
+                'raw_text': ''.join(current['word']),
+                'styled_text': ''.join(current['styled']),
+                'active_patterns': current['patterns'].copy()
+            })
+            
+        return words
+
+    def format_styled_lines(self, lines: List[List[dict]], base_color: str) -> str:
+        """Format lines of styled words into a complete styled string."""
+        formatted_lines = []
+        current_style = self.utils.get_format('RESET') + base_color
+        
+        for line in lines:
+            line_content = [current_style]
+            for word in line:
+                new_style = self.utils.get_style(word['active_patterns'], base_color)
+                if new_style != current_style:
+                    line_content.append(new_style)
+                    current_style = new_style
+                line_content.append(word['styled_text'] + " ")
+                
+            formatted_line = "".join(line_content).rstrip()
+            if formatted_line:
+                formatted_lines.append(formatted_line)
+                
+        result = "\n".join(formatted_lines)
+        if current_style != self.utils.get_format('RESET') + base_color:
+            result += self.utils.get_format('RESET') + base_color
+            
+        return result
