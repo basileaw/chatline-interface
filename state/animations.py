@@ -10,7 +10,8 @@ class Buffer(Protocol):
 class AsyncDotLoader:
     def __init__(self, utilities, prompt: str, adaptive_buffer=None, output_handler=None, 
                  no_animation=False):
-        self.utils, self.out, self.buffer = utilities, output_handler, adaptive_buffer
+        self.utils = utilities
+        self.out, self.buffer = output_handler, adaptive_buffer
         self.prompt, self.no_anim = prompt.rstrip('.?!'), no_animation
         self.dot_char = '.' if prompt.endswith('.') or not prompt.endswith(('?','!')) else prompt[-1]
         self.dots = 1 if prompt.endswith(('.','?','!')) else 0
@@ -19,18 +20,19 @@ class AsyncDotLoader:
         self.resolved = False
 
     async def _animate(self) -> None:
-        self.utils.hide_cursor()
+        self.terminal._hide_cursor()  # Use terminal's method directly
         try:
             while not self.animation_complete.is_set():
-                self.utils.write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
+                await self.terminal.write_loading_state(self.prompt, self.dots)
                 await asyncio.sleep(0.4)
                 if self.resolved and self.dots == 3:
-                    self.utils.write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}\n\n")
+                    await self.terminal.write_loading_state(self.prompt, 3)
+                    self.terminal._write('\n\n')  # Use terminal's method
                     break
                 self.dots = min(self.dots + 1, 3) if self.resolved else (self.dots + 1) % 4
             self.animation_complete.set()
         finally:
-            self.utils.show_cursor()
+            self.terminal._show_cursor()  # Use terminal's method
 
     async def run_with_loading(self, stream: Any) -> Tuple[str, str]:
         if not self.buffer: raise ValueError("AdaptiveBuffer must be provided")
@@ -80,8 +82,10 @@ class AsyncDotLoader:
 
 class ReverseStreamer:
     def __init__(self, utilities, terminal, text_processor, base_color='GREEN'):
-        self.utils, self.terminal = utilities, terminal
-        self.text_processor, self._base_color = text_processor, utilities.get_base_color(base_color)
+        self.utils = utilities
+        self.terminal = terminal
+        self.text_processor = text_processor
+        self._base_color = text_processor.get_base_color(base_color)  # Use text_processor directly
 
     async def reverse_stream(self, styled_text: str, preserved_msg: str = "", delay: float = 0.08):
         lines = [self.text_processor.split_into_styled_words(line, 
@@ -105,10 +109,19 @@ class ReverseStreamer:
 
 class AnimationsManager:
     def __init__(self, utilities, terminal, text_processor):
-        self.utils, self.terminal, self.text_processor = utilities, terminal, text_processor
+        self.utils = utilities
+        self.terminal = terminal
+        self.text_processor = text_processor
     
     def create_dot_loader(self, prompt: str, output_handler=None, no_animation=False):
-        return AsyncDotLoader(self.utils, prompt, output_handler, output_handler, no_animation)
+        loader = AsyncDotLoader(self.utils, prompt, output_handler, output_handler, no_animation)
+        loader.terminal = self.terminal  # Inject terminal dependency
+        return loader
     
     def create_reverse_streamer(self, base_color='GREEN'):
-        return ReverseStreamer(self.utils, self.terminal, self.text_processor, base_color)
+        return ReverseStreamer(
+            utilities=self.utils,
+            terminal=self.terminal,
+            text_processor=self.text_processor,
+            base_color=base_color
+        )

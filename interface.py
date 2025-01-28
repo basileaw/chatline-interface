@@ -1,5 +1,4 @@
 # interface.py
-
 import asyncio
 import logging
 from typing import Protocol
@@ -18,6 +17,7 @@ logging.basicConfig(
 )
 
 class Utilities(Protocol):
+    """Protocol for utilities during transition phase."""
     def clear_screen(self) -> None: ...
     def get_visible_length(self, text: str) -> int: ...
     def write_and_flush(self, text: str) -> None: ...
@@ -29,10 +29,10 @@ class Utilities(Protocol):
     def get_style(self, active_patterns: list[str], base_color: str) -> str: ...
 
 # Initialize core components
-utilities = RealUtilities()
-terminal = TerminalManager(utilities)
-text_processor = TextProcessor(utilities)
-animations = AnimationsManager(utilities, terminal, text_processor)
+utilities = RealUtilities()  # Still needed during transition
+terminal = TerminalManager(utilities)  # Terminal ops will migrate here
+text_processor = TextProcessor(utilities)  # Text processing and styling
+animations = AnimationsManager(utilities, terminal, text_processor)  # Animation handling
 conversation = ConversationManager(
     terminal=terminal,
     generator_func=generate_stream,
@@ -66,7 +66,7 @@ async def main():
         raise
     finally:
         await terminal.update_display()
-        utilities.show_cursor()
+        terminal._show_cursor()  # Use terminal's internal method
 
 if __name__ == "__main__":
     asyncio.run(main())
