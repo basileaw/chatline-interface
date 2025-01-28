@@ -1,10 +1,6 @@
 # state/animations.py
-
-import asyncio
-import json
-import time
-from dataclasses import dataclass
-from typing import List, Protocol, Optional, Any, Tuple
+import asyncio, json, time
+from typing import Protocol, Optional, Any, Tuple, List
 
 class Buffer(Protocol):
     async def add(self, chunk: str, output_handler: Any) -> Tuple[str, str]: ...
@@ -12,38 +8,18 @@ class Buffer(Protocol):
     def reset(self) -> None: ...
 
 class AsyncDotLoader:
-    """Handles loading animation with dots."""
-    
     def __init__(self, utilities, prompt: str, adaptive_buffer: Optional[Buffer]=None,
-                 interval=0.4, output_handler: Optional[Any]=None,
-                 reuse_prompt=False, no_animation=False):
-        self.utils = utilities
-        self.out = output_handler
-        self.buffer = adaptive_buffer
-        self.interval = interval
-        self.reuse = reuse_prompt
-        self.no_anim = no_animation
-        self.animation_task = None
-        self.animation_complete = asyncio.Event()
+                 interval=0.4, output_handler=None, reuse_prompt=False, no_animation=False):
+        self.utils, self.out, self.buffer = utilities, output_handler, adaptive_buffer
+        self.interval, self.reuse, self.no_anim = interval, reuse_prompt, no_animation
+        self.animation_task, self.animation_complete = None, asyncio.Event()
         self.resolved = False
-        
-        # Process the prompt
         suffix = prompt[-1] if prompt else ""
-        if suffix in ("?", "!"):
-            self.prompt = prompt[:-1]
-            self.dot_char = suffix
-            self.dots = 1
-        elif suffix == ".":
-            self.prompt = prompt[:-1]
-            self.dot_char = "."
-            self.dots = 1
-        else:
-            self.prompt = prompt
-            self.dot_char = "."
-            self.dots = 0
+        if suffix in ("?", "!"): self.prompt, self.dot_char, self.dots = prompt[:-1], suffix, 1
+        elif suffix == ".": self.prompt, self.dot_char, self.dots = prompt[:-1], ".", 1
+        else: self.prompt, self.dot_char, self.dots = prompt, ".", 0
 
     async def _animate(self) -> None:
-        """Animate the loading dots."""
         self.utils.hide_cursor()
         try:
             self.utils.write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
@@ -52,181 +28,92 @@ class AsyncDotLoader:
                 if self.resolved and self.dots == 3:
                     seq = "\n\n" if not self.reuse else "\033[2B"
                     self.utils.write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*3}{seq}")
-                    self.animation_complete.set()
-                    break
+                    self.animation_complete.set(); break
                 self.dots = min(self.dots + 1, 3) if self.resolved else (self.dots + 1) % 4
                 self.utils.write_and_flush(f"\r{' '*80}\r{self.prompt}{self.dot_char*self.dots}")
-        finally:
-            self.utils.show_cursor()
-
-    async def _replay_chunks(self, stored: List[Tuple[str,float]]) -> Tuple[str,str]:
-        """Replay stored chunks with timing."""
-        if not stored:
-            return "", ""
-        stored.sort(key=lambda x: x[1])
-        raw_acc, style_acc = "", ""
-        for i, (txt, ts) in enumerate(stored):
-            if i:
-                await asyncio.sleep(ts - stored[i-1][1])
-            raw, styled = await self.buffer.add(txt, self.out)
-            raw_acc += raw
-            style_acc += styled
-        return raw_acc, style_acc
+        finally: self.utils.show_cursor()
 
     async def run_with_loading(self, stream: Any) -> Tuple[str, str]:
-        """Run the loading animation while processing the stream."""
-        if not self.buffer:
-            raise ValueError("AdaptiveBuffer must be provided")
-            
-        raw, styled = "", ""
-        stored, store_mode = [], True
-        first_chunk = True
-        
+        if not self.buffer: raise ValueError("AdaptiveBuffer must be provided")
+        raw, styled, stored, first_chunk = "", "", [], True
         if not self.no_anim:
             self.animation_task = asyncio.create_task(self._animate())
             await asyncio.sleep(0.01)
-            
         try:
             for chunk in stream:
                 c = chunk.strip()
-                if c == "data: [DONE]":
-                    break
-                    
+                if c == "data: [DONE]": break
                 if c.startswith("data: "):
                     try:
-                        data = json.loads(c[6:])
-                        txt = data["choices"][0]["delta"].get("content","")
+                        txt = json.loads(c[6:])["choices"][0]["delta"].get("content","")
                         if txt:
                             if first_chunk:
                                 self.resolved = True
-                                if not self.no_anim:
-                                    await self.animation_complete.wait()
+                                if not self.no_anim: await self.animation_complete.wait()
                                 first_chunk = False
-                                
-                            now = time.time()
-                            if store_mode:
-                                if not self.animation_complete.is_set():
-                                    stored.append((txt, now))
-                                else:
-                                    store_mode = False
-                                    r1, s1 = await self._replay_chunks(stored)
-                                    raw += r1
-                                    styled += s1
-                                    stored.clear()
-                                    r2, s2 = await self.buffer.add(txt, self.out)
-                                    raw += r2
-                                    styled += s2
+                            if not self.animation_complete.is_set():
+                                stored.append((txt, time.time()))
                             else:
-                                r3, s3 = await self.buffer.add(txt, self.out)
-                                raw += r3
-                                styled += s3
+                                if stored:
+                                    stored.sort(key=lambda x: x[1])
+                                    for i, (t, ts) in enumerate(stored):
+                                        if i: await asyncio.sleep(ts - stored[i-1][1])
+                                        r, s = await self.buffer.add(t, self.out)
+                                        raw, styled = raw + r, styled + s
+                                    stored.clear()
+                                r2, s2 = await self.buffer.add(txt, self.out)
+                                raw, styled = raw + r2, styled + s2
                             await asyncio.sleep(0.01)
-                    except json.JSONDecodeError:
-                        pass
-                await asyncio.sleep(0)
+                    except json.JSONDecodeError: pass
         finally:
             self.resolved = True
             self.animation_complete.set()
-            if self.animation_task:
-                await self.animation_task
-            if store_mode:
-                r4, s4 = await self._replay_chunks(stored)
-                raw += r4
-                styled += s4
-            rr, ss = await self.buffer.flush(self.out)
-            raw += rr
-            styled += ss
+            if self.animation_task: await self.animation_task
+            if stored:
+                stored.sort(key=lambda x: x[1])
+                for i, (t, ts) in enumerate(stored):
+                    if i: await asyncio.sleep(ts - stored[i-1][1])
+                    r, s = await self.buffer.add(t, self.out)
+                    raw, styled = raw + r, styled + s
+            r, s = await self.buffer.flush(self.out)
+            raw, styled = raw + r, styled + s
             if hasattr(self.out, 'flush'):
                 _, final_styled = await self.out.flush()
-                if final_styled:
-                    styled += final_styled
+                if final_styled: styled += final_styled
         return raw, styled
 
 class ReverseStreamer:
-    """Handles reverse streaming of text with styling and animations."""
-    
     def __init__(self, utilities, terminal, text_processor, base_color='GREEN'):
-        self.utils = utilities
-        self.terminal = terminal
-        self.text_processor = text_processor
-        self._base_color = self.utils.get_base_color(base_color)
+        self.utils, self.terminal = utilities, terminal
+        self.text_processor, self._base_color = text_processor, self.utils.get_base_color(base_color)
 
-    async def reverse_stream(self, styled_text: str, preserved_msg: str = "", 
-                           delay: float = 0.08):
-        """Animate the reverse streaming of styled text."""
-        # Split text into lines and process each line into styled words
-        text_lines = styled_text.splitlines()
-        processed_lines = []
-        pattern_maps = {
-            'by_name': self.utils.by_name,
-            'start_map': self.utils.start_map,
-            'end_map': self.utils.end_map
-        }
-        
-        for line in text_lines:
-            processed_lines.append(
-                self.text_processor.split_into_styled_words(line, pattern_maps)
-            )
-            
+    async def reverse_stream(self, styled_text: str, preserved_msg: str = "", delay: float = 0.08):
+        lines = [self.text_processor.split_into_styled_words(line, {
+            'by_name': self.utils.by_name, 'start_map': self.utils.start_map, 
+            'end_map': self.utils.end_map}) for line in styled_text.splitlines()]
         no_spacing = not bool(preserved_msg)
-        
-        # Animate reverse streaming
-        for line_idx in range(len(processed_lines) - 1, -1, -1):
-            while processed_lines[line_idx]:
-                processed_lines[line_idx].pop()
-                formatted = self.text_processor.format_styled_lines(
-                    processed_lines,
-                    self._base_color
-                )
+        for line_idx in range(len(lines) - 1, -1, -1):
+            while lines[line_idx]:
+                lines[line_idx].pop()
                 await self.terminal.update_animated_display(
-                    formatted, 
-                    preserved_msg, 
-                    no_spacing
-                )
+                    self.text_processor.format_styled_lines(lines, self._base_color),
+                    preserved_msg, no_spacing)
                 await asyncio.sleep(delay)
-                
         if preserved_msg:
-            await self.reverse_stream_dots(preserved_msg)
-            
+            msg_without_dots = preserved_msg.rstrip('.')
+            for i in range(len(preserved_msg) - len(msg_without_dots) - 1, -1, -1):
+                await self.terminal.update_animated_display("", msg_without_dots + '.' * i)
+                await asyncio.sleep(0.08)
         await self.terminal.update_animated_display()
 
-    async def reverse_stream_dots(self, preserved_msg: str) -> str:
-        """Animate the removal of dots from the preserved message."""
-        msg_without_dots = preserved_msg.rstrip('.')
-        num_dots = len(preserved_msg) - len(msg_without_dots)
-        
-        for i in range(num_dots - 1, -1, -1):
-            await self.terminal.update_animated_display(
-                "", 
-                msg_without_dots + '.' * i
-            )
-            await asyncio.sleep(0.08)
-            
-        return msg_without_dots
-
 class AnimationsManager:
-    """Manages all animation-related functionality."""
-    
     def __init__(self, utilities, terminal, text_processor):
-        self.utils = utilities
-        self.terminal = terminal
-        self.text_processor = text_processor
+        self.utils, self.terminal, self.text_processor = utilities, terminal, text_processor
     
     def create_dot_loader(self, prompt: str, output_handler=None, no_animation: bool = False):
-        """Create a new dot loader animation instance."""
-        return AsyncDotLoader(
-            utilities=self.utils,
-            prompt=prompt,
-            adaptive_buffer=output_handler,
-            output_handler=output_handler,
-            no_animation=no_animation
-        )
+        return AsyncDotLoader(utilities=self.utils, prompt=prompt, adaptive_buffer=output_handler,
+                            output_handler=output_handler, no_animation=no_animation)
     
     def create_reverse_streamer(self, base_color='GREEN'):
-        """Create a new reverse streamer animation instance."""
-        return ReverseStreamer(
-            utilities=self.utils,
-            terminal=self.terminal,
-            text_processor=self.text_processor,
-            base_color=base_color
-        )
+        return ReverseStreamer(utilities=self.utils, terminal=self.terminal,
+                             text_processor=self.text_processor, base_color=base_color)
