@@ -11,12 +11,6 @@ class Buffer(Protocol):
     async def flush(self, output_handler: Any) -> Tuple[str, str]: ...
     def reset(self) -> None: ...
 
-@dataclass
-class StyledWord:
-    raw_text: str
-    styled_text: str
-    active_patterns: List[str]
-
 class AsyncDotLoader:
     """Handles loading animation with dots."""
     
@@ -151,92 +145,39 @@ class AsyncDotLoader:
 class ReverseStreamer:
     """Handles reverse streaming of text with styling and animations."""
     
-    def __init__(self, utilities, terminal, base_color='GREEN'):
+    def __init__(self, utilities, terminal, text_processor, base_color='GREEN'):
         self.utils = utilities
         self.terminal = terminal
+        self.text_processor = text_processor
         self._base_color = self.utils.get_base_color(base_color)
-        self.by_name = self.utils.by_name
-        self.start_map = self.utils.start_map
-        self.end_map = self.utils.end_map
-
-    def split_into_styled_words(self, text: str) -> List[StyledWord]:
-        """Split text into styled words while preserving formatting."""
-        words = []
-        current = {'word': [], 'styled': [], 'patterns': []}
-        i = 0
-        
-        while i < len(text):
-            char = text[i]
-            
-            if char in self.start_map:
-                pattern = self.start_map[char]
-                current['patterns'].append(pattern.name)
-                if not pattern.remove_delimiters:
-                    current['word'].append(char)
-                    current['styled'].append(char)
-            elif current['patterns'] and char in self.end_map:
-                pattern = self.by_name[current['patterns'][-1]]
-                if char == pattern.end:
-                    if not pattern.remove_delimiters:
-                        current['word'].append(char)
-                        current['styled'].append(char)
-                    current['patterns'].pop()
-            elif char.isspace():
-                if current['word']:
-                    words.append(StyledWord(
-                        raw_text=''.join(current['word']),
-                        styled_text=''.join(current['styled']),
-                        active_patterns=current['patterns'].copy()
-                    ))
-                    current = {'word': [], 'styled': [], 'patterns': []}
-            else:
-                current['word'].append(char)
-                current['styled'].append(char)
-            i += 1
-            
-        if current['word']:
-            words.append(StyledWord(
-                raw_text=''.join(current['word']),
-                styled_text=''.join(current['styled']),
-                active_patterns=current['patterns'].copy()
-            ))
-            
-        return words
-
-    def format_lines(self, lines: List[List[StyledWord]]) -> str:
-        """Format lines of styled words into a complete styled string."""
-        formatted_lines = []
-        current_style = self.utils.get_format('RESET') + self._base_color
-        
-        for line in lines:
-            line_content = [current_style]
-            for word in line:
-                new_style = self.utils.get_style(word.active_patterns, self._base_color)
-                if new_style != current_style:
-                    line_content.append(new_style)
-                    current_style = new_style
-                line_content.append(word.styled_text + " ")
-                
-            formatted_line = "".join(line_content).rstrip()
-            if formatted_line:
-                formatted_lines.append(formatted_line)
-                
-        result = "\n".join(formatted_lines)
-        if current_style != self.utils.get_format('RESET') + self._base_color:
-            result += self.utils.get_format('RESET') + self._base_color
-            
-        return result
 
     async def reverse_stream(self, styled_text: str, preserved_msg: str = "", 
                            delay: float = 0.08):
         """Animate the reverse streaming of styled text."""
-        lines = [self.split_into_styled_words(line) for line in styled_text.splitlines()]
+        # Split text into lines and process each line into styled words
+        text_lines = styled_text.splitlines()
+        processed_lines = []
+        pattern_maps = {
+            'by_name': self.utils.by_name,
+            'start_map': self.utils.start_map,
+            'end_map': self.utils.end_map
+        }
+        
+        for line in text_lines:
+            processed_lines.append(
+                self.text_processor.split_into_styled_words(line, pattern_maps)
+            )
+            
         no_spacing = not bool(preserved_msg)
         
-        for line_idx in range(len(lines) - 1, -1, -1):
-            while lines[line_idx]:
-                lines[line_idx].pop()
-                formatted = self.format_lines(lines)
+        # Animate reverse streaming
+        for line_idx in range(len(processed_lines) - 1, -1, -1):
+            while processed_lines[line_idx]:
+                processed_lines[line_idx].pop()
+                formatted = self.text_processor.format_styled_lines(
+                    processed_lines,
+                    self._base_color
+                )
                 await self.terminal.update_animated_display(
                     formatted, 
                     preserved_msg, 
@@ -266,9 +207,10 @@ class ReverseStreamer:
 class AnimationsManager:
     """Manages all animation-related functionality."""
     
-    def __init__(self, utilities, terminal):
+    def __init__(self, utilities, terminal, text_processor):
         self.utils = utilities
         self.terminal = terminal
+        self.text_processor = text_processor
     
     def create_dot_loader(self, prompt: str, output_handler=None, no_animation: bool = False):
         """Create a new dot loader animation instance."""
@@ -285,5 +227,6 @@ class AnimationsManager:
         return ReverseStreamer(
             utilities=self.utils,
             terminal=self.terminal,
+            text_processor=self.text_processor,
             base_color=base_color
         )

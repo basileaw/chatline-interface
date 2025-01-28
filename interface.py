@@ -32,7 +32,7 @@ class Utilities(Protocol):
 utilities = RealUtilities()
 terminal = TerminalManager(utilities)
 text_processor = TextProcessor(utilities)
-animations = AnimationsManager(utilities, terminal)
+animations = AnimationsManager(utilities, terminal, text_processor)
 conversation = ConversationManager(
     terminal=terminal,
     generator_func=generate_stream,
