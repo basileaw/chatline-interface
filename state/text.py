@@ -1,4 +1,4 @@
-# state/text.py
+# text.py
 import sys, asyncio
 from typing import List, Optional, Tuple
 

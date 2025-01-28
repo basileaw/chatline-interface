@@ -1,4 +1,4 @@
-# state/terminal.py
+# terminal.py
 
 import asyncio
 import time
