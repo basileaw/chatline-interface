@@ -14,7 +14,6 @@ class TerminalManager:
         self.prompt_session = PromptSession()
         self._term_width = self.utils.get_terminal_width()
 
-    # Screen operations from AsyncScreenManager
     async def clear(self):
         """Clear the screen asynchronously."""
         self.utils.clear_screen()
@@ -87,7 +86,6 @@ class TerminalManager:
         self.utils.write_and_flush(f"\r{' '*80}\r{prompt}{'.'*dots}")
         await asyncio.sleep(0)
 
-    # Interface operations from AsyncInterfaceManager
     async def get_user_input(self, default_text: str = "", add_newline: bool = True) -> str:
         """Get input from user with proper cursor management."""
         self.utils.show_cursor()
@@ -108,3 +106,19 @@ class TerminalManager:
             self.utils.write_and_flush(self.utils.get_format('RESET'))
             self.utils.write_and_flush(prompt)
             time.sleep(delay)
+
+    async def update_animated_display(self, content: str = "", preserved_msg: str = "", 
+                                    no_spacing: bool = False):
+        """Update the terminal screen with formatted content during animations."""
+        self.utils.clear_screen()
+        
+        if content:
+            if preserved_msg:
+                spacing = "" if no_spacing else "\n\n"
+                self.utils.write_and_flush(preserved_msg + spacing)
+            self.utils.write_and_flush(content)
+        else:
+            self.utils.write_and_flush(preserved_msg)
+            
+        self.utils.write_and_flush(self.utils.get_format('RESET'))
+        await asyncio.sleep(0.01)

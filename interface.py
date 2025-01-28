@@ -31,8 +31,8 @@ class Utilities(Protocol):
 # Initialize core components
 utilities = RealUtilities()
 terminal = TerminalManager(utilities)
-animations = AnimationsManager(utilities)
 text_processor = TextProcessor(utilities)
+animations = AnimationsManager(utilities, terminal)
 conversation = ConversationManager(
     terminal=terminal,
     generator_func=generate_stream,

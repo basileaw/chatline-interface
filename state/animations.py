@@ -151,8 +151,9 @@ class AsyncDotLoader:
 class ReverseStreamer:
     """Handles reverse streaming of text with styling and animations."""
     
-    def __init__(self, utilities, base_color='GREEN'):
+    def __init__(self, utilities, terminal, base_color='GREEN'):
         self.utils = utilities
+        self.terminal = terminal
         self._base_color = self.utils.get_base_color(base_color)
         self.by_name = self.utils.by_name
         self.start_map = self.utils.start_map
@@ -226,22 +227,6 @@ class ReverseStreamer:
             
         return result
 
-    async def update_screen(self, content: str = "", preserved_msg: str = "", 
-                          no_spacing: bool = False):
-        """Update the terminal screen with formatted content."""
-        self.utils.clear_screen()
-        
-        if content:
-            if preserved_msg:
-                spacing = "" if no_spacing else "\n\n"
-                self.utils.write_and_flush(preserved_msg + spacing)
-            self.utils.write_and_flush(content)
-        else:
-            self.utils.write_and_flush(preserved_msg)
-            
-        self.utils.write_and_flush(self.utils.get_format('RESET'))
-        await asyncio.sleep(0.01)
-
     async def reverse_stream(self, styled_text: str, preserved_msg: str = "", 
                            delay: float = 0.08):
         """Animate the reverse streaming of styled text."""
@@ -252,13 +237,17 @@ class ReverseStreamer:
             while lines[line_idx]:
                 lines[line_idx].pop()
                 formatted = self.format_lines(lines)
-                await self.update_screen(formatted, preserved_msg, no_spacing)
+                await self.terminal.update_animated_display(
+                    formatted, 
+                    preserved_msg, 
+                    no_spacing
+                )
                 await asyncio.sleep(delay)
                 
         if preserved_msg:
             await self.reverse_stream_dots(preserved_msg)
             
-        await self.update_screen()
+        await self.terminal.update_animated_display()
 
     async def reverse_stream_dots(self, preserved_msg: str) -> str:
         """Animate the removal of dots from the preserved message."""
@@ -266,7 +255,10 @@ class ReverseStreamer:
         num_dots = len(preserved_msg) - len(msg_without_dots)
         
         for i in range(num_dots - 1, -1, -1):
-            await self.update_screen("", msg_without_dots + '.' * i)
+            await self.terminal.update_animated_display(
+                "", 
+                msg_without_dots + '.' * i
+            )
             await asyncio.sleep(0.08)
             
         return msg_without_dots
@@ -274,8 +266,9 @@ class ReverseStreamer:
 class AnimationsManager:
     """Manages all animation-related functionality."""
     
-    def __init__(self, utilities):
+    def __init__(self, utilities, terminal):
         self.utils = utilities
+        self.terminal = terminal
     
     def create_dot_loader(self, prompt: str, output_handler=None, no_animation: bool = False):
         """Create a new dot loader animation instance."""
@@ -291,5 +284,6 @@ class AnimationsManager:
         """Create a new reverse streamer animation instance."""
         return ReverseStreamer(
             utilities=self.utils,
+            terminal=self.terminal,
             base_color=base_color
         )
