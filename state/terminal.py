@@ -1,124 +1,94 @@
-# terminal.py
-
-import asyncio
-import time
+# state/terminal.py
+import asyncio, time
 from typing import List, Optional
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import FormattedText
 
 class TerminalManager:
-    """Manages terminal display and user input operations."""
-    
     def __init__(self, utilities):
         self.utils = utilities
         self.prompt_session = PromptSession()
         self._term_width = self.utils.get_terminal_width()
 
+    async def _write(self, text: str = "", style: str = None, newline: bool = False):
+        if style: self.utils.write_and_flush(self.utils.get_format(style))
+        self.utils.write_and_flush(text)
+        if style: self.utils.write_and_flush(self.utils.get_format('RESET'))
+        if newline: self.utils.write_and_flush('\n')
+        await asyncio.sleep(0)
+
+    def _prepare_lines(self, text: str) -> List[str]:
+        lines = []
+        for para in text.split('\n'):
+            if not para.strip():
+                lines.append('')
+                continue
+            line = ''
+            for word in para.split():
+                test = line + (' ' if line else '') + word
+                if self.utils.get_visible_length(test) <= self._term_width:
+                    line = test
+                else:
+                    lines.append(line)
+                    line = word
+            if line: lines.append(line)
+        return lines
+
     async def clear(self):
-        """Clear the screen asynchronously."""
         self.utils.clear_screen()
         await asyncio.sleep(0)
 
-    async def write_lines(self, lines: List[str], add_newline: bool = True):
-        """Write multiple lines to the screen."""
+    async def write_lines(self, lines: List[str], newline: bool = True):
         for line in lines:
-            self.utils.write_and_flush(line)
-            if add_newline:
-                self.utils.write_and_flush('\n')
-        await asyncio.sleep(0)
+            await self._write(line, newline=newline)
 
-    async def write_prompt(self, prompt: str, style_name: Optional[str] = None):
-        """Write a prompt with optional styling."""
-        if style_name:
-            self.utils.write_and_flush(self.utils.get_format(style_name))
-        self.utils.write_and_flush(prompt)
-        if style_name:
-            self.utils.write_and_flush(self.utils.get_format('RESET'))
-        await asyncio.sleep(0)
+    async def write_prompt(self, prompt: str, style: Optional[str] = None):
+        await self._write(prompt, style)
 
-    def _prepare_display_lines(self, styled_text: str) -> List[str]:
-        """Prepare text for display with proper line wrapping."""
-        paragraphs = styled_text.split('\n')
-        display_lines = []
-        for paragraph in paragraphs:
-            if not paragraph.strip():
-                display_lines.append('')
-                continue
-            current_line = ''
-            words = paragraph.split()
-            for word in words:
-                test_line = current_line + (' ' if current_line else '') + word
-                if self.utils.get_visible_length(test_line) <= self._term_width:
-                    current_line = test_line
-                else:
-                    display_lines.append(current_line)
-                    current_line = word
-            if current_line:
-                display_lines.append(current_line)
-        return display_lines
-
-    async def scroll_up(self, styled_text: str, prompt: str, delay: float = 0.5):
-        """Scroll text upward with smooth animation."""
-        display_lines = self._prepare_display_lines(styled_text)
-        for i in range(len(display_lines) + 1):
+    async def scroll_up(self, text: str, prompt: str, delay: float = 0.5):
+        lines = self._prepare_lines(text)
+        for i in range(len(lines) + 1):
             await self.clear()
-            await self.write_lines(display_lines[i:])
+            await self.write_lines(lines[i:])
             await self.write_prompt(prompt, 'RESET')
             await asyncio.sleep(delay)
 
-    async def update_display(self,
-                           content: Optional[str] = None,
-                           prompt: Optional[str] = None,
+    async def update_display(self, content: str = None, prompt: str = None, 
                            preserve_cursor: bool = False):
-        """Update the entire display."""
-        if not preserve_cursor:
-            self.utils.hide_cursor()
+        if not preserve_cursor: self.utils.hide_cursor()
         await self.clear()
-        if content:
-            await self.write_lines([content], add_newline=bool(prompt))
-        if prompt:
-            await self.write_prompt(prompt)
-        if not preserve_cursor:
-            self.utils.show_cursor()
+        if content: await self.write_lines([content], bool(prompt))
+        if prompt: await self.write_prompt(prompt)
+        if not preserve_cursor: self.utils.show_cursor()
 
     async def write_loading_state(self, prompt: str, dots: int):
-        """Write a loading state with dots."""
-        self.utils.write_and_flush(f"\r{' '*80}\r{prompt}{'.'*dots}")
-        await asyncio.sleep(0)
+        await self._write(f"\r{' '*80}\r{prompt}{'.'*dots}")
 
     async def get_user_input(self, default_text: str = "", add_newline: bool = True) -> str:
-        """Get input from user with proper cursor management."""
         self.utils.show_cursor()
-        if add_newline:
-            self.utils.write_and_flush("\n")
-        prompt = FormattedText([('class:prompt', '> ')])
-        result = await self.prompt_session.prompt_async(prompt, default=default_text)
+        if add_newline: await self._write("\n")
+        result = await self.prompt_session.prompt_async(
+            FormattedText([('class:prompt', '> ')]), 
+            default=default_text
+        )
         self.utils.hide_cursor()
         return result.strip()
 
-    async def handle_scroll(self, styled_lines: str, prompt: str, delay: float = 0.5) -> None:
-        """Handle scrolling display with consistent timing."""
-        display_lines = self._prepare_display_lines(styled_lines)
-        for i in range(len(display_lines) + 1):
+    async def handle_scroll(self, styled_lines: str, prompt: str, delay: float = 0.5):
+        lines = self._prepare_lines(styled_lines)
+        for i in range(len(lines) + 1):
             self.utils.clear_screen()
-            for ln in display_lines[i:]:
-                self.utils.write_and_flush(ln + '\n')
-            self.utils.write_and_flush(self.utils.get_format('RESET'))
-            self.utils.write_and_flush(prompt)
+            for ln in lines[i:]: await self._write(ln, newline=True)
+            await self._write(self.utils.get_format('RESET') + prompt)
             time.sleep(delay)
 
     async def update_animated_display(self, content: str = "", preserved_msg: str = "", 
                                     no_spacing: bool = False):
-        """Update the terminal screen with formatted content during animations."""
         self.utils.clear_screen()
-        
         if content:
             if preserved_msg:
-                spacing = "" if no_spacing else "\n\n"
-                self.utils.write_and_flush(preserved_msg + spacing)
-            self.utils.write_and_flush(content)
+                await self._write(preserved_msg + ("" if no_spacing else "\n\n"))
+            await self._write(content)
         else:
-            self.utils.write_and_flush(preserved_msg)
-            
-        self.utils.write_and_flush(self.utils.get_format('RESET'))
-        await asyncio.sleep(0.01)
+            await self._write(preserved_msg)
+        await self._write("", 'RESET')
