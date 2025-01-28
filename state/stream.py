@@ -4,7 +4,7 @@ import sys
 import asyncio
 from typing import List, Optional, Tuple
 
-class TextProcessor:
+class StreamHandler:
     """Handles text styling, wrapping, and terminal output."""
     
     def __init__(self, utilities, base_color='GREEN'):
