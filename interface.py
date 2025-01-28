@@ -6,7 +6,7 @@ from typing import Protocol
 from utilities import RealUtilities
 from state.terminal import TerminalManager
 from state.conversation import ConversationManager
-from state.stream import StreamHandler
+from state.stream import StreamManager
 from state.animations import AnimationsManager
 from generator import generate_stream
 
@@ -28,22 +28,15 @@ class Utilities(Protocol):
     def get_base_color(self, color_name: str) -> str: ...
     def get_style(self, active_patterns: list[str], base_color: str) -> str: ...
 
-class ComponentFactory:
-    def __init__(self, utilities: Utilities):
-        self.utils = utilities
-        
-    def create_output_handler(self):
-        return StreamHandler(self.utils)
-
 # Initialize core components
 utilities = RealUtilities()
-factory = ComponentFactory(utilities)
 terminal = TerminalManager(utilities)
 animations = AnimationsManager(utilities)
+stream = StreamManager(utilities)
 conversation = ConversationManager(
     terminal=terminal,
     generator_func=generate_stream,
-    component_factory=factory,
+    stream_manager=stream,
     animations_manager=animations
 )
 

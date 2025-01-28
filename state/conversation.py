@@ -9,10 +9,10 @@ class Message:
     content: str
 
 class ConversationManager:
-    def __init__(self, terminal, generator_func: Any, component_factory, animations_manager):
+    def __init__(self, terminal, generator_func: Any, stream_manager, animations_manager):
         self.terminal = terminal
         self.generator = generator_func
-        self.factory = component_factory
+        self.stream_manager = stream_manager
         self.animations = animations_manager
         self.messages: List[Message] = []
         self.is_last_message_silent = False
@@ -36,7 +36,7 @@ class ConversationManager:
     async def handle_intro(self, intro_msg: str) -> Tuple[str, str, str]:
         """Handle the initial introduction message."""
         self.messages.append(Message(role="user", content=intro_msg))
-        output_handler = self.factory.create_output_handler()
+        output_handler = self.stream_manager.create_stream_handler()
         
         # Process in silent mode
         loader = self.animations.create_dot_loader(
@@ -55,7 +55,7 @@ class ConversationManager:
 
     async def handle_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
         """Handle a regular user message."""
-        output_handler = self.factory.create_output_handler()
+        output_handler = self.stream_manager.create_stream_handler()
         
         # Scroll previous content
         await self.terminal.handle_scroll(
@@ -82,7 +82,7 @@ class ConversationManager:
 
     async def handle_retry(self, intro_styled: str) -> Tuple[str, str, str]:
         """Handle a retry request."""
-        output_handler = self.factory.create_output_handler()
+        output_handler = self.stream_manager.create_stream_handler()
         reverse_streamer = self.animations.create_reverse_streamer()
         
         preserved_msg = "" if self.is_last_message_silent else self.preserved_prompt

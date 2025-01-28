@@ -1,4 +1,4 @@
-# stream.py
+# state/stream.py
 
 import sys
 import asyncio
@@ -7,9 +7,9 @@ from typing import List, Optional, Tuple
 class StreamHandler:
     """Handles text styling, wrapping, and terminal output."""
     
-    def __init__(self, utilities, base_color='GREEN'):
+    def __init__(self, utilities):
         self.utils = utilities
-        self._base_color = self.utils.get_base_color(base_color)
+        self._base_color = self.utils.get_base_color('GREEN')
         self.active_patterns: List[str] = []
         self._buffer_lock = asyncio.Lock()
         
@@ -196,3 +196,17 @@ class RawOutputHandler:
     async def flush(self, output_handler=None) -> Tuple[str, str]:
         """Flush buffer (no-op since we process immediately)."""
         return "", ""
+
+class StreamManager:
+    """Manages stream handling and output processing."""
+    
+    def __init__(self, utilities):
+        self.utils = utilities
+        
+    def create_stream_handler(self) -> StreamHandler:
+        """Create a new StreamHandler instance."""
+        return StreamHandler(self.utils)
+        
+    def create_raw_output_handler(self) -> RawOutputHandler:
+        """Create a new RawOutputHandler instance."""
+        return RawOutputHandler(self.utils)
