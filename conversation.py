@@ -17,31 +17,27 @@ class ConversationManager:
         self.messages: List[Message] = []
         self.is_silent = False
         self.prompt = ""
-        self.system_prompt = ('Be helpful, concise, and honest. Use text styles:\n'
-                            '- "quotes" for dialogue\n'
-                            '- [brackets] for observations\n'
-                            '- _underscores_ for emphasis\n'
-                            '- *asterisks* for bold text')
+        self.system_prompt = (
+            'Be helpful, concise, and honest. Use text styles:\n'
+            '- "quotes" for dialogue\n'
+            '- [brackets] for observations\n'
+            '- _underscores_ for emphasis\n'
+            '- *asterisks* for bold text'
+        )
 
     async def get_messages(self) -> List[Dict[str, str]]:
-        messages = []
-        if self.system_prompt:
-            messages.append({"role": "system", "content": self.system_prompt})
-        messages.extend([{"role": m.role, "content": m.content} for m in self.messages])
-        return messages
+        return ([{"role": "system", "content": self.system_prompt}] if self.system_prompt else []) + \
+               [{"role": m.role, "content": m.content} for m in self.messages]
 
     async def _process_message(self, msg: str, silent=False) -> Tuple[str, str]:
-        """Process a message with animation handling."""
-        self.messages.append(Message(role="user", content=msg))
+        self.messages.append(Message("user", msg))
         handler = self.text_processor.create_styled_handler()
-        loader = self.animations.create_dot_loader(
+        raw, styled = await self.animations.create_dot_loader(
             prompt="" if silent else f"> {msg}",
             output_handler=handler,
             no_animation=silent
-        )
-        stream = self.generator(await self.get_messages())
-        raw, styled = await loader.run_with_loading(stream)
-        self.messages.append(Message(role="assistant", content=raw))
+        ).run_with_loading(self.generator(await self.get_messages()))
+        self.messages.append(Message("assistant", raw))
         return raw, styled
 
     async def handle_intro(self, intro_msg: str) -> Tuple[str, str, str]:
@@ -58,23 +54,23 @@ class ConversationManager:
         return raw, styled, self.prompt
 
     async def handle_retry(self, intro_styled: str) -> Tuple[str, str, str]:
-        handler = self.text_processor.create_styled_handler()
-        streamer = self.animations.create_reverse_streamer()
-        preserved = "" if self.is_silent else self.prompt
-        await streamer.reverse_stream(intro_styled, preserved)
+        await self.animations.create_reverse_streamer().reverse_stream(
+            intro_styled, 
+            "" if self.is_silent else self.prompt
+        )
 
         if self.is_silent:
-            for msg in reversed(self.messages):
-                if msg.role == "user":
-                    raw, styled = await self._process_message(msg.content, True)
-                    return raw, styled, ""
+            if last_user_msg := next((m.content for m in reversed(self.messages) 
+                                    if m.role == "user"), None):
+                raw, styled = await self._process_message(last_user_msg, True)
+                return raw, styled, ""
         else:
             prev = next((m.content for m in reversed(self.messages) 
                         if m.role == "user"), None)
-            msg = await self.terminal.get_user_input(prev, False)
-            await self.terminal.clear()
-            raw, styled = await self._process_message(msg)
-            self.prompt = f"> {msg}..."
-            return raw, styled, self.prompt
+            if msg := await self.terminal.get_user_input(prev, False):
+                await self.terminal.clear()
+                raw, styled = await self._process_message(msg)
+                self.prompt = f"> {msg}..."
+                return raw, styled, self.prompt
         
         return "", "", ""
