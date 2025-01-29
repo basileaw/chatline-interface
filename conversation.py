@@ -1,4 +1,5 @@
-# state/conversation.py
+# conversation.py
+
 from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
 
@@ -30,10 +31,14 @@ class ConversationManager:
         return messages
 
     async def _process_message(self, msg: str, silent=False) -> Tuple[str, str]:
+        """Process a message with animation handling."""
         self.messages.append(Message(role="user", content=msg))
         handler = self.text_processor.create_styled_handler()
-        loader = self.animations.create_dot_loader("" if silent else f"> {msg}", 
-                                                 handler, silent)
+        loader = self.animations.create_dot_loader(
+            prompt="" if silent else f"> {msg}",
+            output_handler=handler,
+            no_animation=silent
+        )
         stream = self.generator(await self.get_messages())
         raw, styled = await loader.run_with_loading(stream)
         self.messages.append(Message(role="assistant", content=raw))

@@ -1,5 +1,8 @@
-# state/text.py
-import sys, asyncio, re
+# text.py
+
+import sys
+import asyncio
+import re
 from typing import List, Optional, Tuple, Dict
 from dataclasses import dataclass
 
@@ -62,12 +65,15 @@ class Pattern:
     remove_delimiters: bool
 
 class TextProcessor:
-    def __init__(self, utilities):
-        self.utils = utilities
-        
+    def __init__(self):
         # Initialize and validate patterns
         self.patterns = []
         used = set()
+        
+        # Initialize pattern storage
+        self.by_name: Dict[str, Pattern] = {}
+        self.start_map: Dict[str, Pattern] = {}
+        self.end_map: Dict[str, Pattern] = {}
         
         for name, config in STYLE_PATTERNS.items():
             pattern = Pattern(
@@ -86,45 +92,47 @@ class TextProcessor:
             
             self.patterns.append(pattern)
             
-            # Set in utilities for transition period
-            self.utils.by_name[name] = pattern
-            self.utils.start_map[pattern.start] = pattern
-            self.utils.end_map[pattern.end] = pattern
-
-        # Create our own lookup maps
-        self.by_name = {p.name: p for p in self.patterns}
-        self.start_map = {p.start: p for p in self.patterns}
-        self.end_map = {p.end: p for p in self.patterns}
+            # Set in pattern maps
+            self.by_name[name] = pattern
+            self.start_map[pattern.start] = pattern
+            self.end_map[pattern.end] = pattern
 
     def create_styled_handler(self) -> 'StyledTextHandler':
-        return StyledTextHandler(self.utils)
+        return StyledTextHandler(self)
 
     def get_format(self, name: str) -> str:
+        """Get format by name from FORMATS dictionary."""
         return FORMATS.get(name, '')
 
     def get_color(self, name: str) -> str:
+        """Get color by name from COLORS dictionary."""
         return COLORS.get(name, '')
 
     def get_base_color(self, color_name: str = 'GREEN') -> str:
+        """Get the base color code."""
         return COLORS[color_name]
 
     def get_style(self, active_patterns: List[str], base_color: str) -> str:
+        """Get current ANSI style based on active patterns."""
         color = base_color
         style_codes = []
+        
         for name in active_patterns:
             pat = self.by_name[name]
             if pat.color:
                 color = COLORS[pat.color]
             for style in pat.styles:
                 style_codes.append(FORMATS[f'{style}_ON'])
+                
         return color + ''.join(style_codes)
 
     def get_visible_length(self, text: str) -> int:
+        """Get visible length of text, ignoring ANSI escape codes."""
         return len(ANSI_REGEX.sub('', text))
 
     def split_into_display_lines(self, text: str, width: Optional[int] = None) -> List[str]:
         if width is None:
-            width = self.utils.get_terminal_width()
+            width = self.get_terminal_width()
         lines = []
         words = text.split()
         current_line, current_length = [], 0
@@ -143,8 +151,9 @@ class TextProcessor:
         return lines
 
     def handle_long_word(self, word: str, width: Optional[int] = None) -> List[str]:
+        """Split a word that exceeds terminal width into chunks."""
         if width is None:
-            width = self.utils.get_terminal_width()
+            width = self.get_terminal_width()
         chunks = []
         while word:
             if len(word) <= width:
@@ -193,134 +202,113 @@ class TextProcessor:
         return words
 
     def format_styled_lines(self, lines: List[List[dict]], base_color: str) -> str:
-        formatted_lines, current_style = [], self.utils.get_format('RESET') + base_color
+        formatted_lines, current_style = [], self.get_format('RESET') + base_color
         for line in lines:
             line_content = [current_style]
             for word in line:
-                new_style = self.utils.get_style(word['active_patterns'], base_color)
+                new_style = self.get_style(word['active_patterns'], base_color)
                 if new_style != current_style:
                     line_content.append(new_style)
                     current_style = new_style
                 line_content.append(word['styled_text'] + " ")
             formatted_line = "".join(line_content).rstrip()
-            if formatted_line: formatted_lines.append(formatted_line)
+            if formatted_line:
+                formatted_lines.append(formatted_line)
         result = "\n".join(formatted_lines)
-        if current_style != self.utils.get_format('RESET') + base_color:
-            result += self.utils.get_format('RESET') + base_color
+        if current_style != self.get_format('RESET') + base_color:
+            result += self.get_format('RESET') + base_color
         return result
 
 
 class StyledTextHandler:
-    def __init__(self, utilities):
-        self.utils = utilities
-        self._base_color = utilities.get_base_color('GREEN')
+    def __init__(self, text_processor: TextProcessor):
+        self.text_processor = text_processor
+        self._base_color = text_processor.get_base_color('GREEN')
         self.active_patterns, self.current_line_length = [], 0
         self.word_buffer = ""
         self._buffer_lock = asyncio.Lock()
-        self.by_name = utilities.by_name
-        self.start_map, self.end_map = utilities.start_map, utilities.end_map
+        self.by_name = text_processor.by_name
+        self.start_map = text_processor.start_map
+        self.end_map = text_processor.end_map
 
     def _process_chunk(self, text: str) -> str:
-        if not text: return ""
+        if not text:
+            return ""
         out, i = [], 0
         if not self.active_patterns:
-            out.append(self.utils.get_format('ITALIC_OFF') + 
-                      self.utils.get_format('BOLD_OFF') + self._base_color)
+            out.append(self.text_processor.get_format('ITALIC_OFF') + 
+                      self.text_processor.get_format('BOLD_OFF') + self._base_color)
         while i < len(text):
             ch = text[i]
             if i == 0 or text[i-1].isspace():
-                out.append(self.utils.get_style(self.active_patterns, self._base_color))
+                out.append(self.text_processor.get_style(self.active_patterns, self._base_color))
             if self.active_patterns and ch in self.end_map and ch == self.by_name[self.active_patterns[-1]].end:
                 pat = self.by_name[self.active_patterns[-1]]
                 if not pat.remove_delimiters:
-                    out.append(self.utils.get_style(self.active_patterns, self._base_color) + ch)
+                    out.append(self.text_processor.get_style(self.active_patterns, self._base_color) + ch)
                 self.active_patterns.pop()
-                out.append(self.utils.get_style(self.active_patterns, self._base_color))
-                i += 1; continue
+                out.append(self.text_processor.get_style(self.active_patterns, self._base_color))
+                i += 1
+                continue
             if ch in self.start_map:
                 new_pat = self.start_map[ch]
                 self.active_patterns.append(new_pat.name)
-                out.append(self.utils.get_style(self.active_patterns, self._base_color))
-                if not new_pat.remove_delimiters: out.append(ch)
-                i += 1; continue
+                out.append(self.text_processor.get_style(self.active_patterns, self._base_color))
+                if not new_pat.remove_delimiters:
+                    out.append(ch)
+                i += 1
+                continue
             out.append(ch)
             i += 1
         return "".join(out)
 
     def process_and_write(self, chunk: str) -> Tuple[str, str]:
-        if not chunk: return ("", "")
-        width = self.utils.get_terminal_width()
+        """Process and write a chunk of text."""
+        if not chunk:
+            return ("", "")
         raw_out, styled_out = chunk, ""
         i = 0
         while i < len(chunk):
             char = chunk[i]
             if char.isspace():
                 if self.word_buffer:
-                    word_length = self.utils.get_visible_length(self.word_buffer)
-                    if word_length > width:
-                        word_chunks = self.utils.handle_long_word(self.word_buffer, width)
-                        for idx, word_chunk in enumerate(word_chunks):
-                            if idx > 0:
-                                self.utils.write_and_flush("\n")
-                                styled_out += "\n"
-                                self.current_line_length = 0
-                            styled_chunk = self._process_chunk(word_chunk)
-                            self.utils.write_and_flush(styled_chunk)
-                            styled_out += styled_chunk
-                            self.current_line_length = len(word_chunk)
-                    else:
-                        if self.current_line_length + word_length > width:
-                            self.utils.write_and_flush("\n")
-                            styled_out += "\n"
-                            self.current_line_length = 0
-                        styled_word = self._process_chunk(self.word_buffer)
-                        self.utils.write_and_flush(styled_word)
-                        styled_out += styled_word
-                        self.current_line_length += word_length
+                    styled_word = self._process_chunk(self.word_buffer)
+                    sys.stdout.write(styled_word)
+                    styled_out += styled_word
                     self.word_buffer = ""
+                sys.stdout.write(char)
+                styled_out += char
                 if char == '\n':
-                    self.utils.write_and_flush("\n")
-                    styled_out += "\n"
                     self.current_line_length = 0
-                elif self.current_line_length + 1 <= width:
-                    self.utils.write_and_flush(char)
-                    styled_out += char
+                else:
                     self.current_line_length += 1
-            else: self.word_buffer += char
+            else:
+                self.word_buffer += char
             i += 1
         sys.stdout.flush()
         return (raw_out, styled_out)
 
     async def add(self, chunk: str, output_handler=None) -> Tuple[str, str]:
-        if not chunk: return "", ""
+        """Add a chunk of text asynchronously."""
+        if not chunk:
+            return "", ""
         async with self._buffer_lock:
             return self.process_and_write(chunk)
 
     async def flush(self, output_handler=None) -> Tuple[str, str]:
+        """Flush the text handler buffer."""
         styled_out = ""
         if self.word_buffer:
-            width = self.utils.get_terminal_width()
-            word_length = self.utils.get_visible_length(self.word_buffer)
-            if word_length > width:
-                for idx, chunk in enumerate(self.utils.handle_long_word(self.word_buffer, width)):
-                    if idx > 0:
-                        self.utils.write_and_flush("\n")
-                        styled_out += "\n"
-                    styled_chunk = self._process_chunk(chunk)
-                    self.utils.write_and_flush(styled_chunk)
-                    styled_out += styled_chunk
-            else:
-                if self.current_line_length + word_length > width:
-                    self.utils.write_and_flush("\n")
-                    styled_out += "\n"
-                styled_word = self._process_chunk(self.word_buffer)
-                self.utils.write_and_flush(styled_word)
-                styled_out += styled_word
+            styled_word = self._process_chunk(self.word_buffer)
+            sys.stdout.write(styled_word)
+            styled_out += styled_word
             self.word_buffer = ""
+
         if self.current_line_length > 0:
-            self.utils.write_and_flush("\n")
+            sys.stdout.write("\n")
             styled_out += "\n"
-        self.utils.write_and_flush(self.utils.get_format('RESET'))
+            
+        sys.stdout.write(self.text_processor.get_format('RESET'))
         sys.stdout.flush()
         self.reset()
         return "", styled_out

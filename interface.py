@@ -1,12 +1,12 @@
 # interface.py
+
 import asyncio
 import logging
 from typing import Protocol
-from utilities import RealUtilities
-from state.terminal import TerminalManager
-from state.conversation import ConversationManager
-from state.text import TextProcessor
-from state.animations import AnimationsManager
+from terminal import TerminalManager
+from conversation import ConversationManager
+from text import TextProcessor
+from animations import AnimationsManager
 from generator import generate_stream
 
 # Initialize logging
@@ -16,23 +16,10 @@ logging.basicConfig(
     filename='logs/chat_debug.log'
 )
 
-class Utilities(Protocol):
-    """Protocol for utilities during transition phase."""
-    def clear_screen(self) -> None: ...
-    def get_visible_length(self, text: str) -> int: ...
-    def write_and_flush(self, text: str) -> None: ...
-    def hide_cursor(self) -> None: ...
-    def show_cursor(self) -> None: ...
-    def get_terminal_width(self) -> int: ...
-    def get_format(self, name: str) -> str: ...
-    def get_base_color(self, color_name: str) -> str: ...
-    def get_style(self, active_patterns: list[str], base_color: str) -> str: ...
-
-# Initialize core components
-utilities = RealUtilities()  # Still needed during transition
-terminal = TerminalManager(utilities)  # Terminal ops will migrate here
-text_processor = TextProcessor(utilities)  # Text processing and styling
-animations = AnimationsManager(utilities, terminal, text_processor)  # Animation handling
+# Initialize core components - updated dependency chain
+text_processor = TextProcessor()  # No dependencies
+terminal = TerminalManager(text_processor)  # Depends on text_processor
+animations = AnimationsManager(terminal, text_processor)  # Depends on terminal and text_processor
 conversation = ConversationManager(
     terminal=terminal,
     generator_func=generate_stream,
