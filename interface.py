@@ -1,7 +1,7 @@
 # interface.py
 
 import logging
-from typing import Callable, AsyncGenerator, List
+from typing import Callable, AsyncGenerator, List, Optional
 from terminal import TerminalManager
 from conversation import ConversationManager
 from text import TextProcessor
@@ -34,7 +34,7 @@ class ChatInterface:
         self.terminal._clear_screen()
         self.terminal._hide_cursor()
 
-    def print(self, text: str) -> None:
+    def print(self, text: str, color: Optional[str] = None) -> None:
         """Store text to be displayed before conversation starts.
         
         This text will be included in the scrolling animations during the conversation.
@@ -42,9 +42,11 @@ class ChatInterface:
         
         Args:
             text: The text to display before the conversation begins
+            color: Optional color name (e.g., 'GREEN', 'BLUE', 'PINK'). If None,
+                  uses terminal default color
         """
-        # Ensure each line is preserved completely and ends with a newline
-        self.preconversation_text.append(text + "\n")
+        # Store both text and color preference
+        self.preconversation_text.append((text + "\n", color))
 
     def start(self, system_msg: str = None, intro_msg: str = None) -> None:
         """Start the chat interface with optional custom system and intro messages.

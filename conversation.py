@@ -59,12 +59,13 @@ class ConversationManager:
         self.messages.append(Message("assistant", raw))
         return raw, styled
 
-    async def _process_preconversation_text(self, text_list: List[str]) -> str:
+    async def _process_preconversation_text(self, text_list: List[Tuple[str, Optional[str]]]) -> str:
         """Process preconversation text with styling.
         
         Args:
-            text_list: List of text strings to process. Each string will be
-                      displayed on its own line with proper spacing.
+            text_list: List of tuples (text, color) where text is the string to process
+                      and color is an optional color name. Each text will be displayed
+                      on its own line with proper spacing.
             
         Returns:
             str: Styled text output with proper line breaks
@@ -73,9 +74,14 @@ class ConversationManager:
             return ""
             
         styled_output = ""
-        for text in text_list:
+        for text, color in text_list:
             handler = self.text_processor.create_styled_handler(self.terminal)
-            # Each text line already ends with \n from ChatInterface.print()
+            # Set color or reset to default
+            if color:
+                handler._base_color = self.text_processor.get_color(color)
+            else:
+                handler._base_color = self.text_processor.get_format('RESET')
+            # Process the text with the handler
             raw, styled = await handler.add(text)
             styled_output += styled
             
