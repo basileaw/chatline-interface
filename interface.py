@@ -28,35 +28,16 @@ class ChatInterface:
             animations_manager=self.animations
         )
 
-    def start(self, intro_msg: str = None):
-        asyncio.run(self._async_start(intro_msg))
+    def start(self, system_msg: str = None, intro_msg: str = None):
+        """Start the chat interface with optional custom system and intro messages."""
+        asyncio.run(self._async_start(system_msg, intro_msg))
             
-    async def _async_start(self, intro_msg: str = None):
-        try:
-            await self.terminal.clear()
-            _, intro_styled, _ = await self.conversation.handle_intro(
-                intro_msg or "Introduce yourself in 3 lines, 7 words each..."
-            )
-            
-            while True:
-                if user := await self.terminal.get_user_input():
-                    try:
-                        _, intro_styled, _ = await self.conversation.handle_retry(intro_styled) if user.lower() == "retry" \
-                            else await self.conversation.handle_message(user, intro_styled)
-                    except Exception as e:
-                        logging.error(f"Error processing message: {str(e)}", exc_info=True)
-                        print(f"\nAn error occurred: {str(e)}")
-        except KeyboardInterrupt:
-            print("\nExiting...")
-        except Exception as e:
-            logging.error(f"Critical error: {str(e)}", exc_info=True)
-            raise
-        finally:
-            await self.terminal.update_display()
-            self.terminal._show_cursor()
+    async def _async_start(self, system_msg: str = None, intro_msg: str = None):
+        """Delegate conversation handling to ConversationManager."""
+        await self.conversation.run_conversation(system_msg, intro_msg)
 
 if __name__ == "__main__":
     # Example import and usage
     from generator import generate_stream
     chat = ChatInterface(generate_stream)
-    chat.start()  
+    chat.start()
