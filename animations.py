@@ -103,17 +103,27 @@ class ReverseStreamer:
         self.text_processor = text_processor
         self.terminal = terminal
         self._base_color = text_processor.get_base_color(base_color)
+
     async def reverse_stream(self, styled_text: str, preserved_msg: str = "", delay: float = 0.08):
+        lines = self._prepare_lines(styled_text)
+        no_spacing = not preserved_msg
+        
+        await self._reverse_stream_lines(lines, preserved_msg, no_spacing, delay)
+        await self._handle_punctuation(preserved_msg, delay)
+        await self.terminal.update_animated_display()
+        
+    def _prepare_lines(self, styled_text: str) -> list:
         pattern_maps = {
             'by_name': self.text_processor.by_name,
             'start_map': self.text_processor.start_map,
             'end_map': self.text_processor.end_map
         }
-        lines = [
+        return [
             self.text_processor.split_into_styled_words(line, pattern_maps)
             for line in styled_text.splitlines()
         ]
-        no_spacing = not preserved_msg
+        
+    async def _reverse_stream_lines(self, lines: list, preserved_msg: str, no_spacing: bool, delay: float):
         for line_idx in range(len(lines) - 1, -1, -1):
             while lines[line_idx]:
                 lines[line_idx].pop()
@@ -122,24 +132,28 @@ class ReverseStreamer:
                     preserved_msg, no_spacing
                 )
                 await asyncio.sleep(delay)
-
-        # After reverse stream completes, handle punctuation removal
-        if preserved_msg:
-            base = preserved_msg.rstrip('?.!')
-            if preserved_msg.endswith(('!', '?')):
-                # For ! or ?, keep last one
-                char = preserved_msg[-1]
-                count = preserved_msg.count(char)
-                for i in range(count, 1, -1):  # Stop at 1 to keep last character
-                    await self.terminal.update_animated_display("", f"{base}{char * i}")
-                    await asyncio.sleep(delay)
-            elif preserved_msg.endswith('.'):
-                # For periods, remove all three
-                for i in range(3, 0, -1):
-                    await self.terminal.update_animated_display("", f"{base}{'.' * i}")
-                    await asyncio.sleep(delay)
-
-        await self.terminal.update_animated_display()
+                
+    async def _handle_punctuation(self, preserved_msg: str, delay: float):
+        if not preserved_msg:
+            return
+            
+        base = preserved_msg.rstrip('?.!')
+        if preserved_msg.endswith(('!', '?')):
+            await self._handle_exclamation_question(preserved_msg, base, delay)
+        elif preserved_msg.endswith('.'):
+            await self._handle_periods(base, delay)
+            
+    async def _handle_exclamation_question(self, preserved_msg: str, base: str, delay: float):
+        char = preserved_msg[-1]
+        count = preserved_msg.count(char)
+        for i in range(count, 1, -1):
+            await self.terminal.update_animated_display("", f"{base}{char * i}")
+            await asyncio.sleep(delay)
+            
+    async def _handle_periods(self, base: str, delay: float):
+        for i in range(3, 0, -1):
+            await self.terminal.update_animated_display("", f"{base}{'.' * i}")
+            await asyncio.sleep(delay)
 
 class AnimationsManager:
     def __init__(self, terminal, text_processor):
