@@ -105,6 +105,11 @@ class ReverseStreamer:
         self._base_color = text_processor.get_base_color(base_color)
 
     async def reverse_stream(self, styled_text: str, preserved_msg: str = "", delay: float = 0.08):
+        """Reverse stream the text with animations.
+        
+        The text will be split into lines and each line will be reverse streamed.
+        Pre-conversation text will be included in the animation sequence.
+        """
         lines = self._prepare_lines(styled_text)
         no_spacing = not preserved_msg
         
@@ -127,10 +132,8 @@ class ReverseStreamer:
         for line_idx in range(len(lines) - 1, -1, -1):
             while lines[line_idx]:
                 lines[line_idx].pop()
-                await self.terminal.update_animated_display(
-                    self.text_processor.format_styled_lines(lines, self._base_color),
-                    preserved_msg, no_spacing
-                )
+                formatted_lines = self.text_processor.format_styled_lines(lines, self._base_color)
+                await self.terminal.update_animated_display(formatted_lines, preserved_msg, no_spacing)
                 await asyncio.sleep(delay)
                 
     async def _handle_punctuation(self, preserved_msg: str, delay: float):
@@ -171,4 +174,4 @@ class AnimationsManager:
         return loader
     
     def create_reverse_streamer(self, base_color='GREEN'):
-            return ReverseStreamer(self.text_processor, self.terminal, base_color)
+        return ReverseStreamer(self.text_processor, self.terminal, base_color)

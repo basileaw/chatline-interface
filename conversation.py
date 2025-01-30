@@ -36,6 +36,7 @@ class ConversationManager:
         self.is_silent = False
         self.prompt = ""
         self.system_prompt = system_prompt
+        self.preconversation_styled = ""
 
     def _get_last_user_message(self) -> Optional[str]:
         """Helper method to find the last user message in the conversation."""
@@ -58,11 +59,41 @@ class ConversationManager:
         self.messages.append(Message("assistant", raw))
         return raw, styled
 
-    async def handle_intro(self, intro_msg: str) -> Tuple[str, str, str]:
+    async def _process_preconversation_text(self, text_list: List[str]) -> str:
+        """Process preconversation text with styling.
+        
+        Args:
+            text_list: List of text strings to process. Each string will be
+                      displayed on its own line with proper spacing.
+            
+        Returns:
+            str: Styled text output with proper line breaks
+        """
+        if not text_list:
+            return ""
+            
+        styled_output = ""
+        for text in text_list:
+            handler = self.text_processor.create_styled_handler(self.terminal)
+            # Each text line already ends with \n from ChatInterface.print()
+            raw, styled = await handler.add(text)
+            styled_output += styled
+            
+        return styled_output + "\n"  # Extra newline for spacing between preconversation and response
+
+    async def handle_intro(self, intro_msg: str, preconversation_text: List[str] = None) -> Tuple[str, str, str]:
+        # First process preconversation text if it exists
+        self.preconversation_styled = await self._process_preconversation_text(preconversation_text)
+        
+        # Then process the intro message
         raw, styled = await self._process_message(intro_msg, True)
+        
+        # Combine them
+        full_styled = f"{self.preconversation_styled}{styled}"
+        
         self.is_silent = True
         self.prompt = ""
-        return raw, styled, ""
+        return raw, full_styled, ""
 
     async def handle_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
         await self.terminal.handle_scroll(intro_styled, f"> {user_input}", 0.08)
@@ -72,8 +103,11 @@ class ConversationManager:
         # Reconstruct the prompt with proper punctuation
         end_char = '.' if not user_input.endswith(('?', '!')) else user_input[-1]
         self.prompt = f"> {user_input.rstrip('?.!')}{end_char * 3}"
+        
+        # Include preconversation text in the styled output
+        full_styled = f"{self.preconversation_styled}{styled}"
     
-        return raw, styled, self.prompt
+        return raw, full_styled, self.prompt
 
     async def handle_edit_or_retry(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
         """Handle both edit and retry commands using shared reverse streaming logic."""
@@ -98,7 +132,10 @@ class ConversationManager:
                     end_char = '.' if not last_msg.endswith(('?', '!')) else last_msg[-1]
                     self.prompt = f"> {last_msg.rstrip('?.!')}{end_char * 3}"
                     
-                    return raw, styled, self.prompt
+                    # Include preconversation text
+                    full_styled = f"{self.preconversation_styled}{styled}"
+                    
+                    return raw, full_styled, self.prompt
                 else:
                     # For edit, get user input with previous message pre-filled
                     if msg := await self.terminal.get_user_input(last_msg, False):
@@ -109,7 +146,10 @@ class ConversationManager:
                         end_char = '.' if not msg.endswith(('?', '!')) else msg[-1]
                         self.prompt = f"> {msg.rstrip('?.!')}{end_char * 3}"
                         
-                        return raw, styled, self.prompt
+                        # Include preconversation text
+                        full_styled = f"{self.preconversation_styled}{styled}"
+                        
+                        return raw, full_styled, self.prompt
                     
         return "", "", ""
 
@@ -121,12 +161,20 @@ class ConversationManager:
         """Handle the retry command."""
         return await self.handle_edit_or_retry(intro_styled, is_retry=True)
 
-    def run_conversation(self, system_msg: str = None, intro_msg: str = None):
-        """Synchronous entry point that handles asyncio setup"""
+    def run_conversation(self, system_msg: str = None, intro_msg: str = None,
+                        preconversation_text: List[str] = None):
+        """Synchronous entry point that handles asyncio setup
+        
+        Args:
+            system_msg: Optional system message override
+            intro_msg: Optional intro message override
+            preconversation_text: Optional list of text to display before conversation
+        """
         import asyncio
-        asyncio.run(self._run_conversation(system_msg, intro_msg))
+        asyncio.run(self._run_conversation(system_msg, intro_msg, preconversation_text))
 
-    async def _run_conversation(self, system_msg: str = None, intro_msg: str = None):
+    async def _run_conversation(self, system_msg: str = None, intro_msg: str = None,
+                              preconversation_text: List[str] = None):
         """Internal async implementation of the conversation loop"""
         try:
             # If either message is None, use defaults for both
@@ -134,7 +182,7 @@ class ConversationManager:
                 system_msg, intro_msg = self.get_default_messages()
             
             self.system_prompt = system_msg
-            _, intro_styled, _ = await self.handle_intro(intro_msg)
+            _, intro_styled, _ = await self.handle_intro(intro_msg, preconversation_text)
             
             while True:
                 if user := await self.terminal.get_user_input():

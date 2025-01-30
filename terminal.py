@@ -67,6 +67,11 @@ class TerminalManager:
             sys.stdout.flush()
 
     def _handle_text(self, text: str, width: Optional[int] = None) -> List[str]:
+        """Handle text wrapping with support for styled and multi-line text.
+        
+        This method properly handles both pre-conversation and conversation text,
+        maintaining styling and formatting while wrapping lines appropriately.
+        """
         width = width or self._term_width
         result = []
         
@@ -97,6 +102,11 @@ class TerminalManager:
         await self._yield_to_event_loop()
 
     async def write_lines(self, lines: List[str], newline: bool = True) -> None:
+        """Write multiple lines of text to the terminal.
+        
+        This method handles both pre-conversation and conversation text,
+        ensuring proper spacing and formatting.
+        """
         for line in lines:
             self._write(line, newline=newline)
         await self._yield_to_event_loop()
@@ -106,12 +116,17 @@ class TerminalManager:
         await self._yield_to_event_loop()
 
     async def scroll_up(self, text: str, prompt: str, delay: float = 0.5) -> None:
+        """Scroll text upward with animation.
+        
+        This method handles both pre-conversation and conversation text in the
+        scrolling animation, maintaining proper spacing and formatting.
+        """
         lines = self._handle_text(text)
         for i in range(len(lines) + 1):
             await self.clear()
             await self.write_lines(lines[i:])
             await self.write_prompt(prompt, 'RESET')
-            await asyncio.sleep(delay)  # Keep actual sleep delay for animation
+            await asyncio.sleep(delay)
 
     async def update_display(self, content: str = None, prompt: str = None, 
                            preserve_cursor: bool = False) -> None:
@@ -138,6 +153,11 @@ class TerminalManager:
             self._hide_cursor()
 
     async def handle_scroll(self, styled_lines: str, prompt: str, delay: float = 0.5) -> None:
+        """Handle scrolling of styled text with animations.
+        
+        This method now properly handles both pre-conversation and conversation text
+        in the scrolling animation sequence.
+        """
         lines = self._handle_text(styled_lines)
         for i in range(len(lines) + 1):
             self._clear_screen()
@@ -147,6 +167,11 @@ class TerminalManager:
 
     async def update_animated_display(self, content: str = "", preserved_msg: str = "", 
                                    no_spacing: bool = False) -> None:
+        """Update the display with animation support.
+        
+        This method handles both pre-conversation and conversation text in
+        animated display updates.
+        """
         self._clear_screen()
         if content:
             if preserved_msg:
