@@ -38,8 +38,8 @@ class TextProcessor:
             used.update([pat.start, pat.end])
             self.by_name[name] = self.start_map[pat.start] = self.end_map[pat.end] = pat
 
-    def create_styled_handler(self) -> 'StyledTextHandler':
-        return StyledTextHandler(self)
+    def create_styled_handler(self, terminal=None) -> 'StyledTextHandler':
+        return StyledTextHandler(self, terminal)
 
     def get_format(self, name: str) -> str: return FORMATS.get(name, '')
     def get_color(self, name: str) -> str: return COLORS.get(name, '')
@@ -132,8 +132,9 @@ class TextProcessor:
                                   if curr_style != self.get_format('RESET') + base_color else "")
 
 class StyledTextHandler:
-    def __init__(self, text_processor: TextProcessor):
+    def __init__(self, text_processor: TextProcessor, terminal=None):
         self.text_processor = text_processor
+        self.terminal = terminal
         self._base_color = text_processor.get_base_color('GREEN')
         self.active_patterns = []
         self.current_line_length = 0
@@ -183,38 +184,57 @@ class StyledTextHandler:
         if not chunk: return ("", "")
         styled_out = ""
         
-        for char in chunk:
-            if char.isspace():
-                if self.word_buffer:
-                    styled_word = self._process_chunk(self.word_buffer)
-                    sys.stdout.write(styled_word)
-                    styled_out += styled_word
-                    self.word_buffer = ""
-                sys.stdout.write(char)
-                styled_out += char
-                self.current_line_length = 0 if char == '\n' else self.current_line_length + 1
-            else:
-                self.word_buffer += char
-        
-        sys.stdout.flush()
-        return (chunk, styled_out)
+        # Hide cursor if we have a terminal manager
+        if self.terminal:
+            self.terminal._hide_cursor()
+            
+        try:
+            for char in chunk:
+                if char.isspace():
+                    if self.word_buffer:
+                        styled_word = self._process_chunk(self.word_buffer)
+                        sys.stdout.write(styled_word)
+                        styled_out += styled_word
+                        self.word_buffer = ""
+                    sys.stdout.write(char)
+                    styled_out += char
+                    self.current_line_length = 0 if char == '\n' else self.current_line_length + 1
+                else:
+                    self.word_buffer += char
+            
+            sys.stdout.flush()
+            return (chunk, styled_out)
+        finally:
+            # Ensure cursor stays hidden after write
+            if self.terminal:
+                self.terminal._hide_cursor()
 
     async def flush(self, output_handler=None) -> Tuple[str, str]:
         styled_out = ""
-        if self.word_buffer:
-            styled_word = self._process_chunk(self.word_buffer)
-            sys.stdout.write(styled_word)
-            styled_out += styled_word
-            self.word_buffer = ""
-
-        if self.current_line_length > 0:
-            sys.stdout.write("\n")
-            styled_out += "\n"
         
-        sys.stdout.write(self.text_processor.get_format('RESET'))
-        sys.stdout.flush()
-        self.reset()
-        return "", styled_out
+        # Hide cursor during flush if we have a terminal manager
+        if self.terminal:
+            self.terminal._hide_cursor()
+            
+        try:
+            if self.word_buffer:
+                styled_word = self._process_chunk(self.word_buffer)
+                sys.stdout.write(styled_word)
+                styled_out += styled_word
+                self.word_buffer = ""
+
+            if self.current_line_length > 0:
+                sys.stdout.write("\n")
+                styled_out += "\n"
+            
+            sys.stdout.write(self.text_processor.get_format('RESET'))
+            sys.stdout.flush()
+            self.reset()
+            return "", styled_out
+        finally:
+            # Ensure cursor stays hidden after flush
+            if self.terminal:
+                self.terminal._hide_cursor()
 
     def reset(self) -> None:
         self.active_patterns.clear()

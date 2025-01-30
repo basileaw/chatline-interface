@@ -47,7 +47,7 @@ class ConversationManager:
 
     async def _process_message(self, msg: str, silent=False) -> Tuple[str, str]:
         self.messages.append(Message("user", msg))
-        handler = self.text_processor.create_styled_handler()
+        handler = self.text_processor.create_styled_handler(self.terminal)
         
         raw, styled = await self.animations.create_dot_loader(
             prompt="" if silent else f"> {msg}",
