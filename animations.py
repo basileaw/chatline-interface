@@ -27,17 +27,17 @@ class AsyncDotLoader:
         self.terminal._hide_cursor()
         try:
             while not self.animation_complete.is_set():
-                await self.terminal.write_loading_state(self.prompt, self.dots)
+                await self.terminal.write_loading_state(self.prompt, self.dots, self.dot_char)
                 await asyncio.sleep(0.4)
                 if self.resolved and self.dots == 3:
-                    await self.terminal.write_loading_state(self.prompt, 3)
+                    await self.terminal.write_loading_state(self.prompt, 3, self.dot_char)
                     self.terminal._write('\n\n')
                     break
                 self.dots = min(self.dots + 1, 3) if self.resolved else (self.dots + 1) % 4
             self.animation_complete.set()
         finally:
             self.terminal._show_cursor()
-
+            
     async def run_with_loading(self, stream: Any) -> Tuple[str, str]:
         if not self.buffer:
             raise ValueError("AdaptiveBuffer must be provided")

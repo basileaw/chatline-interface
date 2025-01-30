@@ -98,8 +98,8 @@ class TerminalManager:
         if prompt: await self.write_prompt(prompt)
         if not preserve_cursor: self._show_cursor()
 
-    async def write_loading_state(self, prompt: str, dots: int) -> None:
-        self._write(f"\r{' '*80}\r{prompt}{'.'*dots}")
+    async def write_loading_state(self, prompt: str, dots: int, dot_char: str = '.') -> None:
+        self._write(f"\r{' '*80}\r{prompt}{dot_char*dots}")
         await self._yield_to_event_loop()
 
     async def get_user_input(self, default_text: str = "", add_newline: bool = True) -> str:
