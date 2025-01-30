@@ -1,15 +1,38 @@
 # terminal.py
 
-import asyncio, time, sys, shutil
+import asyncio
+import time
+import sys
+import shutil
 from typing import List, Optional
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 
 class TerminalManager:
     def __init__(self, text_processor):
         self.text_processor = text_processor
-        self.prompt_session = PromptSession()
         self._term_width = shutil.get_terminal_size().columns
+        
+        # Create key bindings
+        kb = KeyBindings()
+        
+        @kb.add('c-e')  # Ctrl+E for edit
+        def _(event):
+            event.current_buffer.text = "edit"
+            event.app.exit(result=event.current_buffer.text)
+            
+        @kb.add('c-r')  # Ctrl+R for retry
+        def _(event):
+            event.current_buffer.text = "retry"
+            event.app.exit(result=event.current_buffer.text)
+            
+        # Create prompt session with key bindings
+        self.prompt_session = PromptSession(
+            key_bindings=kb,
+            complete_while_typing=False  # Disable autocompletion for better performance
+        )
 
     def _is_terminal(self) -> bool:
         """Check if stdout is connected to a terminal."""
@@ -105,12 +128,14 @@ class TerminalManager:
     async def get_user_input(self, default_text: str = "", add_newline: bool = True) -> str:
         self._show_cursor()
         if add_newline: self._write("\n")
-        result = await self.prompt_session.prompt_async(
-            FormattedText([('class:prompt', '> ')]), 
-            default=default_text
-        )
-        self._hide_cursor()
-        return result.strip()
+        try:
+            result = await self.prompt_session.prompt_async(
+                FormattedText([('class:prompt', '> ')]), 
+                default=default_text
+            )
+            return result.strip()
+        finally:
+            self._hide_cursor()
 
     async def handle_scroll(self, styled_lines: str, prompt: str, delay: float = 0.5) -> None:
         lines = self._handle_text(styled_lines)
