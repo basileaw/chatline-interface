@@ -27,6 +27,10 @@ class ChatInterface:
             animations_manager=self.animations
         )
 
+        # Initialize terminal state
+        self.terminal._clear_screen()
+        self.terminal._hide_cursor()
+
     def start(self, system_msg: str = None, intro_msg: str = None):
         """Start the chat interface with optional custom system and intro messages."""
         self.conversation.run_conversation(system_msg, intro_msg)

@@ -1,8 +1,7 @@
 # conversation.py
 
-import asyncio
 import logging
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from dataclasses import dataclass
 
 @dataclass
@@ -11,6 +10,22 @@ class Message:
     content: str
 
 class ConversationManager:
+    @staticmethod
+    def get_default_messages() -> Tuple[str, str]:
+        """Get the default system and intro messages.
+        
+        Returns:
+            Tuple[str, str]: (system_message, intro_message)
+        """
+        return (
+            'Be helpful, concise, and honest. Use text styles:\n'
+            '- "quotes" for dialogue\n'
+            '- [brackets] for observations\n'
+            '- underscores for emphasis\n'
+            '- asterisks for bold text',
+            "Introduce yourself in 3 lines, 7 words each..."
+        )
+
     def __init__(self, terminal, generator_func: Any, text_processor, 
                  animations_manager, system_prompt: str = None):
         self.terminal = terminal
@@ -20,13 +35,11 @@ class ConversationManager:
         self.messages: List[Message] = []
         self.is_silent = False
         self.prompt = ""
-        self.system_prompt = system_prompt or (
-            'Be helpful, concise, and honest. Use text styles:\n'
-            '- "quotes" for dialogue\n'
-            '- [brackets] for observations\n'
-            '- underscores for emphasis\n'
-            '- asterisks for bold text'
-        )
+        self.system_prompt = system_prompt  # No default here anymore
+
+    def _get_last_user_message(self) -> Optional[str]:
+        """Helper method to find the last user message in the conversation."""
+        return next((m.content for m in reversed(self.messages) if m.role == "user"), None)
 
     async def get_messages(self) -> List[Dict[str, str]]:
         return ([{"role": "system", "content": self.system_prompt}] if self.system_prompt else []) + \
@@ -65,13 +78,11 @@ class ConversationManager:
         )
         
         if self.is_silent:
-            if last_user_msg := next((m.content for m in reversed(self.messages) 
-                                    if m.role == "user"), None):
-                raw, styled = await self._process_message(last_user_msg, True)
+            if last_msg := self._get_last_user_message():
+                raw, styled = await self._process_message(last_msg, True)
                 return raw, styled, ""
         else:
-            prev = next((m.content for m in reversed(self.messages) 
-                        if m.role == "user"), None)
+            prev = self._get_last_user_message()
             if msg := await self.terminal.get_user_input(prev, False):
                 await self.terminal.clear()
                 raw, styled = await self._process_message(msg)
@@ -82,18 +93,18 @@ class ConversationManager:
 
     def run_conversation(self, system_msg: str = None, intro_msg: str = None):
         """Synchronous entry point that handles asyncio setup"""
+        import asyncio
         asyncio.run(self._run_conversation(system_msg, intro_msg))
 
     async def _run_conversation(self, system_msg: str = None, intro_msg: str = None):
         """Internal async implementation of the conversation loop"""
         try:
-            if system_msg is not None:
-                self.system_prompt = system_msg
-                
-            await self.terminal.clear()
-            _, intro_styled, _ = await self.handle_intro(
-                intro_msg or "Introduce yourself in 3 lines, 7 words each..."
-            )
+            # If either message is None, use defaults for both
+            if system_msg is None or intro_msg is None:
+                system_msg, intro_msg = self.get_default_messages()
+            
+            self.system_prompt = system_msg
+            _, intro_styled, _ = await self.handle_intro(intro_msg)
             
             while True:
                 if user := await self.terminal.get_user_input():

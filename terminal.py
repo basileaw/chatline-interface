@@ -11,6 +11,14 @@ class TerminalManager:
         self.prompt_session = PromptSession()
         self._term_width = shutil.get_terminal_size().columns
 
+    def _is_terminal(self) -> bool:
+        """Check if stdout is connected to a terminal."""
+        return sys.stdout.isatty()
+
+    async def _yield_to_event_loop(self) -> None:
+        """Yield control back to the event loop."""
+        await asyncio.sleep(0)
+
     def _write(self, text: str = "", style: str = None, newline: bool = False) -> None:
         if style: sys.stdout.write(self.text_processor.get_format(style))
         sys.stdout.write(text)
@@ -23,7 +31,7 @@ class TerminalManager:
         sys.stdout.flush()
 
     def _cursor_control(self, show: bool) -> None:
-        if sys.stdout.isatty():
+        if self._is_terminal():
             sys.stdout.write("\033[?25h" if show else "\033[?25l")
             sys.stdout.flush()
 
@@ -31,7 +39,7 @@ class TerminalManager:
     def _hide_cursor(self) -> None: self._cursor_control(False)
 
     def _clear_screen(self) -> None:
-        if sys.stdout.isatty():
+        if self._is_terminal():
             sys.stdout.write("\033[2J\033[H")
             sys.stdout.flush()
 
@@ -63,16 +71,16 @@ class TerminalManager:
 
     async def clear(self) -> None:
         self._clear_screen()
-        await asyncio.sleep(0)
+        await self._yield_to_event_loop()
 
     async def write_lines(self, lines: List[str], newline: bool = True) -> None:
         for line in lines:
             self._write(line, newline=newline)
-        await asyncio.sleep(0)
+        await self._yield_to_event_loop()
 
     async def write_prompt(self, prompt: str, style: Optional[str] = None) -> None:
         self._write(prompt, style)
-        await asyncio.sleep(0)
+        await self._yield_to_event_loop()
 
     async def scroll_up(self, text: str, prompt: str, delay: float = 0.5) -> None:
         lines = self._handle_text(text)
@@ -80,7 +88,7 @@ class TerminalManager:
             await self.clear()
             await self.write_lines(lines[i:])
             await self.write_prompt(prompt, 'RESET')
-            await asyncio.sleep(delay)
+            await asyncio.sleep(delay)  # Keep actual sleep delay for animation
 
     async def update_display(self, content: str = None, prompt: str = None, 
                            preserve_cursor: bool = False) -> None:
@@ -92,7 +100,7 @@ class TerminalManager:
 
     async def write_loading_state(self, prompt: str, dots: int) -> None:
         self._write(f"\r{' '*80}\r{prompt}{'.'*dots}")
-        await asyncio.sleep(0)
+        await self._yield_to_event_loop()
 
     async def get_user_input(self, default_text: str = "", add_newline: bool = True) -> str:
         self._show_cursor()
@@ -110,7 +118,7 @@ class TerminalManager:
             self._clear_screen()
             for ln in lines[i:]: self._write(ln, newline=True)
             self._write(self.text_processor.get_format('RESET') + prompt)
-            time.sleep(delay)
+            time.sleep(delay)  # Keep actual sleep delay for animation
 
     async def update_animated_display(self, content: str = "", preserved_msg: str = "", 
                                    no_spacing: bool = False) -> None:
@@ -122,4 +130,4 @@ class TerminalManager:
         else:
             self._write(preserved_msg)
         self._write("", 'RESET')
-        await asyncio.sleep(0.01)
+        await self._yield_to_event_loop()
