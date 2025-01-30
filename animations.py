@@ -103,7 +103,6 @@ class ReverseStreamer:
         self.text_processor = text_processor
         self.terminal = terminal
         self._base_color = text_processor.get_base_color(base_color)
-
     async def reverse_stream(self, styled_text: str, preserved_msg: str = "", delay: float = 0.08):
         pattern_maps = {
             'by_name': self.text_processor.by_name,
@@ -115,17 +114,14 @@ class ReverseStreamer:
             for line in styled_text.splitlines()
         ]
         no_spacing = not preserved_msg
-
-        # First do reverse stream, yielding to event loop to prevent race conditions
         for line_idx in range(len(lines) - 1, -1, -1):
             while lines[line_idx]:
                 lines[line_idx].pop()
-                await self.terminal._yield_to_event_loop()
-            await self.terminal.update_animated_display(
-                self.text_processor.format_styled_lines(lines, self._base_color),
-                preserved_msg, no_spacing
-            )
-            await asyncio.sleep(delay)
+                await self.terminal.update_animated_display(
+                    self.text_processor.format_styled_lines(lines, self._base_color),
+                    preserved_msg, no_spacing
+                )
+                await asyncio.sleep(delay)
 
         # After reverse stream completes, handle punctuation removal
         if preserved_msg:
@@ -149,7 +145,7 @@ class AnimationsManager:
     def __init__(self, terminal, text_processor):
         self.terminal = terminal
         self.text_processor = text_processor
-    
+
     def create_dot_loader(self, prompt: str, output_handler=None, no_animation=False):
         loader = AsyncDotLoader(
             text_processor=self.text_processor,
@@ -161,4 +157,4 @@ class AnimationsManager:
         return loader
     
     def create_reverse_streamer(self, base_color='GREEN'):
-        return ReverseStreamer(self.text_processor, self.terminal, base_color)
+            return ReverseStreamer(self.text_processor, self.terminal, base_color)

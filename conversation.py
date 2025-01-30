@@ -129,4 +129,3 @@ class ConversationManager:
             raise
         finally:
             await self.terminal.update_display()
-            self.terminal._show_cursor()
