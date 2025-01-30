@@ -1,7 +1,8 @@
 # conversation.py
 
-from typing import List, Dict, Any, Tuple
+import asyncio
 import logging
+from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
 
 @dataclass
@@ -79,8 +80,12 @@ class ConversationManager:
                 
         return "", "", ""
 
-    async def run_conversation(self, system_msg: str = None, intro_msg: str = None):
-        """Main conversation loop, moved from interface.py"""
+    def run_conversation(self, system_msg: str = None, intro_msg: str = None):
+        """Synchronous entry point that handles asyncio setup"""
+        asyncio.run(self._run_conversation(system_msg, intro_msg))
+
+    async def _run_conversation(self, system_msg: str = None, intro_msg: str = None):
+        """Internal async implementation of the conversation loop"""
         try:
             if system_msg is not None:
                 self.system_prompt = system_msg

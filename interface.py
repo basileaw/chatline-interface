@@ -1,8 +1,7 @@
 # interface.py
 
-import asyncio
 import logging
-from typing import Protocol, Callable, AsyncGenerator
+from typing import Callable, AsyncGenerator
 from terminal import TerminalManager
 from conversation import ConversationManager
 from text import TextProcessor
@@ -30,11 +29,7 @@ class ChatInterface:
 
     def start(self, system_msg: str = None, intro_msg: str = None):
         """Start the chat interface with optional custom system and intro messages."""
-        asyncio.run(self._async_start(system_msg, intro_msg))
-            
-    async def _async_start(self, system_msg: str = None, intro_msg: str = None):
-        """Delegate conversation handling to ConversationManager."""
-        await self.conversation.run_conversation(system_msg, intro_msg)
+        self.conversation.run_conversation(system_msg, intro_msg)
 
 if __name__ == "__main__":
     # Example import and usage
