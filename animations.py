@@ -110,27 +110,39 @@ class ReverseStreamer:
             'start_map': self.text_processor.start_map,
             'end_map': self.text_processor.end_map
         }
-        
         lines = [
             self.text_processor.split_into_styled_words(line, pattern_maps)
             for line in styled_text.splitlines()
         ]
-        
         no_spacing = not preserved_msg
+
+        # First do reverse stream, yielding to event loop to prevent race conditions
         for line_idx in range(len(lines) - 1, -1, -1):
             while lines[line_idx]:
                 lines[line_idx].pop()
-                await self.terminal.update_animated_display(
-                    self.text_processor.format_styled_lines(lines, self._base_color),
-                    preserved_msg, no_spacing
-                )
-                await asyncio.sleep(delay)
-        
+                await self.terminal._yield_to_event_loop()
+            await self.terminal.update_animated_display(
+                self.text_processor.format_styled_lines(lines, self._base_color),
+                preserved_msg, no_spacing
+            )
+            await asyncio.sleep(delay)
+
+        # After reverse stream completes, handle punctuation removal
         if preserved_msg:
-            msg_base = preserved_msg.rstrip('.')
-            for i in range(len(preserved_msg) - len(msg_base) - 1, -1, -1):
-                await self.terminal.update_animated_display("", msg_base + '.' * i)
-                await asyncio.sleep(delay)
+            base = preserved_msg.rstrip('?.!')
+            if preserved_msg.endswith(('!', '?')):
+                # For ! or ?, keep last one
+                char = preserved_msg[-1]
+                count = preserved_msg.count(char)
+                for i in range(count, 1, -1):  # Stop at 1 to keep last character
+                    await self.terminal.update_animated_display("", f"{base}{char * i}")
+                    await asyncio.sleep(delay)
+            elif preserved_msg.endswith('.'):
+                # For periods, remove all three
+                for i in range(3, 0, -1):
+                    await self.terminal.update_animated_display("", f"{base}{'.' * i}")
+                    await asyncio.sleep(delay)
+
         await self.terminal.update_animated_display()
 
 class AnimationsManager:

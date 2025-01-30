@@ -68,7 +68,11 @@ class ConversationManager:
         await self.terminal.handle_scroll(intro_styled, f"> {user_input}", 0.08)
         raw, styled = await self._process_message(user_input)
         self.is_silent = False
-        self.prompt = f"> {user_input}..."
+        
+        # Reconstruct the prompt with proper punctuation
+        end_char = '.' if not user_input.endswith(('?', '!')) else user_input[-1]
+        self.prompt = f"> {user_input.rstrip('?.!')}{end_char * 3}"
+    
         return raw, styled, self.prompt
 
     async def handle_retry(self, intro_styled: str) -> Tuple[str, str, str]:
@@ -86,9 +90,13 @@ class ConversationManager:
             if msg := await self.terminal.get_user_input(prev, False):
                 await self.terminal.clear()
                 raw, styled = await self._process_message(msg)
-                self.prompt = f"> {msg}..."
-                return raw, styled, self.prompt
                 
+                # Apply same prompt reconstruction logic here too
+                end_char = '.' if not msg.endswith(('?', '!')) else msg[-1]
+                self.prompt = f"> {msg.rstrip('?.!')}{end_char * 3}"
+                
+                return raw, styled, self.prompt
+                    
         return "", "", ""
 
     def run_conversation(self, system_msg: str = None, intro_msg: str = None):
