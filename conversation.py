@@ -35,7 +35,7 @@ class ConversationManager:
         self.messages: List[Message] = []
         self.is_silent = False
         self.prompt = ""
-        self.system_prompt = system_prompt  # No default here anymore
+        self.system_prompt = system_prompt
 
     def _get_last_user_message(self) -> Optional[str]:
         """Helper method to find the last user message in the conversation."""
@@ -75,7 +75,8 @@ class ConversationManager:
     
         return raw, styled, self.prompt
 
-    async def handle_retry(self, intro_styled: str) -> Tuple[str, str, str]:
+    async def handle_edit_or_retry(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
+        """Handle both edit and retry commands using shared reverse streaming logic."""
         await self.animations.create_reverse_streamer().reverse_stream(
             intro_styled,
             "" if self.is_silent else self.prompt
@@ -86,18 +87,39 @@ class ConversationManager:
                 raw, styled = await self._process_message(last_msg, True)
                 return raw, styled, ""
         else:
-            prev = self._get_last_user_message()
-            if msg := await self.terminal.get_user_input(prev, False):
-                await self.terminal.clear()
-                raw, styled = await self._process_message(msg)
-                
-                # Apply same prompt reconstruction logic here too
-                end_char = '.' if not msg.endswith(('?', '!')) else msg[-1]
-                self.prompt = f"> {msg.rstrip('?.!')}{end_char * 3}"
-                
-                return raw, styled, self.prompt
+            last_msg = self._get_last_user_message()
+            if last_msg:
+                if is_retry:
+                    # For retry, immediately reprocess the last message
+                    await self.terminal.clear()
+                    raw, styled = await self._process_message(last_msg)
+                    
+                    # Apply same prompt reconstruction logic
+                    end_char = '.' if not last_msg.endswith(('?', '!')) else last_msg[-1]
+                    self.prompt = f"> {last_msg.rstrip('?.!')}{end_char * 3}"
+                    
+                    return raw, styled, self.prompt
+                else:
+                    # For edit, get user input with previous message pre-filled
+                    if msg := await self.terminal.get_user_input(last_msg, False):
+                        await self.terminal.clear()
+                        raw, styled = await self._process_message(msg)
+                        
+                        # Apply same prompt reconstruction logic
+                        end_char = '.' if not msg.endswith(('?', '!')) else msg[-1]
+                        self.prompt = f"> {msg.rstrip('?.!')}{end_char * 3}"
+                        
+                        return raw, styled, self.prompt
                     
         return "", "", ""
+
+    async def handle_edit(self, intro_styled: str) -> Tuple[str, str, str]:
+        """Handle the edit command."""
+        return await self.handle_edit_or_retry(intro_styled, is_retry=False)
+
+    async def handle_retry(self, intro_styled: str) -> Tuple[str, str, str]:
+        """Handle the retry command."""
+        return await self.handle_edit_or_retry(intro_styled, is_retry=True)
 
     def run_conversation(self, system_msg: str = None, intro_msg: str = None):
         """Synchronous entry point that handles asyncio setup"""
@@ -117,8 +139,12 @@ class ConversationManager:
             while True:
                 if user := await self.terminal.get_user_input():
                     try:
-                        _, intro_styled, _ = await self.handle_retry(intro_styled) if user.lower() == "retry" \
-                            else await self.handle_message(user, intro_styled)
+                        if user.lower() == "edit":
+                            _, intro_styled, _ = await self.handle_edit(intro_styled)
+                        elif user.lower() == "retry":
+                            _, intro_styled, _ = await self.handle_retry(intro_styled)
+                        else:
+                            _, intro_styled, _ = await self.handle_message(user, intro_styled)
                     except Exception as e:
                         logging.error(f"Error processing message: {str(e)}", exc_info=True)
                         print(f"\nAn error occurred: {str(e)}")
