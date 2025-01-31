@@ -2,9 +2,9 @@
 
 import logging
 from typing import Callable, AsyncGenerator, List, Optional
-from terminal import TerminalManager
-from conversation import ConversationManager
-from animations import AnimationsManager
+from terminal import Terminal
+from conversation import Conversation
+from animations import Animations
 from styles import Styles
 from stream import Stream
 
@@ -23,7 +23,7 @@ class ChatInterface:
         # Initialize components in dependency order
         self.styles = Styles()  # No dependencies
         
-        self.terminal = TerminalManager(
+        self.terminal = Terminal(
             styles=self.styles
         )
         
@@ -32,12 +32,12 @@ class ChatInterface:
             terminal=self.terminal
         )
         
-        self.animations = AnimationsManager(
+        self.animations = Animations(
             terminal=self.terminal,
             styles=self.styles
         )
         
-        self.conversation = ConversationManager(
+        self.conversation = Conversation(
             terminal=self.terminal,
             generator_func=generator_func,
             styles=self.styles,

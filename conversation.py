@@ -9,7 +9,7 @@ class Message:
     role: str
     content: str
 
-class ConversationManager:
+class Conversation:
     @staticmethod
     def get_default_messages() -> Tuple[str, str]:
         """Get the default system and intro messages.

@@ -11,7 +11,7 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 
-class TerminalManager:
+class Terminal:
     def __init__(self, styles):
         self.styles = styles
         self._term_width = shutil.get_terminal_size().columns

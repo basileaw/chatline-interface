@@ -190,7 +190,7 @@ class ReverseStreamer:
             await self.terminal.update_animated_display("", f"{base}{'.' * i}")
             await asyncio.sleep(delay)
 
-class AnimationsManager:
+class Animations:
     def __init__(self, terminal, styles):
         self.terminal = terminal
         self.styles = styles
