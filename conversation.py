@@ -110,9 +110,12 @@ class ConversationManager:
         end_char = '.' if not user_input.endswith(('?', '!')) else user_input[-1]
         self.prompt = f"> {user_input.rstrip('?.!')}{end_char * 3}"
         
-        # Include preconversation text in the styled output
-        full_styled = f"{self.preconversation_styled}{styled}"
-    
+        # Clear preconversation text after first user interaction
+        self.preconversation_styled = ""
+        
+        # Only include styled output without preconversation text
+        full_styled = styled
+        
         return raw, full_styled, self.prompt
 
     async def handle_edit_or_retry(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
