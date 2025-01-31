@@ -104,19 +104,27 @@ class ReverseStreamer:
         self.terminal = terminal
         self._base_color = text_processor.get_base_color(base_color)
 
-    async def reverse_stream(self, styled_text: str, preserved_msg: str = "", delay: float = 0.08):
-        """Reverse stream the text with animations.
+    async def reverse_stream(self, styled_text: str, preserved_msg: str = "", delay: float = 0.08, 
+                           preconversation_text: str = ""):
+        """Reverse stream the text with animations while preserving preconversation text.
         
-        The text will be split into lines and each line will be reverse streamed.
-        Pre-conversation text will be included in the animation sequence.
+        Args:
+            styled_text: The full text to reverse stream
+            preserved_msg: Message to preserve at the bottom (e.g. user input)
+            delay: Animation delay between frames
+            preconversation_text: Text to preserve at the top
         """
-        lines = self._prepare_lines(styled_text)
+        # Split the text into preconversation and conversation parts
+        conversation_text = styled_text[len(preconversation_text):] if preconversation_text else styled_text
+        
+        lines = self._prepare_lines(conversation_text)
         no_spacing = not preserved_msg
         
-        await self._reverse_stream_lines(lines, preserved_msg, no_spacing, delay)
+        # Handle the reverse streaming of only the conversation part
+        await self._reverse_stream_lines(lines, preserved_msg, no_spacing, delay, preconversation_text)
         await self._handle_punctuation(preserved_msg, delay)
-        await self.terminal.update_animated_display()
-        
+        await self.terminal.update_animated_display(preconversation_text)
+
     def _prepare_lines(self, styled_text: str) -> list:
         pattern_maps = {
             'by_name': self.text_processor.by_name,
@@ -128,12 +136,15 @@ class ReverseStreamer:
             for line in styled_text.splitlines()
         ]
         
-    async def _reverse_stream_lines(self, lines: list, preserved_msg: str, no_spacing: bool, delay: float):
+    async def _reverse_stream_lines(self, lines: list, preserved_msg: str, no_spacing: bool, 
+                                  delay: float, preconversation_text: str = ""):
         for line_idx in range(len(lines) - 1, -1, -1):
             while lines[line_idx]:
                 lines[line_idx].pop()
                 formatted_lines = self.text_processor.format_styled_lines(lines, self._base_color)
-                await self.terminal.update_animated_display(formatted_lines, preserved_msg, no_spacing)
+                # Always include preconversation text at the top
+                full_display = preconversation_text + formatted_lines
+                await self.terminal.update_animated_display(full_display, preserved_msg, no_spacing)
                 await asyncio.sleep(delay)
                 
     async def _handle_punctuation(self, preserved_msg: str, delay: float):

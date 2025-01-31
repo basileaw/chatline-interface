@@ -136,9 +136,12 @@ class ConversationManager:
 
     async def handle_edit_or_retry(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
         """Handle both edit and retry commands using shared reverse streaming logic."""
-        await self.animations.create_reverse_streamer().reverse_stream(
+        # Create reverse streamer with knowledge of preconversation text
+        reverse_streamer = self.animations.create_reverse_streamer()
+        await reverse_streamer.reverse_stream(
             intro_styled,
-            "" if self.is_silent else self.prompt
+            "" if self.is_silent else self.prompt,
+            preconversation_text=self.preconversation_styled
         )
         
         if self.is_silent:
@@ -153,11 +156,11 @@ class ConversationManager:
                     await self.terminal.clear()
                     raw, styled = await self._process_message(last_msg)
                     
-                    # Apply same prompt reconstruction logic
+                    # Apply same prompt reconstruction logic 
                     end_char = '.' if not last_msg.endswith(('?', '!')) else last_msg[-1]
                     self.prompt = f"> {last_msg.rstrip('?.!')}{end_char * 3}"
                     
-                    # Include preconversation text (if any). Typically it's cleared by now.
+                    # Include preconversation text when constructing full styled output
                     full_styled = f"{self.preconversation_styled}{styled}"
                     
                     return raw, full_styled, self.prompt
@@ -175,7 +178,7 @@ class ConversationManager:
                         full_styled = f"{self.preconversation_styled}{styled}"
                         
                         return raw, full_styled, self.prompt
-                    
+                        
         return "", "", ""
 
     async def handle_edit(self, intro_styled: str) -> Tuple[str, str, str]:
