@@ -4,7 +4,6 @@ import logging
 from typing import Callable, AsyncGenerator, List, Optional
 from terminal import TerminalManager
 from conversation import ConversationManager
-from text import TextProcessor
 from animations import AnimationsManager
 from styles import Styles
 from stream import Stream
@@ -21,37 +20,28 @@ class ChatInterface:
             filename='logs/chat_debug.log'
         )
 
-        # Initialize style processors
-        self.text_processor = TextProcessor()  # Legacy processor
-        self.styles = Styles()  # New styles system
+        # Initialize components in dependency order
+        self.styles = Styles()  # No dependencies
         
-        # Initialize terminal with both processors
         self.terminal = TerminalManager(
-            text_processor=self.text_processor,  # Legacy - will be removed in final phase
-            styles=self.styles  # New - will be the only dependency in final phase
+            styles=self.styles
         )
         
-        # Initialize stream after terminal
         self.stream = Stream(
             styles=self.styles,
             terminal=self.terminal
         )
         
-        # Initialize animations with both processors
         self.animations = AnimationsManager(
             terminal=self.terminal,
-            text_processor=self.text_processor,  # Legacy
-            styles=self.styles,  # New
-            stream=self.stream  # New
+            styles=self.styles
         )
         
-        # Initialize conversation manager with all components
         self.conversation = ConversationManager(
             terminal=self.terminal,
             generator_func=generator_func,
-            text_processor=self.text_processor,  # Legacy
-            styles=self.styles,  # New
-            stream=self.stream,  # New
+            styles=self.styles,
+            stream=self.stream,
             animations_manager=self.animations
         )
 

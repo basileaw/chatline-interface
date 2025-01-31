@@ -11,13 +11,9 @@ class Buffer(Protocol):
     def reset(self) -> None: ...
 
 class AsyncDotLoader:
-    def __init__(self, text_processor=None, styles=None, prompt: str = "", 
-                 adaptive_buffer=None, output_handler=None, no_animation=False):
-        # Support both old and new style systems
-        self.text_processor = text_processor
+    def __init__(self, styles, prompt: str = "", adaptive_buffer=None, 
+                 output_handler=None, no_animation=False):
         self.styles = styles
-        self.style_handler = self.styles if self.styles else self.text_processor
-        
         self.out = output_handler
         self.buffer = adaptive_buffer or output_handler
         self.prompt = prompt.rstrip('.?!')
@@ -105,14 +101,10 @@ class AsyncDotLoader:
             return raw + r, styled + s
 
 class ReverseStreamer:
-    def __init__(self, text_processor=None, styles=None, terminal=None, base_color='GREEN'):
-        # Support both old and new style systems
-        self.text_processor = text_processor
+    def __init__(self, styles, terminal=None, base_color='GREEN'):
         self.styles = styles
-        self.style_handler = self.styles if self.styles else self.text_processor
-        
         self.terminal = terminal
-        self._base_color = self.style_handler.get_base_color(base_color)
+        self._base_color = self.styles.get_base_color(base_color)
 
     async def reverse_stream(self, styled_text: str, preserved_msg: str = "", delay: float = 0.08, 
                            preconversation_text: str = ""):
@@ -136,15 +128,18 @@ class ReverseStreamer:
     def _prepare_lines(self, styled_text: str) -> list:
         """Prepare lines for reverse streaming, ensuring clean text splitting."""
         pattern_maps = {
-            'by_name': self.style_handler.by_name,
-            'start_map': self.style_handler.start_map,
-            'end_map': self.style_handler.end_map
+            'by_name': self.styles.by_name,
+            'start_map': self.styles.start_map,
+            'end_map': self.styles.end_map
         }
         
         # Split text into lines, preserving empty lines
         lines = styled_text.splitlines()
+        
+        # Handle empty lines by returning empty word list, otherwise process normally
         return [
-            self.style_handler.split_into_styled_words(line)
+            self.styles.split_into_styled_words(line) if line.strip()
+            else []
             for line in lines
         ]
 
@@ -154,7 +149,7 @@ class ReverseStreamer:
         for line_idx in range(len(lines) - 1, -1, -1):
             while lines[line_idx]:
                 lines[line_idx].pop()
-                formatted_lines = self.style_handler.format_styled_lines(lines, self._base_color)
+                formatted_lines = self.styles.format_styled_lines(lines, self._base_color)
                 
                 # Ensure proper spacing between preconversation and conversation text
                 full_display = ""
@@ -196,16 +191,13 @@ class ReverseStreamer:
             await asyncio.sleep(delay)
 
 class AnimationsManager:
-    def __init__(self, terminal, text_processor=None, styles=None, stream=None):
+    def __init__(self, terminal, styles):
         self.terminal = terminal
-        self.text_processor = text_processor
         self.styles = styles
-        self.stream = stream
 
     def create_dot_loader(self, prompt: str, output_handler=None, no_animation=False):
         loader = AsyncDotLoader(
-            text_processor=self.text_processor,  # Legacy support
-            styles=self.styles,  # New style system
+            styles=self.styles,
             prompt=prompt,
             output_handler=output_handler,
             no_animation=no_animation
@@ -215,8 +207,7 @@ class AnimationsManager:
     
     def create_reverse_streamer(self, base_color='GREEN'):
         return ReverseStreamer(
-            text_processor=self.text_processor,  # Legacy support
-            styles=self.styles,  # New style system
+            styles=self.styles,
             terminal=self.terminal,
             base_color=base_color
         )

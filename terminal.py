@@ -11,14 +11,8 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 
 class TerminalManager:
-    def __init__(self, text_processor=None, styles=None):
-        # Support both old and new style systems during transition
-        self.text_processor = text_processor
+    def __init__(self, styles):
         self.styles = styles
-        
-        # Use text_processor if styles is not provided (backwards compatibility)
-        self.style_handler = self.styles if self.styles else self.text_processor
-        
         self._term_width = shutil.get_terminal_size().columns
         
         # Create key bindings
@@ -50,10 +44,10 @@ class TerminalManager:
 
     def _write(self, text: str = "", style: str = None, newline: bool = False) -> None:
         if style: 
-            sys.stdout.write(self.style_handler.get_format(style))
+            sys.stdout.write(self.styles.get_format(style))
         sys.stdout.write(text)
         if style: 
-            sys.stdout.write(self.style_handler.get_format('RESET'))
+            sys.stdout.write(self.styles.get_format('RESET'))
         if newline: 
             sys.stdout.write('\n')
         sys.stdout.flush()
@@ -101,7 +95,7 @@ class TerminalManager:
                     line = ''
                 else:
                     test = f"{line}{' ' if line else ''}{word}"
-                    if self.style_handler.get_visible_length(test) <= width:
+                    if self.styles.get_visible_length(test) <= width:
                         line = test
                     else:
                         result.append(line)
@@ -182,7 +176,7 @@ class TerminalManager:
             self._clear_screen()
             for ln in lines[i:]: 
                 self._write(ln, newline=True)
-            self._write(self.style_handler.get_format('RESET') + prompt)
+            self._write(self.styles.get_format('RESET') + prompt)
             time.sleep(delay)  # Keep actual sleep delay for animation
 
     async def update_animated_display(self, content: str = "", preserved_msg: str = "", 
