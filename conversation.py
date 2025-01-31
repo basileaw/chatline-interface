@@ -146,8 +146,9 @@ class ConversationManager:
         if self.is_silent:
             if last_msg := self._get_last_user_message():
                 raw, styled = await self._process_message(last_msg, True)
-                # Use original intro_styled for silent mode too
-                return raw, intro_styled, ""
+                # Combine preconversation text with new styled response
+                full_styled = self.preconversation_styled + styled
+                return raw, full_styled, ""
         else:
             last_msg = self._get_last_user_message()
             if last_msg:
@@ -160,8 +161,9 @@ class ConversationManager:
                     end_char = '.' if not last_msg.endswith(('?', '!')) else last_msg[-1]
                     self.prompt = f"> {last_msg.rstrip('?.!')}{end_char * 3}"
                     
-                    # Use original intro_styled instead of reconstructing
-                    return raw, intro_styled, self.prompt
+                    # Combine preconversation text with new styled response
+                    full_styled = self.preconversation_styled + styled
+                    return raw, full_styled, self.prompt
                 else:
                     # For edit, get user input with previous message pre-filled
                     if msg := await self.terminal.get_user_input(last_msg, False):
@@ -172,8 +174,9 @@ class ConversationManager:
                         end_char = '.' if not msg.endswith(('?', '!')) else msg[-1]
                         self.prompt = f"> {msg.rstrip('?.!')}{end_char * 3}"
                         
-                        # Use original intro_styled for edit as well
-                        return raw, intro_styled, self.prompt
+                        # Combine preconversation text with new styled response
+                        full_styled = self.preconversation_styled + styled
+                        return raw, full_styled, self.prompt
                         
         return "", "", ""
 
