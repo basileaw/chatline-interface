@@ -67,7 +67,7 @@ if __name__ == "__main__":
     chat = ChatInterface(generate_stream)
     
     # Example of using pre-conversation text
-    chat.print("Welcome to the chat interface")
+    chat.print("Welcome to the Chat Interface")
     chat.print("Type 'help' for available commands")
     
     chat.start()
