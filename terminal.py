@@ -6,6 +6,7 @@ import sys
 import shutil
 from typing import List, Optional
 from prompt_toolkit import PromptSession
+from prompt_toolkit.validation import Validator, ValidationError
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
@@ -152,14 +153,21 @@ class TerminalManager:
         self._write(f"\r{' '*80}\r{prompt}{dot_char*dots}")
         await self._yield_to_event_loop()
 
-    async def get_user_input(self, default_text: str = "", add_newline: bool = True) -> str:
+    async def get_user_input(self, default_text: str = "", add_newline: bool = True) -> str:        
+        class NonEmptyValidator(Validator):
+            def validate(self, document):
+                if not document.text.strip():
+                    raise ValidationError(message='', cursor_position=0)
+        
         self._show_cursor()
-        if add_newline: 
+        if add_newline:
             self._write("\n")
         try:
             result = await self.prompt_session.prompt_async(
-                FormattedText([('class:prompt', '> ')]), 
-                default=default_text
+                FormattedText([('class:prompt', '> ')]),
+                default=default_text,
+                validator=NonEmptyValidator(),
+                validate_while_typing=False
             )
             return result.strip()
         finally:
