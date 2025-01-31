@@ -6,6 +6,8 @@ from terminal import TerminalManager
 from conversation import ConversationManager
 from text import TextProcessor
 from animations import AnimationsManager
+from styles import Styles
+from stream import Stream
 
 class ChatInterface:
     def __init__(self, generator_func: Callable[[str], AsyncGenerator[str, None]]):
@@ -19,14 +21,37 @@ class ChatInterface:
             filename='logs/chat_debug.log'
         )
 
-        # Initialize core components - updated dependency chain
-        self.text_processor = TextProcessor()  # No dependencies
-        self.terminal = TerminalManager(self.text_processor)  # Depends on text_processor
-        self.animations = AnimationsManager(self.terminal, self.text_processor)  # Depends on terminal and text_processor
+        # Initialize style processors
+        self.text_processor = TextProcessor()  # Legacy processor
+        self.styles = Styles()  # New styles system
+        
+        # Initialize terminal with both processors
+        self.terminal = TerminalManager(
+            text_processor=self.text_processor,  # Legacy - will be removed in final phase
+            styles=self.styles  # New - will be the only dependency in final phase
+        )
+        
+        # Initialize stream after terminal
+        self.stream = Stream(
+            styles=self.styles,
+            terminal=self.terminal
+        )
+        
+        # Initialize animations with both processors
+        self.animations = AnimationsManager(
+            terminal=self.terminal,
+            text_processor=self.text_processor,  # Legacy
+            styles=self.styles,  # New
+            stream=self.stream  # New
+        )
+        
+        # Initialize conversation manager with all components
         self.conversation = ConversationManager(
             terminal=self.terminal,
             generator_func=generator_func,
-            text_processor=self.text_processor,
+            text_processor=self.text_processor,  # Legacy
+            styles=self.styles,  # New
+            stream=self.stream,  # New
             animations_manager=self.animations
         )
 

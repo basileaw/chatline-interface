@@ -1,6 +1,8 @@
 # animations.py
 
-import asyncio, json, time
+import asyncio
+import json
+import time
 from typing import Protocol, Optional, Any, Tuple, List
 
 class Buffer(Protocol):
@@ -9,9 +11,13 @@ class Buffer(Protocol):
     def reset(self) -> None: ...
 
 class AsyncDotLoader:
-    def __init__(self, text_processor, prompt: str, adaptive_buffer=None, output_handler=None, 
-                 no_animation=False):
+    def __init__(self, text_processor=None, styles=None, prompt: str = "", 
+                 adaptive_buffer=None, output_handler=None, no_animation=False):
+        # Support both old and new style systems
         self.text_processor = text_processor
+        self.styles = styles
+        self.style_handler = self.styles if self.styles else self.text_processor
+        
         self.out = output_handler
         self.buffer = adaptive_buffer or output_handler
         self.prompt = prompt.rstrip('.?!')
@@ -98,13 +104,15 @@ class AsyncDotLoader:
                 s += s2
             return raw + r, styled + s
 
-# animations.py
-
 class ReverseStreamer:
-    def __init__(self, text_processor, terminal, base_color='GREEN'):
+    def __init__(self, text_processor=None, styles=None, terminal=None, base_color='GREEN'):
+        # Support both old and new style systems
         self.text_processor = text_processor
+        self.styles = styles
+        self.style_handler = self.styles if self.styles else self.text_processor
+        
         self.terminal = terminal
-        self._base_color = text_processor.get_base_color(base_color)
+        self._base_color = self.style_handler.get_base_color(base_color)
 
     async def reverse_stream(self, styled_text: str, preserved_msg: str = "", delay: float = 0.08, 
                            preconversation_text: str = ""):
@@ -128,15 +136,15 @@ class ReverseStreamer:
     def _prepare_lines(self, styled_text: str) -> list:
         """Prepare lines for reverse streaming, ensuring clean text splitting."""
         pattern_maps = {
-            'by_name': self.text_processor.by_name,
-            'start_map': self.text_processor.start_map,
-            'end_map': self.text_processor.end_map
+            'by_name': self.style_handler.by_name,
+            'start_map': self.style_handler.start_map,
+            'end_map': self.style_handler.end_map
         }
         
         # Split text into lines and ensure proper handling of empty lines
         lines = [line for line in styled_text.splitlines() if line.strip()]
         return [
-            self.text_processor.split_into_styled_words(line, pattern_maps)
+            self.style_handler.split_into_styled_words(line)
             for line in lines
         ]
 
@@ -146,7 +154,7 @@ class ReverseStreamer:
         for line_idx in range(len(lines) - 1, -1, -1):
             while lines[line_idx]:
                 lines[line_idx].pop()
-                formatted_lines = self.text_processor.format_styled_lines(lines, self._base_color)
+                formatted_lines = self.style_handler.format_styled_lines(lines, self._base_color)
                 
                 # Ensure proper spacing between preconversation and conversation text
                 full_display = ""
@@ -188,13 +196,16 @@ class ReverseStreamer:
             await asyncio.sleep(delay)
 
 class AnimationsManager:
-    def __init__(self, terminal, text_processor):
+    def __init__(self, terminal, text_processor=None, styles=None, stream=None):
         self.terminal = terminal
         self.text_processor = text_processor
+        self.styles = styles
+        self.stream = stream
 
     def create_dot_loader(self, prompt: str, output_handler=None, no_animation=False):
         loader = AsyncDotLoader(
-            text_processor=self.text_processor,
+            text_processor=self.text_processor,  # Legacy support
+            styles=self.styles,  # New style system
             prompt=prompt,
             output_handler=output_handler,
             no_animation=no_animation
@@ -203,4 +214,9 @@ class AnimationsManager:
         return loader
     
     def create_reverse_streamer(self, base_color='GREEN'):
-        return ReverseStreamer(self.text_processor, self.terminal, base_color)
+        return ReverseStreamer(
+            text_processor=self.text_processor,  # Legacy support
+            styles=self.styles,  # New style system
+            terminal=self.terminal,
+            base_color=base_color
+        )

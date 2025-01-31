@@ -11,8 +11,14 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 
 class TerminalManager:
-    def __init__(self, text_processor):
+    def __init__(self, text_processor=None, styles=None):
+        # Support both old and new style systems during transition
         self.text_processor = text_processor
+        self.styles = styles
+        
+        # Use text_processor if styles is not provided (backwards compatibility)
+        self.style_handler = self.styles if self.styles else self.text_processor
+        
         self._term_width = shutil.get_terminal_size().columns
         
         # Create key bindings
@@ -43,10 +49,13 @@ class TerminalManager:
         await asyncio.sleep(0)
 
     def _write(self, text: str = "", style: str = None, newline: bool = False) -> None:
-        if style: sys.stdout.write(self.text_processor.get_format(style))
+        if style: 
+            sys.stdout.write(self.style_handler.get_format(style))
         sys.stdout.write(text)
-        if style: sys.stdout.write(self.text_processor.get_format('RESET'))
-        if newline: sys.stdout.write('\n')
+        if style: 
+            sys.stdout.write(self.style_handler.get_format('RESET'))
+        if newline: 
+            sys.stdout.write('\n')
         sys.stdout.flush()
 
     def write_and_flush(self, text: str) -> None:
@@ -58,8 +67,11 @@ class TerminalManager:
             sys.stdout.write("\033[?25h" if show else "\033[?25l")
             sys.stdout.flush()
 
-    def _show_cursor(self) -> None: self._cursor_control(True)
-    def _hide_cursor(self) -> None: self._cursor_control(False)
+    def _show_cursor(self) -> None: 
+        self._cursor_control(True)
+
+    def _hide_cursor(self) -> None: 
+        self._cursor_control(False)
 
     def _clear_screen(self) -> None:
         if self._is_terminal():
@@ -83,17 +95,19 @@ class TerminalManager:
             line, words = '', para.split()
             for word in words:
                 if len(word) > width:
-                    if line: result.append(line)
+                    if line: 
+                        result.append(line)
                     result.extend(word[i:i+width] for i in range(0, len(word), width))
                     line = ''
                 else:
                     test = f"{line}{' ' if line else ''}{word}"
-                    if self.text_processor.get_visible_length(test) <= width:
+                    if self.style_handler.get_visible_length(test) <= width:
                         line = test
                     else:
                         result.append(line)
                         line = word
-            if line: result.append(line)
+            if line: 
+                result.append(line)
             
         return result
 
@@ -130,11 +144,15 @@ class TerminalManager:
 
     async def update_display(self, content: str = None, prompt: str = None, 
                            preserve_cursor: bool = False) -> None:
-        if not preserve_cursor: self._hide_cursor()
+        if not preserve_cursor: 
+            self._hide_cursor()
         await self.clear()
-        if content: await self.write_lines([content], bool(prompt))
-        if prompt: await self.write_prompt(prompt)
-        if not preserve_cursor: self._show_cursor()
+        if content: 
+            await self.write_lines([content], bool(prompt))
+        if prompt: 
+            await self.write_prompt(prompt)
+        if not preserve_cursor: 
+            self._show_cursor()
 
     async def write_loading_state(self, prompt: str, dots: int, dot_char: str = '.') -> None:
         self._write(f"\r{' '*80}\r{prompt}{dot_char*dots}")
@@ -142,7 +160,8 @@ class TerminalManager:
 
     async def get_user_input(self, default_text: str = "", add_newline: bool = True) -> str:
         self._show_cursor()
-        if add_newline: self._write("\n")
+        if add_newline: 
+            self._write("\n")
         try:
             result = await self.prompt_session.prompt_async(
                 FormattedText([('class:prompt', '> ')]), 
@@ -161,8 +180,9 @@ class TerminalManager:
         lines = self._handle_text(styled_lines)
         for i in range(len(lines) + 1):
             self._clear_screen()
-            for ln in lines[i:]: self._write(ln, newline=True)
-            self._write(self.text_processor.get_format('RESET') + prompt)
+            for ln in lines[i:]: 
+                self._write(ln, newline=True)
+            self._write(self.style_handler.get_format('RESET') + prompt)
             time.sleep(delay)  # Keep actual sleep delay for animation
 
     async def update_animated_display(self, content: str = "", preserved_msg: str = "", 

@@ -26,11 +26,17 @@ class ConversationManager:
             "Introduce yourself in 3 lines, 7 words each..."
         )
 
-    def __init__(self, terminal, generator_func: Any, text_processor, 
-                 animations_manager, system_prompt: str = None):
+    def __init__(self, terminal, generator_func: Any, text_processor=None, styles=None, 
+                 stream=None, animations_manager=None, system_prompt: str = None):
         self.terminal = terminal
         self.generator = generator_func
+        
+        # Support both old and new style systems
         self.text_processor = text_processor
+        self.styles = styles
+        self.stream = stream
+        self.style_handler = self.styles if self.styles else self.text_processor
+        
         self.animations = animations_manager
         self.messages: List[Message] = []
         self.is_silent = False
@@ -53,7 +59,12 @@ class ConversationManager:
     async def _process_message(self, msg: str, silent=False) -> Tuple[str, str]:
         """Process a user message with the AI generator, returning (raw, styled)."""
         self.messages.append(Message("user", msg))
-        handler = self.text_processor.create_styled_handler(self.terminal)
+        
+        # Use stream if available, otherwise fall back to text_processor
+        if self.stream:
+            handler = self.stream
+        else:
+            handler = self.text_processor.create_styled_handler(self.terminal)
         
         raw, styled = await self.animations.create_dot_loader(
             prompt="" if silent else f"> {msg}",
@@ -79,12 +90,20 @@ class ConversationManager:
             
         styled_output = ""
         for text, color in text_list:
-            handler = self.text_processor.create_styled_handler(self.terminal)
-            # Set color or reset to default
-            if color:
-                handler._base_color = self.text_processor.get_color(color)
+            # Use stream if available, otherwise fall back to text_processor
+            if self.stream:
+                handler = self.stream
+                if color:
+                    handler._base_color = self.style_handler.get_color(color)
+                else:
+                    handler._base_color = self.style_handler.get_format('RESET')
             else:
-                handler._base_color = self.text_processor.get_format('RESET')
+                handler = self.text_processor.create_styled_handler(self.terminal)
+                if color:
+                    handler._base_color = self.text_processor.get_color(color)
+                else:
+                    handler._base_color = self.text_processor.get_format('RESET')
+                    
             # Process the text with the handler
             raw, new_styled = await handler.add(text)
             styled_output += new_styled
