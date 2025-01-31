@@ -8,11 +8,18 @@ class Stream:
     def __init__(self, styles, terminal=None):
         self.styles = styles
         self.terminal = terminal
-        self._base_color = styles.get_base_color('GREEN')
+        self._base_color = self.styles.get_format('RESET')  # Default to no color
         self.active_patterns = []
         self.current_line_length = 0
         self.word_buffer = ""
         self._buffer_lock = asyncio.Lock()
+
+    def set_base_color(self, color: Optional[str] = None):
+        """Set the base color for the stream. If None, resets to default."""
+        if color:
+            self._base_color = self.styles.get_color(color)
+        else:
+            self._base_color = self.styles.get_format('RESET')
 
     def _process_chunk(self, text: str) -> str:
         if not text: 

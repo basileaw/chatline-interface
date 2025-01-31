@@ -63,6 +63,8 @@ class ConversationManager:
         # Use stream if available, otherwise fall back to text_processor
         if self.stream:
             handler = self.stream
+            # Set green color for AI responses
+            handler.set_base_color('GREEN')
         else:
             handler = self.text_processor.create_styled_handler(self.terminal)
         
@@ -93,10 +95,8 @@ class ConversationManager:
             # Use stream if available, otherwise fall back to text_processor
             if self.stream:
                 handler = self.stream
-                if color:
-                    handler._base_color = self.style_handler.get_color(color)
-                else:
-                    handler._base_color = self.style_handler.get_format('RESET')
+                # Intro text should use specified color or no color (not green)
+                handler.set_base_color(color)
             else:
                 handler = self.text_processor.create_styled_handler(self.terminal)
                 if color:

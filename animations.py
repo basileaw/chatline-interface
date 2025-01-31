@@ -141,8 +141,8 @@ class ReverseStreamer:
             'end_map': self.style_handler.end_map
         }
         
-        # Split text into lines and ensure proper handling of empty lines
-        lines = [line for line in styled_text.splitlines() if line.strip()]
+        # Split text into lines, preserving empty lines
+        lines = styled_text.splitlines()
         return [
             self.style_handler.split_into_styled_words(line)
             for line in lines
