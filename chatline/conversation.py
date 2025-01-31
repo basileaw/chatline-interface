@@ -38,6 +38,33 @@ class Conversation:
         self.prompt = ""
         self.system_prompt = system_prompt
         self.preconversation_styled = ""
+        self.preconversation_text: List[Tuple[str, Optional[str]]] = []
+
+    def preface(self, text: str, color: Optional[str] = None) -> None:
+        """Store text to be displayed before conversation starts.
+        
+        This text will be included in the scrolling animations during the conversation.
+        Each print adds a new line that will be displayed on its own line.
+        
+        Args:
+            text: The text to display before the conversation begins
+            color: Optional color name (e.g., 'GREEN', 'BLUE', 'PINK'). If None,
+                  uses terminal default color
+        """
+        self.preconversation_text.append((text + "\n", color))
+
+    def start(self, system_msg: str = None, intro_msg: str = None) -> None:
+        """Start the conversation with optional custom system and intro messages.
+        
+        Args:
+            system_msg: Optional custom system message to override default
+            intro_msg: Optional custom intro message to override default
+        """
+        self.run_conversation(
+            system_msg=system_msg,
+            intro_msg=intro_msg,
+            preconversation_text=self.preconversation_text
+        )
 
     def _get_last_user_message(self) -> Optional[str]:
         """Helper method to find the last user message in the conversation."""
