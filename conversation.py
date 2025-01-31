@@ -43,10 +43,15 @@ class ConversationManager:
         return next((m.content for m in reversed(self.messages) if m.role == "user"), None)
 
     async def get_messages(self) -> List[Dict[str, str]]:
-        return ([{"role": "system", "content": self.system_prompt}] if self.system_prompt else []) + \
-               [{"role": m.role, "content": m.content} for m in self.messages]
+        return (
+            [{"role": "system", "content": self.system_prompt}] if self.system_prompt else []
+        ) + [
+            {"role": m.role, "content": m.content}
+            for m in self.messages
+        ]
 
     async def _process_message(self, msg: str, silent=False) -> Tuple[str, str]:
+        """Process a user message with the AI generator, returning (raw, styled)."""
         self.messages.append(Message("user", msg))
         handler = self.text_processor.create_styled_handler(self.terminal)
         
@@ -64,11 +69,10 @@ class ConversationManager:
         
         Args:
             text_list: List of tuples (text, color) where text is the string to process
-                      and color is an optional color name. Each text will be displayed
-                      on its own line with proper spacing.
+                       and color is an optional color name. Each text appears on its own line.
             
         Returns:
-            str: Styled text output with proper line breaks
+            str: Styled text output with an extra trailing newline for spacing.
         """
         if not text_list:
             return ""
@@ -82,27 +86,39 @@ class ConversationManager:
             else:
                 handler._base_color = self.text_processor.get_format('RESET')
             # Process the text with the handler
-            raw, styled = await handler.add(text)
-            styled_output += styled
+            raw, new_styled = await handler.add(text)
+            styled_output += new_styled
             
-        return styled_output + "\n"  # Extra newline for spacing between preconversation and response
+        # Append one extra newline to separate from the next block of text
+        return styled_output + "\n"
 
     async def handle_intro(self, intro_msg: str, preconversation_text: List[str] = None) -> Tuple[str, str, str]:
-        # First process preconversation text if it exists
+        """Process and display the intro message, showing preconversation text first if it exists."""
+        # 1) Process preconversation text, which includes a trailing blank line
         self.preconversation_styled = await self._process_preconversation_text(preconversation_text)
-        
-        # Then process the intro message
+
+        # 2) Immediately display the preconversation text (with blank line) if non-empty
+        if self.preconversation_styled.strip():
+            # Show only the preconversation text right now
+            await self.terminal.update_display(self.preconversation_styled, preserve_cursor=True)
+
+        # 3) Now process the AI intro text (silent streaming)
         raw, styled = await self._process_message(intro_msg, True)
-        
-        # Combine them
-        full_styled = f"{self.preconversation_styled}{styled}"
-        
+
+        # 4) Combine them in memory for future scrolling or commands
+        full_styled = self.preconversation_styled + styled
+
         self.is_silent = True
         self.prompt = ""
+        
         return raw, full_styled, ""
 
     async def handle_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
+        """Handle a user's message, scrolling the stored intro and user input up the screen."""
+        # Scroll everything (including the blank line from preconversation + the AI intro) 
         await self.terminal.handle_scroll(intro_styled, f"> {user_input}", 0.08)
+        
+        # Process the new message (with streaming if not silent)
         raw, styled = await self._process_message(user_input)
         self.is_silent = False
         
@@ -113,7 +129,7 @@ class ConversationManager:
         # Clear preconversation text after first user interaction
         self.preconversation_styled = ""
         
-        # Only include styled output without preconversation text
+        # For future scrolls/animations, only show the new assistant reply
         full_styled = styled
         
         return raw, full_styled, self.prompt
@@ -141,7 +157,7 @@ class ConversationManager:
                     end_char = '.' if not last_msg.endswith(('?', '!')) else last_msg[-1]
                     self.prompt = f"> {last_msg.rstrip('?.!')}{end_char * 3}"
                     
-                    # Include preconversation text
+                    # Include preconversation text (if any). Typically it's cleared by now.
                     full_styled = f"{self.preconversation_styled}{styled}"
                     
                     return raw, full_styled, self.prompt
@@ -151,7 +167,7 @@ class ConversationManager:
                         await self.terminal.clear()
                         raw, styled = await self._process_message(msg)
                         
-                        # Apply same prompt reconstruction logic
+                        # Prompt reconstruction
                         end_char = '.' if not msg.endswith(('?', '!')) else msg[-1]
                         self.prompt = f"> {msg.rstrip('?.!')}{end_char * 3}"
                         
