@@ -1,7 +1,7 @@
 # conversation.py
 
 import logging
-from typing import List, Dict, Any, Tuple, Optional, Protocol
+from typing import List, Dict, Any, Tuple, Optional, Protocol, Union, Callable, AsyncGenerator
 from dataclasses import dataclass
 from rich.console import Console
 from rich.panel import Panel
@@ -50,7 +50,13 @@ class Conversation:
             "Introduce yourself in 3 lines, 7 words each..."
         )
 
-    def __init__(self, terminal, generator_func: Any, styles, stream, animations_manager, system_prompt: str = None):
+    def __init__(self, 
+                 terminal, 
+                 generator_func: Union[Callable[[List[Dict[str, str]]], AsyncGenerator[str, None]], Any],
+                 styles, 
+                 stream, 
+                 animations_manager, 
+                 system_prompt: str = None):
         self.terminal = terminal
         self.generator = generator_func
         self.styles = styles
@@ -86,16 +92,26 @@ class Conversation:
         return base + [{"role": m.role, "content": m.content} for m in self.messages]
 
     async def _process_message(self, msg: str, silent=False) -> Tuple[str, str]:
-        self.messages.append(Message("user", msg))
-        self.stream.set_base_color('GREEN')
-        loader = self.animations.create_dot_loader(
-            prompt="" if silent else f"> {msg}",
-            output_handler=self.stream,
-            no_animation=silent
-        )
-        raw, styled = await loader.run_with_loading(self.generator(await self.get_messages()))
-        self.messages.append(Message("assistant", raw))
-        return raw, styled
+        try:
+            self.messages.append(Message("user", msg))
+            self.stream.set_base_color('GREEN')
+            loader = self.animations.create_dot_loader(
+                prompt="" if silent else f"> {msg}",
+                output_handler=self.stream,
+                no_animation=silent
+            )
+            
+            messages = await self.get_messages()
+            raw, styled = await loader.run_with_loading(self.generator(messages))
+            
+            if raw:  # Only append assistant message if we got a valid response
+                self.messages.append(Message("assistant", raw))
+            return raw, styled
+            
+        except Exception as e:
+            logging.error(f"Error processing message: {str(e)}", exc_info=True)
+            # Return empty strings on error to maintain the return type
+            return "", ""
 
     async def _process_preconversation_text(self, text_list: List[PrefaceContent]) -> str:
         if not text_list: return ""
