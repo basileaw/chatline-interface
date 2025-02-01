@@ -4,13 +4,14 @@ import logging
 import os
 import argparse
 from typing import Callable, AsyncGenerator, Optional
-from terminal import Terminal
-from conversation import Conversation
-from animations import Animations
-from styles import Styles
-from stream import Stream
-from remote import RemoteGenerator
-from generator import generate_stream
+
+from .terminal import Terminal
+from .conversation import Conversation
+from .animations import Animations
+from .styles import Styles
+from .stream import Stream
+from .remote import RemoteGenerator
+from .generator import generate_stream
 
 class Interface:
     @classmethod
@@ -25,13 +26,6 @@ class Interface:
 
     def __init__(self, endpoint: Optional[str] = None, 
                  generator_func: Optional[Callable[[str], AsyncGenerator[str, None]]] = None):
-        """
-        Initialize the chat interface.
-        
-        Args:
-            endpoint (str, optional): Remote endpoint URL or path
-            generator_func (callable, optional): Custom generator function
-        """
         # Set up logging
         log_dir = os.path.join(os.path.dirname(__file__), 'logs')
         os.makedirs(log_dir, exist_ok=True)

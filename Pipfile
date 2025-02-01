@@ -8,6 +8,8 @@ boto3 = "*"
 rich = "*"
 prompt-toolkit = "*"
 aiohttp = "*"
+fastapi = "*"
+uvicorn = "*"
 
 [dev-packages]
 
