@@ -1,56 +1,38 @@
 # terminal.py
 
-import asyncio
-import time
-import sys
-import shutil
+import asyncio, time, sys, shutil
 from typing import List, Optional
 from prompt_toolkit import PromptSession
 from prompt_toolkit.validation import Validator, ValidationError
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.keys import Keys
 
 class Terminal:
     def __init__(self, styles):
         self.styles = styles
         self._term_width = shutil.get_terminal_size().columns
-        
-        # Create key bindings
         kb = KeyBindings()
-        
-        @kb.add('c-e')  # Ctrl+E for edit
+
+        @kb.add('c-e')
         def _(event):
             event.current_buffer.text = "edit"
             event.app.exit(result=event.current_buffer.text)
-            
-        @kb.add('c-r')  # Ctrl+R for retry
+
+        @kb.add('c-r')
         def _(event):
             event.current_buffer.text = "retry"
             event.app.exit(result=event.current_buffer.text)
-            
-        # Create prompt session with key bindings
-        self.prompt_session = PromptSession(
-            key_bindings=kb,
-            complete_while_typing=False  # Disable autocompletion for better performance
-        )
 
-    def _is_terminal(self) -> bool:
-        """Check if stdout is connected to a terminal."""
-        return sys.stdout.isatty()
+        self.prompt_session = PromptSession(key_bindings=kb, complete_while_typing=False)
 
-    async def _yield_to_event_loop(self) -> None:
-        """Yield control back to the event loop."""
-        await asyncio.sleep(0)
+    def _is_terminal(self) -> bool: return sys.stdout.isatty()
+    async def _yield_to_event_loop(self) -> None: await asyncio.sleep(0)
 
     def _write(self, text: str = "", style: str = None, newline: bool = False) -> None:
-        if style: 
-            sys.stdout.write(self.styles.get_format(style))
+        if style: sys.stdout.write(self.styles.get_format(style))
         sys.stdout.write(text)
-        if style: 
-            sys.stdout.write(self.styles.get_format('RESET'))
-        if newline: 
-            sys.stdout.write('\n')
+        if style: sys.stdout.write(self.styles.get_format('RESET'))
+        if newline: sys.stdout.write('\n')
         sys.stdout.flush()
 
     def write_and_flush(self, text: str) -> None:
@@ -62,11 +44,8 @@ class Terminal:
             sys.stdout.write("\033[?25h" if show else "\033[?25l")
             sys.stdout.flush()
 
-    def _show_cursor(self) -> None: 
-        self._cursor_control(True)
-
-    def _hide_cursor(self) -> None: 
-        self._cursor_control(False)
+    def _show_cursor(self) -> None: self._cursor_control(True)
+    def _hide_cursor(self) -> None: self._cursor_control(False)
 
     def _clear_screen(self) -> None:
         if self._is_terminal():
@@ -74,51 +53,27 @@ class Terminal:
             sys.stdout.flush()
 
     def _handle_text(self, text: str, width: Optional[int] = None) -> List[str]:
-        """Handle text wrapping with support for styled and multi-line text.
-        
-        This method handles both regular text with word wrapping and panel text
-        which should preserve its exact formatting.
-        
-        Args:
-            text: The text to process
-            width: Optional width constraint (defaults to terminal width)
-            
-        Returns:
-            List[str]: Lines of text, either wrapped or preserved as-is for panels
-        """
+        """Wrap text or preserve panels."""
         width = width or self._term_width
-        
-        # Check if text contains panel borders
-        contains_panel = '╭' in text or '╮' in text or '╯' in text or '╰' in text
-        
-        # If this is a panel, preserve exact structure including empty lines
-        if contains_panel:
+        if any(x in text for x in ('╭','╮','╯','╰')):
             return text.split('\n')
-        
-        # Standard word-wrapping logic for non-panel text
-        result = []
+
+        result=[]
         for para in text.split('\n'):
             if not para.strip():
                 result.append('')
                 continue
-
             line, words = '', para.split()
             for word in words:
-                if len(word) > width:
-                    if line: 
-                        result.append(line)
-                    result.extend(word[i:i+width] for i in range(0, len(word), width))
-                    line = ''
+                if len(word)>width:
+                    if line: result.append(line)
+                    result.extend(word[i:i+width] for i in range(0,len(word),width))
+                    line=''
                 else:
-                    test = f"{line}{' ' if line else ''}{word}"
-                    if self.styles.get_visible_length(test) <= width:
-                        line = test
-                    else:
-                        result.append(line)
-                        line = word
-            if line: 
-                result.append(line)
-            
+                    test=f"{line}{' ' if line else ''}{word}"
+                    if self.styles.get_visible_length(test)<=width: line=test
+                    else: result.append(line); line=word
+            if line: result.append(line)
         return result
 
     async def clear(self) -> None:
@@ -126,13 +81,7 @@ class Terminal:
         await self._yield_to_event_loop()
 
     async def write_lines(self, lines: List[str], newline: bool = True) -> None:
-        """Write multiple lines of text to the terminal.
-        
-        This method handles both pre-conversation and conversation text,
-        ensuring proper spacing and formatting.
-        """
-        for line in lines:
-            self._write(line, newline=newline)
+        for line in lines: self._write(line, newline=newline)
         await self._yield_to_event_loop()
 
     async def write_prompt(self, prompt: str, style: Optional[str] = None) -> None:
@@ -140,81 +89,55 @@ class Terminal:
         await self._yield_to_event_loop()
 
     async def scroll_up(self, text: str, prompt: str, delay: float = 0.5) -> None:
-        """Scroll text upward with animation.
-        
-        This method handles both pre-conversation and conversation text in the
-        scrolling animation, maintaining proper spacing and formatting.
-        """
-        lines = self._handle_text(text)
-        for i in range(len(lines) + 1):
+        """Scroll text upward with animation."""
+        lines=self._handle_text(text)
+        for i in range(len(lines)+1):
             await self.clear()
             await self.write_lines(lines[i:])
             await self.write_prompt(prompt, 'RESET')
             await asyncio.sleep(delay)
 
-    async def update_display(self, content: str = None, prompt: str = None, 
-                           preserve_cursor: bool = False) -> None:
-        if not preserve_cursor: 
-            self._hide_cursor()
+    async def update_display(self, content: str = None, prompt: str = None, preserve_cursor: bool = False) -> None:
+        if not preserve_cursor: self._hide_cursor()
         await self.clear()
-        if content: 
-            await self.write_lines([content], bool(prompt))
-        if prompt: 
-            await self.write_prompt(prompt)
-        if not preserve_cursor: 
-            self._show_cursor()
+        if content: await self.write_lines([content], bool(prompt))
+        if prompt: await self.write_prompt(prompt)
+        if not preserve_cursor: self._show_cursor()
 
-    async def write_loading_state(self, prompt: str, dots: int, dot_char: str = '.') -> None:
+    async def write_loading_state(self, prompt: str, dots: int, dot_char: str='.') -> None:
         self._write(f"\r{' '*80}\r{prompt}{dot_char*dots}")
         await self._yield_to_event_loop()
 
-    async def get_user_input(self, default_text: str = "", add_newline: bool = True) -> str:        
+    async def get_user_input(self, default_text: str="", add_newline: bool=True) -> str:
         class NonEmptyValidator(Validator):
             def validate(self, document):
                 if not document.text.strip():
                     raise ValidationError(message='', cursor_position=0)
-        
         self._show_cursor()
-        if add_newline:
-            self._write("\n")
+        if add_newline: self._write("\n")
         try:
-            result = await self.prompt_session.prompt_async(
-                FormattedText([('class:prompt', '> ')]),
-                default=default_text,
-                validator=NonEmptyValidator(),
-                validate_while_typing=False
+            result=await self.prompt_session.prompt_async(
+                FormattedText([('class:prompt','> ')]),
+                default=default_text, validator=NonEmptyValidator(), validate_while_typing=False
             )
             return result.strip()
-        finally:
-            self._hide_cursor()
+        finally: self._hide_cursor()
 
-    async def handle_scroll(self, styled_lines: str, prompt: str, delay: float = 0.5) -> None:
-        """Handle scrolling of styled text with animations.
-        
-        This method now properly handles both pre-conversation and conversation text
-        in the scrolling animation sequence, preserving panel structure when present.
-        """
-        lines = self._handle_text(styled_lines)
-        for i in range(len(lines) + 1):
+    async def handle_scroll(self, styled_lines: str, prompt: str, delay: float=0.5) -> None:
+        """Scrolling with preserved panel structure."""
+        lines=self._handle_text(styled_lines)
+        for i in range(len(lines)+1):
             self._clear_screen()
-            for ln in lines[i:]: 
-                self._write(ln, newline=True)
-            self._write(self.styles.get_format('RESET') + prompt)
-            time.sleep(delay)  # Keep actual sleep delay for animation
+            for ln in lines[i:]: self._write(ln, newline=True)
+            self._write(self.styles.get_format('RESET')+prompt)
+            time.sleep(delay)
 
-    async def update_animated_display(self, content: str = "", preserved_msg: str = "", 
-                                   no_spacing: bool = False) -> None:
-        """Update the display with animation support.
-        
-        This method handles both pre-conversation and conversation text in
-        animated display updates.
-        """
+    async def update_animated_display(self, content: str="", preserved_msg: str="", no_spacing: bool=False) -> None:
+        """Update the display with animation."""
         self._clear_screen()
         if content:
-            if preserved_msg:
-                self._write(preserved_msg + ("" if no_spacing else "\n\n"))
+            if preserved_msg: self._write(preserved_msg+("" if no_spacing else "\n\n"))
             self._write(content)
-        else:
-            self._write(preserved_msg)
-        self._write("", 'RESET')
+        else: self._write(preserved_msg)
+        self._write("",'RESET')
         await self._yield_to_event_loop()
