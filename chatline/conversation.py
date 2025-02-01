@@ -1,5 +1,3 @@
-# conversation.py
-
 import logging
 from typing import List, Dict, Any, Tuple, Optional, Protocol
 from dataclasses import dataclass
@@ -100,8 +98,7 @@ class Conversation:
         
         Args:
             text: The text to display before the conversation begins
-            color: Optional color name (e.g., 'GREEN', 'BLUE', 'PINK'). If None,
-                  uses terminal default color
+            color: Optional color name (e.g., 'GREEN', 'BLUE', 'PINK').
             display_type: Display strategy to use ("text" or "panel")
         """
         content = PrefaceContent(
@@ -153,14 +150,7 @@ class Conversation:
         return raw, styled
 
     async def _process_preconversation_text(self, text_list: List[PrefaceContent]) -> str:
-        """Process preconversation text with styling.
-        
-        Args:
-            text_list: List of PrefaceContent objects with text and display preferences
-            
-        Returns:
-            str: Styled text output with spacing controlled by display strategies.
-        """
+        """Process preconversation text with styling."""
         if not text_list:
             return ""
             
@@ -169,7 +159,7 @@ class Conversation:
             # Set color or reset to default for preconversation text
             self.stream.set_base_color(content.color)
             
-            # Get appropriate display strategy
+            # Get the appropriate display strategy
             strategy = self._display_strategies[content.display_type]
             
             # Format using selected strategy
@@ -179,46 +169,52 @@ class Conversation:
             
         return styled_output
 
-    async def handle_intro(self, intro_msg: str, preconversation_text: List[PrefaceContent] = None) -> Tuple[str, str, str]:
+    async def handle_intro(self, intro_msg: str,
+                           preconversation_text: List[PrefaceContent] = None
+                          ) -> Tuple[str, str, str]:
         """Process and display the intro message, showing preconversation text first if it exists."""
-        # 1) Process preconversation text
+        # 1) Process the preface text (e.g. panel)
         self.preconversation_styled = await self._process_preconversation_text(preconversation_text)
 
-        # 2) Immediately display the preconversation text if non-empty
+        # 2) Display the preface text immediately (panel)
         if self.preconversation_styled.strip():
-            # Show only the preconversation text right now
-            await self.terminal.update_display(self.preconversation_styled, preserve_cursor=True)
+            # Force an extra blank line right after the panel so it appears from the start
+            panel_with_blank = self.preconversation_styled.rstrip('\n') + '\n\n'
+            await self.terminal.update_display(panel_with_blank, preserve_cursor=True)
+        else:
+            panel_with_blank = ""
 
-        # 3) Now process the AI intro text (silent streaming)
+        # 3) Now process the AI intro text in silent mode (no streaming displayed)
         raw, styled = await self._process_message(intro_msg, True)
 
-        # 4) Combine them in memory for future scrolling or commands
-        full_styled = f"{self.preconversation_styled}{styled}"  # Let Rich handle newlines
+        # 4) Combine so we have them for future scroll or display calls
+        full_styled = panel_with_blank + styled
+
+        # 5) If you want to display the final combined text right away:
+        await self.terminal.update_display(full_styled)
 
         self.is_silent = True
         self.prompt = ""
-        
         return raw, full_styled, ""
 
     async def handle_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
-        """Handle a user's message, scrolling the stored intro and user input up the screen."""
-        # Scroll everything (including the blank line from preconversation + the AI intro) 
+        """Handle a user's message, scrolling the stored intro + user input up the screen."""
+        # Scroll everything (panel + blank line + AI intro) with user input
         await self.terminal.handle_scroll(intro_styled, f"> {user_input}", 0.08)
         
-        # Process the new message (with streaming if not silent)
+        # Now process the new message normally (with streaming if not silent)
         raw, styled = await self._process_message(user_input)
         self.is_silent = False
         
-        # Reconstruct the prompt with proper punctuation
+        # Reconstruct the prompt
         end_char = '.' if not user_input.endswith(('?', '!')) else user_input[-1]
         self.prompt = f"> {user_input.rstrip('?.!')}{end_char * 3}"
         
-        # Clear preconversation text after first user interaction
+        # After first user interaction, we clear out the preconversation text from memory
         self.preconversation_styled = ""
         
-        # For future scrolls/animations, only show the new assistant reply
+        # For future scrolls, only show new assistant reply
         full_styled = styled
-        
         return raw, full_styled, self.prompt
 
     async def handle_edit_or_retry(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
@@ -232,40 +228,40 @@ class Conversation:
         )
         
         if self.is_silent:
+            # If still silent (e.g. no user input was processed yet)
             if last_msg := self._get_last_user_message():
                 raw, styled = await self._process_message(last_msg, True)
-                # Combine preconversation text with new styled response
-                full_styled = f"{self.preconversation_styled}{styled}"  # Let Rich handle newlines
+                # Preserve the blank line if you want
+                full_styled = f"{self.preconversation_styled}\n{styled}"
                 return raw, full_styled, ""
         else:
             last_msg = self._get_last_user_message()
             if last_msg:
                 if is_retry:
-                    # For retry, immediately reprocess the last message
+                    # For retry, reprocess the last user message
                     await self.terminal.clear()
                     raw, styled = await self._process_message(last_msg)
                     
-                    # Apply same prompt reconstruction logic 
+                    # Rebuild prompt
                     end_char = '.' if not last_msg.endswith(('?', '!')) else last_msg[-1]
                     self.prompt = f"> {last_msg.rstrip('?.!')}{end_char * 3}"
                     
-                    # Combine preconversation text with new styled response
-                    full_styled = f"{self.preconversation_styled}{styled}"  # Let Rich handle newlines
+                    # Insert the extra newline for consistency
+                    full_styled = f"{self.preconversation_styled}\n{styled}"
                     return raw, full_styled, self.prompt
                 else:
-                    # For edit, get user input with previous message pre-filled
+                    # For edit, prompt user for the new message with old content pre-filled
                     if msg := await self.terminal.get_user_input(last_msg, False):
                         await self.terminal.clear()
                         raw, styled = await self._process_message(msg)
                         
-                        # Prompt reconstruction
                         end_char = '.' if not msg.endswith(('?', '!')) else msg[-1]
                         self.prompt = f"> {msg.rstrip('?.!')}{end_char * 3}"
                         
-                        # Combine preconversation text with new styled response
-                        full_styled = f"{self.preconversation_styled}{styled}"  # Let Rich handle newlines
+                        # Insert the extra newline if desired
+                        full_styled = f"{self.preconversation_styled}\n{styled}"
                         return raw, full_styled, self.prompt
-                        
+
         return "", "", ""
 
     async def handle_edit(self, intro_styled: str) -> Tuple[str, str, str]:
@@ -278,13 +274,7 @@ class Conversation:
 
     def run_conversation(self, system_msg: str = None, intro_msg: str = None,
                         preconversation_text: List[PrefaceContent] = None):
-        """Synchronous entry point that handles asyncio setup
-        
-        Args:
-            system_msg: Optional system message override
-            intro_msg: Optional intro message override
-            preconversation_text: Optional list of preface content
-        """
+        """Synchronous entry point that sets up asyncio."""
         import asyncio
         asyncio.run(self._run_conversation(system_msg, intro_msg, preconversation_text))
 
@@ -292,7 +282,7 @@ class Conversation:
                               preconversation_text: List[PrefaceContent] = None):
         """Internal async implementation of the conversation loop"""
         try:
-            # If either message is None, use defaults for both
+            # Use defaults if none provided
             if system_msg is None or intro_msg is None:
                 system_msg, intro_msg = self.get_default_messages()
             
