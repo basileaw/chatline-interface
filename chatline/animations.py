@@ -1,18 +1,12 @@
 # animations.py
 
 import asyncio, json, time
-from typing import Protocol, Optional, Any, Tuple, List
-
-class Buffer(Protocol):
-    async def add(self, chunk: str, output_handler: Any) -> Tuple[str, str]: ...
-    async def flush(self, output_handler: Any) -> Tuple[str, str]: ...
-    def reset(self) -> None: ...
+from typing import Any, Tuple
 
 class AsyncDotLoader:
-    def __init__(self, styles, prompt: str="", adaptive_buffer=None, output_handler=None, no_animation=False):
+    def __init__(self, styles, prompt: str="", output_handler=None, no_animation=False):
         self.styles = styles
         self.out = output_handler
-        self.buffer = adaptive_buffer or output_handler
         self.prompt = prompt.rstrip('.?!')
         self.no_anim = no_animation
         self.dot_char = '.' if prompt.endswith('.') or not prompt.endswith(('?','!')) else prompt[-1]
@@ -38,7 +32,7 @@ class AsyncDotLoader:
             self.terminal._show_cursor()
 
     async def run_with_loading(self, stream: Any) -> Tuple[str, str]:
-        if not self.buffer: raise ValueError("AdaptiveBuffer must be provided")
+        if not self.out: raise ValueError("output_handler must be provided")
         raw = styled = ""
         stored = []
         first_chunk = True
@@ -62,10 +56,10 @@ class AsyncDotLoader:
                                 stored.sort(key=lambda x: x[1])
                                 for i,(t,ts) in enumerate(stored):
                                     if i: await asyncio.sleep(ts-stored[i-1][1])
-                                    r,s=await self.buffer.add(t,self.out)
+                                    r,s=await self.out.add(t,self.out)
                                     raw,styled=raw+r,styled+s
                                 stored.clear()
-                            r2,s2=await self.buffer.add(txt,self.out)
+                            r2,s2=await self.out.add(txt,self.out)
                             raw,styled=raw+r2,styled+s2
                         await asyncio.sleep(0.01)
                 except json.JSONDecodeError:
@@ -78,9 +72,9 @@ class AsyncDotLoader:
                 stored.sort(key=lambda x: x[1])
                 for i,(t,ts) in enumerate(stored):
                     if i: await asyncio.sleep(ts-stored[i-1][1])
-                    r,s=await self.buffer.add(t,self.out)
+                    r,s=await self.out.add(t,self.out)
                     raw,styled=raw+r,styled+s
-            r,s=await self.buffer.flush(self.out)
+            r,s=await self.out.flush()
             if hasattr(self.out,'flush'):
                 _,s2=await self.out.flush()
                 s+=s2
@@ -144,7 +138,7 @@ class Animations:
         self.styles = styles
 
     def create_dot_loader(self, prompt: str, output_handler=None, no_animation=False):
-        loader = AsyncDotLoader(self.styles, prompt, None, output_handler, no_animation)
+        loader = AsyncDotLoader(self.styles, prompt, output_handler, no_animation)
         loader.terminal = self.terminal
         return loader
     
