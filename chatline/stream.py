@@ -1,7 +1,6 @@
 # stream.py
 
-import sys
-import asyncio
+import sys, asyncio
 from typing import Tuple, Optional
 from rich.console import Console
 from rich.panel import Panel
@@ -11,93 +10,65 @@ class Stream:
     def __init__(self, styles, terminal=None):
         self.styles = styles
         self.terminal = terminal
-        self._base_color = self.styles.get_format('RESET')  # Default to no color
+        self._base_color = self.styles.get_format('RESET')
         self.active_patterns = []
         self.current_line_length = 0
         self.word_buffer = ""
         self._buffer_lock = asyncio.Lock()
-        
-        # Initialize Rich console for panel rendering
         self._rich_console = Console(
             force_terminal=True,
             color_system="truecolor",
-            file=StringIO(),  # Capture output instead of printing directly
-            highlight=False   # Disable syntax highlighting
+            file=StringIO(),
+            highlight=False
         )
 
     def set_base_color(self, color: Optional[str] = None):
-        """Set the base color for the stream. If None, resets to default."""
-        if color:
-            self._base_color = self.styles.get_color(color)
-        else:
-            self._base_color = self.styles.get_format('RESET')
+        if color: self._base_color = self.styles.get_color(color)
+        else: self._base_color = self.styles.get_format('RESET')
 
     def _process_chunk(self, text: str) -> str:
-        """Process a chunk of text, handling both regular text and panel content."""
-        if not text: 
-            return ""
-            
-        # Check if this is a panel (contains box-drawing characters)
-        is_panel = any(c in text for c in "╭╮╯╰│")
-        if is_panel:
-            return text  # Return panel content unchanged
-            
+        if not text: return ""
+        if any(c in text for c in "╭╮╯╰│"): return text
         out = []
         if not self.active_patterns:
-            out.append(f"{self.styles.get_format('ITALIC_OFF')}"
-                      f"{self.styles.get_format('BOLD_OFF')}{self._base_color}")
-        
+            out.append(
+                f"{self.styles.get_format('ITALIC_OFF')}"
+                f"{self.styles.get_format('BOLD_OFF')}{self._base_color}"
+            )
         for i, ch in enumerate(text):
             if i == 0 or text[i-1].isspace():
                 out.append(self.styles.get_style(self.active_patterns, self._base_color))
-                
-            if (self.active_patterns and ch in self.styles.end_map and 
-                ch == self.styles.by_name[self.active_patterns[-1]].end):
+            if (self.active_patterns and ch in self.styles.end_map
+                    and ch == self.styles.by_name[self.active_patterns[-1]].end):
                 pat = self.styles.by_name[self.active_patterns[-1]]
                 if not pat.remove_delimiters:
-                    out.append(f"{self.styles.get_style(self.active_patterns, self._base_color)}{ch}")
+                    out.append(self.styles.get_style(self.active_patterns, self._base_color) + ch)
                 self.active_patterns.pop()
                 out.append(self.styles.get_style(self.active_patterns, self._base_color))
                 continue
-                
             if ch in self.styles.start_map:
                 new_pat = self.styles.start_map[ch]
                 self.active_patterns.append(new_pat.name)
                 out.append(self.styles.get_style(self.active_patterns, self._base_color))
-                if not new_pat.remove_delimiters:
-                    out.append(ch)
+                if not new_pat.remove_delimiters: out.append(ch)
                 continue
-                
             out.append(ch)
-        
         return "".join(out)
 
     async def add(self, chunk: str, output_handler=None) -> Tuple[str, str]:
-        if not chunk: 
-            return "", ""
+        if not chunk: return "", ""
         async with self._buffer_lock:
             return self.process_and_write(chunk)
 
     def process_and_write(self, chunk: str) -> Tuple[str, str]:
-        if not chunk: 
-            return ("", "")
+        if not chunk: return "", ""
         styled_out = ""
-        
-        # Hide cursor if we have a terminal manager
-        if self.terminal:
-            self.terminal._hide_cursor()
-            
+        if self.terminal: self.terminal._hide_cursor()
         try:
-            # Check if this is a panel
-            is_panel = any(c in chunk for c in "╭╮╯╰│")
-            
-            if is_panel:
-                # For panels, write the whole chunk at once
+            if any(c in chunk for c in "╭╮╯╰│"):
                 sys.stdout.write(chunk)
                 styled_out = chunk
-                sys.stdout.flush()
             else:
-                # Normal text processing
                 for char in chunk:
                     if char.isspace():
                         if self.word_buffer:
@@ -110,42 +81,31 @@ class Stream:
                         self.current_line_length = 0 if char == '\n' else self.current_line_length + 1
                     else:
                         self.word_buffer += char
-            
             sys.stdout.flush()
-            return (chunk, styled_out)
+            return chunk, styled_out
         finally:
-            # Ensure cursor stays hidden after write
-            if self.terminal:
-                self.terminal._hide_cursor()
+            if self.terminal: self.terminal._hide_cursor()
 
     async def flush(self, output_handler=None) -> Tuple[str, str]:
         styled_out = ""
-        
-        # Hide cursor during flush if we have a terminal manager
-        if self.terminal:
-            self.terminal._hide_cursor()
-            
+        if self.terminal: self.terminal._hide_cursor()
         try:
             if self.word_buffer:
                 styled_word = self._process_chunk(self.word_buffer)
                 sys.stdout.write(styled_word)
                 styled_out += styled_word
                 self.word_buffer = ""
-
             if self.current_line_length > 0:
                 sys.stdout.write("\n")
                 styled_out += "\n"
-            
             sys.stdout.write(self.styles.get_format('RESET'))
             sys.stdout.flush()
             self.reset()
             return "", styled_out
         finally:
-            # Ensure cursor stays hidden after flush
-            if self.terminal:
-                self.terminal._hide_cursor()
+            if self.terminal: self.terminal._hide_cursor()
 
-    def reset(self) -> None:
+    def reset(self):
         self.active_patterns.clear()
         self.word_buffer = ""
         self.current_line_length = 0
