@@ -11,28 +11,37 @@ class Terminal:
     def __init__(self, styles):
         self.styles = styles
         self._term_width = shutil.get_terminal_size().columns
+        self._is_edit_mode = False
         kb = KeyBindings()
 
         @kb.add('c-e')
         def _(event):
-            event.current_buffer.text = "edit"
-            event.app.exit(result=event.current_buffer.text)
+            if not self._is_edit_mode:
+                event.current_buffer.text = "edit"
+                event.app.exit(result=event.current_buffer.text)
 
         @kb.add('c-r')
         def _(event):
-            event.current_buffer.text = "retry"
-            event.app.exit(result=event.current_buffer.text)
+            if not self._is_edit_mode:
+                event.current_buffer.text = "retry"
+                event.app.exit(result=event.current_buffer.text)
 
         self.prompt_session = PromptSession(key_bindings=kb, complete_while_typing=False)
 
-    def _is_terminal(self) -> bool: return sys.stdout.isatty()
-    async def _yield_to_event_loop(self) -> None: await asyncio.sleep(0)
+    def _is_terminal(self) -> bool: 
+        return sys.stdout.isatty()
+    
+    async def _yield_to_event_loop(self) -> None: 
+        await asyncio.sleep(0)
 
     def _write(self, text: str = "", style: str = None, newline: bool = False) -> None:
-        if style: sys.stdout.write(self.styles.get_format(style))
+        if style: 
+            sys.stdout.write(self.styles.get_format(style))
         sys.stdout.write(text)
-        if style: sys.stdout.write(self.styles.get_format('RESET'))
-        if newline: sys.stdout.write('\n')
+        if style: 
+            sys.stdout.write(self.styles.get_format('RESET'))
+        if newline: 
+            sys.stdout.write('\n')
         sys.stdout.flush()
 
     def write_and_flush(self, text: str) -> None:
@@ -44,8 +53,11 @@ class Terminal:
             sys.stdout.write("\033[?25h" if show else "\033[?25l")
             sys.stdout.flush()
 
-    def _show_cursor(self) -> None: self._cursor_control(True)
-    def _hide_cursor(self) -> None: self._cursor_control(False)
+    def _show_cursor(self) -> None: 
+        self._cursor_control(True)
+    
+    def _hide_cursor(self) -> None: 
+        self._cursor_control(False)
 
     def _clear_screen(self) -> None:
         if self._is_terminal():
@@ -58,22 +70,27 @@ class Terminal:
         if any(x in text for x in ('╭','╮','╯','╰')):
             return text.split('\n')
 
-        result=[]
+        result = []
         for para in text.split('\n'):
             if not para.strip():
                 result.append('')
                 continue
             line, words = '', para.split()
             for word in words:
-                if len(word)>width:
-                    if line: result.append(line)
-                    result.extend(word[i:i+width] for i in range(0,len(word),width))
-                    line=''
+                if len(word) > width:
+                    if line: 
+                        result.append(line)
+                    result.extend(word[i:i+width] for i in range(0, len(word), width))
+                    line = ''
                 else:
-                    test=f"{line}{' ' if line else ''}{word}"
-                    if self.styles.get_visible_length(test)<=width: line=test
-                    else: result.append(line); line=word
-            if line: result.append(line)
+                    test = f"{line}{' ' if line else ''}{word}"
+                    if self.styles.get_visible_length(test) <= width: 
+                        line = test
+                    else: 
+                        result.append(line)
+                        line = word
+            if line: 
+                result.append(line)
         return result
 
     async def clear(self) -> None:
@@ -81,7 +98,8 @@ class Terminal:
         await self._yield_to_event_loop()
 
     async def write_lines(self, lines: List[str], newline: bool = True) -> None:
-        for line in lines: self._write(line, newline=newline)
+        for line in lines: 
+            self._write(line, newline=newline)
         await self._yield_to_event_loop()
 
     async def write_prompt(self, prompt: str, style: Optional[str] = None) -> None:
@@ -90,7 +108,7 @@ class Terminal:
 
     async def scroll_up(self, text: str, prompt: str, delay: float = 0.5) -> None:
         """Scroll text upward with animation."""
-        lines=self._handle_text(text)
+        lines = self._handle_text(text)
         for i in range(len(lines)+1):
             await self.clear()
             await self.write_lines(lines[i:])
@@ -98,46 +116,62 @@ class Terminal:
             await asyncio.sleep(delay)
 
     async def update_display(self, content: str = None, prompt: str = None, preserve_cursor: bool = False) -> None:
-        if not preserve_cursor: self._hide_cursor()
+        if not preserve_cursor: 
+            self._hide_cursor()
         await self.clear()
-        if content: await self.write_lines([content], bool(prompt))
-        if prompt: await self.write_prompt(prompt)
-        if not preserve_cursor: self._show_cursor()
+        if content: 
+            await self.write_lines([content], bool(prompt))
+        if prompt: 
+            await self.write_prompt(prompt)
+        if not preserve_cursor: 
+            self._show_cursor()
 
-    async def write_loading_state(self, prompt: str, dots: int, dot_char: str='.') -> None:
+    async def write_loading_state(self, prompt: str, dots: int, dot_char: str = '.') -> None:
         self._write(f"\r{' '*80}\r{prompt}{dot_char*dots}")
         await self._yield_to_event_loop()
 
-    async def get_user_input(self, default_text: str="", add_newline: bool=True) -> str:
+    async def get_user_input(self, default_text: str = "", add_newline: bool = True) -> str:
         class NonEmptyValidator(Validator):
             def validate(self, document):
                 if not document.text.strip():
                     raise ValidationError(message='', cursor_position=0)
+        
         self._show_cursor()
-        if add_newline: self._write("\n")
+        if add_newline: 
+            self._write("\n")
+    
+        self._is_edit_mode = bool(default_text)
+        
         try:
-            result=await self.prompt_session.prompt_async(
+            result = await self.prompt_session.prompt_async(
                 FormattedText([('class:prompt','> ')]),
-                default=default_text, validator=NonEmptyValidator(), validate_while_typing=False
+                default=default_text, 
+                validator=NonEmptyValidator(), 
+                validate_while_typing=False
             )
             return result.strip()
-        finally: self._hide_cursor()
+        finally:
+            self._is_edit_mode = False
+            self._hide_cursor()
 
-    async def handle_scroll(self, styled_lines: str, prompt: str, delay: float=0.5) -> None:
+    async def handle_scroll(self, styled_lines: str, prompt: str, delay: float = 0.5) -> None:
         """Scrolling with preserved panel structure."""
-        lines=self._handle_text(styled_lines)
+        lines = self._handle_text(styled_lines)
         for i in range(len(lines)+1):
             self._clear_screen()
-            for ln in lines[i:]: self._write(ln, newline=True)
+            for ln in lines[i:]: 
+                self._write(ln, newline=True)
             self._write(self.styles.get_format('RESET')+prompt)
             time.sleep(delay)
 
-    async def update_animated_display(self, content: str="", preserved_msg: str="", no_spacing: bool=False) -> None:
+    async def update_animated_display(self, content: str = "", preserved_msg: str = "", no_spacing: bool = False) -> None:
         """Update the display with animation."""
         self._clear_screen()
         if content:
-            if preserved_msg: self._write(preserved_msg+("" if no_spacing else "\n\n"))
+            if preserved_msg: 
+                self._write(preserved_msg+("" if no_spacing else "\n\n"))
             self._write(content)
-        else: self._write(preserved_msg)
-        self._write("",'RESET')
+        else: 
+            self._write(preserved_msg)
+        self._write("", 'RESET')
         await self._yield_to_event_loop()
