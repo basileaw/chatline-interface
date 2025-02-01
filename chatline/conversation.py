@@ -1,13 +1,61 @@
 # conversation.py
 
 import logging
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, Protocol
 from dataclasses import dataclass
+from rich.console import Console
+from rich.panel import Panel
+from functools import partial
 
 @dataclass
 class Message:
     role: str
     content: str
+
+@dataclass
+class PrefaceContent:
+    """Container for preface content with display metadata."""
+    text: str
+    color: Optional[str]
+    display_type: str = "text"  # "text" or "panel"
+
+class DisplayStrategy(Protocol):
+    """Protocol defining how content should be displayed."""
+    def format(self, content: PrefaceContent) -> str: ...
+    def get_visible_length(self, text: str) -> int: ...
+
+class TextDisplayStrategy:
+    """Original text display strategy."""
+    def __init__(self, styles):
+        self.styles = styles
+    
+    def format(self, content: PrefaceContent) -> str:
+        return content.text + "\n"
+        
+    def get_visible_length(self, text: str) -> int:
+        return self.styles.get_visible_length(text)
+
+class PanelDisplayStrategy:
+    """Rich panel display strategy."""
+    def __init__(self, styles):
+        self.styles = styles
+        self.console = Console(
+            force_terminal=True,
+            color_system="truecolor", 
+            record=True
+        )
+    
+    def format(self, content: PrefaceContent) -> str:
+        with self.console.capture() as capture:
+            self.console.print(Panel(
+                content.text.rstrip(),
+                style=content.color or ""
+            ))
+        return capture.get() + "\n"
+        
+    def get_visible_length(self, text: str) -> int:
+        # Account for panel borders in length calculation
+        return self.styles.get_visible_length(text) + 4
 
 class Conversation:
     @staticmethod
@@ -38,20 +86,30 @@ class Conversation:
         self.prompt = ""
         self.system_prompt = system_prompt
         self.preconversation_styled = ""
-        self.preconversation_text: List[Tuple[str, Optional[str]]] = []
-
-    def preface(self, text: str, color: Optional[str] = None) -> None:
-        """Store text to be displayed before conversation starts.
+        self.preconversation_text: List[PrefaceContent] = []
         
-        This text will be included in the scrolling animations during the conversation.
-        Each print adds a new line that will be displayed on its own line.
+        # Initialize display strategies
+        self._display_strategies = {
+            "text": TextDisplayStrategy(styles),
+            "panel": PanelDisplayStrategy(styles)
+        }
+
+    def preface(self, text: str, color: Optional[str] = None,
+                display_type: str = "panel") -> None:
+        """Store text to be displayed before conversation starts.
         
         Args:
             text: The text to display before the conversation begins
             color: Optional color name (e.g., 'GREEN', 'BLUE', 'PINK'). If None,
                   uses terminal default color
+            display_type: Display strategy to use ("text" or "panel")
         """
-        self.preconversation_text.append((text + "\n", color))
+        content = PrefaceContent(
+            text=text,
+            color=color,
+            display_type=display_type
+        )
+        self.preconversation_text.append(content)
 
     def start(self, system_msg: str = None, intro_msg: str = None) -> None:
         """Start the conversation with optional custom system and intro messages.
@@ -94,12 +152,11 @@ class Conversation:
         self.messages.append(Message("assistant", raw))
         return raw, styled
 
-    async def _process_preconversation_text(self, text_list: List[Tuple[str, Optional[str]]]) -> str:
+    async def _process_preconversation_text(self, text_list: List[PrefaceContent]) -> str:
         """Process preconversation text with styling.
         
         Args:
-            text_list: List of tuples (text, color) where text is the string to process
-                       and color is an optional color name. Each text appears on its own line.
+            text_list: List of PrefaceContent objects with text and display preferences
             
         Returns:
             str: Styled text output with an extra trailing newline for spacing.
@@ -108,17 +165,22 @@ class Conversation:
             return ""
             
         styled_output = ""
-        for text, color in text_list:
+        for content in text_list:
             # Set color or reset to default for preconversation text
-            self.stream.set_base_color(color)
-            # Process the text with the stream
-            raw, new_styled = await self.stream.add(text)
+            self.stream.set_base_color(content.color)
+            
+            # Get appropriate display strategy
+            strategy = self._display_strategies[content.display_type]
+            
+            # Format using selected strategy
+            formatted = strategy.format(content)
+            raw, new_styled = await self.stream.add(formatted)
             styled_output += new_styled
             
         # Append one extra newline to separate from the next block of text
         return styled_output + "\n"
 
-    async def handle_intro(self, intro_msg: str, preconversation_text: List[str] = None) -> Tuple[str, str, str]:
+    async def handle_intro(self, intro_msg: str, preconversation_text: List[PrefaceContent] = None) -> Tuple[str, str, str]:
         """Process and display the intro message, showing preconversation text first if it exists."""
         # 1) Process preconversation text, which includes a trailing blank line
         self.preconversation_styled = await self._process_preconversation_text(preconversation_text)
@@ -216,19 +278,19 @@ class Conversation:
         return await self.handle_edit_or_retry(intro_styled, is_retry=True)
 
     def run_conversation(self, system_msg: str = None, intro_msg: str = None,
-                        preconversation_text: List[str] = None):
+                        preconversation_text: List[PrefaceContent] = None):
         """Synchronous entry point that handles asyncio setup
         
         Args:
             system_msg: Optional system message override
             intro_msg: Optional intro message override
-            preconversation_text: Optional list of text to display before conversation
+            preconversation_text: Optional list of preface content
         """
         import asyncio
         asyncio.run(self._run_conversation(system_msg, intro_msg, preconversation_text))
 
     async def _run_conversation(self, system_msg: str = None, intro_msg: str = None,
-                              preconversation_text: List[str] = None):
+                              preconversation_text: List[PrefaceContent] = None):
         """Internal async implementation of the conversation loop"""
         try:
             # If either message is None, use defaults for both

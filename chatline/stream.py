@@ -3,6 +3,9 @@
 import sys
 import asyncio
 from typing import Tuple, Optional
+from rich.console import Console
+from rich.panel import Panel
+from io import StringIO
 
 class Stream:
     def __init__(self, styles, terminal=None):
@@ -13,6 +16,14 @@ class Stream:
         self.current_line_length = 0
         self.word_buffer = ""
         self._buffer_lock = asyncio.Lock()
+        
+        # Initialize Rich console for panel rendering
+        self._rich_console = Console(
+            force_terminal=True,
+            color_system="truecolor",
+            file=StringIO(),  # Capture output instead of printing directly
+            highlight=False   # Disable syntax highlighting
+        )
 
     def set_base_color(self, color: Optional[str] = None):
         """Set the base color for the stream. If None, resets to default."""
@@ -22,8 +33,14 @@ class Stream:
             self._base_color = self.styles.get_format('RESET')
 
     def _process_chunk(self, text: str) -> str:
+        """Process a chunk of text, handling both regular text and panel content."""
         if not text: 
             return ""
+            
+        # Check if this is a panel (contains box-drawing characters)
+        is_panel = any(c in text for c in "╭╮╯╰│")
+        if is_panel:
+            return text  # Return panel content unchanged
             
         out = []
         if not self.active_patterns:
@@ -71,18 +88,28 @@ class Stream:
             self.terminal._hide_cursor()
             
         try:
-            for char in chunk:
-                if char.isspace():
-                    if self.word_buffer:
-                        styled_word = self._process_chunk(self.word_buffer)
-                        sys.stdout.write(styled_word)
-                        styled_out += styled_word
-                        self.word_buffer = ""
-                    sys.stdout.write(char)
-                    styled_out += char
-                    self.current_line_length = 0 if char == '\n' else self.current_line_length + 1
-                else:
-                    self.word_buffer += char
+            # Check if this is a panel
+            is_panel = any(c in chunk for c in "╭╮╯╰│")
+            
+            if is_panel:
+                # For panels, write the whole chunk at once
+                sys.stdout.write(chunk)
+                styled_out = chunk
+                sys.stdout.flush()
+            else:
+                # Normal text processing
+                for char in chunk:
+                    if char.isspace():
+                        if self.word_buffer:
+                            styled_word = self._process_chunk(self.word_buffer)
+                            sys.stdout.write(styled_word)
+                            styled_out += styled_word
+                            self.word_buffer = ""
+                        sys.stdout.write(char)
+                        styled_out += char
+                        self.current_line_length = 0 if char == '\n' else self.current_line_length + 1
+                    else:
+                        self.word_buffer += char
             
             sys.stdout.flush()
             return (chunk, styled_out)

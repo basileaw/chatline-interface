@@ -3,11 +3,26 @@
 import re
 from typing import List, Optional, Dict
 from dataclasses import dataclass
+from rich.style import Style
+from rich.color import Color
 
 ANSI_REGEX = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 FMT = lambda x: f'\033[{x}m'
-FORMATS = {'RESET': FMT('0'), 'ITALIC_ON': FMT('3'), 'ITALIC_OFF': FMT('23'), 'BOLD_ON': FMT('1'), 'BOLD_OFF': FMT('22')}
-COLORS = {k: f'\033[38;5;{v}m' for k, v in {'GREEN': '47', 'PINK': '212', 'BLUE': '75'}.items()}
+FORMATS = {
+    'RESET': FMT('0'),
+    'ITALIC_ON': FMT('3'),
+    'ITALIC_OFF': FMT('23'),
+    'BOLD_ON': FMT('1'),
+    'BOLD_OFF': FMT('22')
+}
+
+# Map our ANSI colors to Rich-compatible colors
+COLORS = {
+    'GREEN': {'ansi': f'\033[38;5;47m', 'rich': 'green3'},
+    'PINK': {'ansi': f'\033[38;5;212m', 'rich': 'pink1'},
+    'BLUE': {'ansi': f'\033[38;5;75m', 'rich': 'blue1'}
+}
+
 STYLE_PATTERNS = {
     'quotes': {'start': '"', 'end': '"', 'color': 'PINK'},
     'brackets': {'start': '[', 'end': ']', 'color': 'BLUE'},
@@ -32,40 +47,70 @@ class Styles:
         self.end_map = {}
         used = set()
         
+        # Initialize pattern mappings
         for name, cfg in STYLE_PATTERNS.items():
             if (pat := Pattern(name=name, **cfg)).start in used or pat.end in used:
                 raise ValueError(f"Duplicate delimiter in '{pat.name}'")
             used.update([pat.start, pat.end])
             self.by_name[name] = self.start_map[pat.start] = self.end_map[pat.end] = pat
+            
+        # Initialize Rich style mappings
+        self.rich_styles = {
+            name: Style(color=color['rich']) 
+            for name, color in COLORS.items()
+        }
 
-    def get_format(self, name: str) -> str: 
+    def get_format(self, name: str) -> str:
         return FORMATS.get(name, '')
 
-    def get_color(self, name: str) -> str: 
-        return COLORS.get(name, '')
+    def get_color(self, name: str) -> str:
+        return COLORS.get(name, {}).get('ansi', '')
 
-    def get_base_color(self, color_name: str = 'GREEN') -> str: 
-        return COLORS[color_name]
+    def get_rich_style(self, name: str) -> Style:
+        """Get Rich-compatible style for a color name."""
+        return self.rich_styles.get(name, Style())
 
-    def get_visible_length(self, text: str) -> int: 
-        return len(ANSI_REGEX.sub('', text))
+    def get_base_color(self, color_name: str = 'GREEN') -> str:
+        return COLORS.get(color_name, {}).get('ansi', '')
+
+    def get_visible_length(self, text: str) -> int:
+        """Get visible length of text, ignoring ANSI and Rich styling."""
+        # First strip ANSI
+        text = ANSI_REGEX.sub('', text)
+        # Then strip Rich box characters if present
+        text = text.replace('─', '').replace('│', '').replace('╭', '') \
+                   .replace('╮', '').replace('╯', '').replace('╰', '')
+        return len(text)
 
     def get_style(self, active_patterns: List[str], base_color: str) -> str:
         style = [base_color]
         for name in active_patterns:
             if (pat := self.by_name[name]).color:
-                style[0] = COLORS[pat.color]
+                style[0] = COLORS[pat.color]['ansi']
             style.extend(FORMATS[f'{s}_ON'] for s in pat.styles or [])
         return ''.join(style)
 
     def split_text(self, text: str, width: Optional[int] = None) -> List[str]:
-        if width is None: 
+        if width is None:
             width = 80  # Default terminal width
+        
+        # Handle text that might contain Rich panel borders
+        has_borders = '─' in text or '│' in text
+        
+        # Adjust width for panel borders if needed
+        if has_borders:
+            width = max(width - 4, 20)  # Account for left/right borders and padding
+            
         lines, curr_line, curr_len = [], [], 0
         
         for word in text.split():
+            # Skip panel border characters
+            if has_borders and word.strip('─│╭╮╯╰') == '':
+                lines.append(word)
+                continue
+                
             if len(word) > width:
-                if curr_line: 
+                if curr_line:
                     lines.append(' '.join(curr_line))
                 lines.extend(word[i:i+width] for i in range(0, len(word), width))
                 curr_line, curr_len = [], 0
@@ -79,7 +124,7 @@ class Styles:
                 lines.append(' '.join(curr_line))
                 curr_line, curr_len = [word], len(word)
         
-        if curr_line: 
+        if curr_line:
             lines.append(' '.join(curr_line))
         return lines
 

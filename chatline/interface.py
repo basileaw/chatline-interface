@@ -47,12 +47,19 @@ class Interface:
         self.terminal._clear_screen()
         self.terminal._hide_cursor()
 
-    def preface(self, text: str, color: Optional[str] = None) -> None:
-        """Alias to conversation.print() for backwards compatibility."""
-        self.conversation.preface(text, color)
+    def preface(self, text: str, color: Optional[str] = None, 
+                display_type: str = "panel") -> None:
+        """Add text to be displayed before conversation starts.
+        
+        Args:
+            text: The text to display before the conversation begins
+            color: Optional color name (e.g., 'GREEN', 'BLUE', 'PINK')
+            display_type: Display type ("text" or "panel", defaults to "panel")
+        """
+        self.conversation.preface(text, color, display_type)
 
     def start(self, system_msg: str = None, intro_msg: str = None) -> None:
-        """Alias to conversation.start() for backwards compatibility."""
+        """Start the conversation with optional custom system and intro messages."""
         self.conversation.start(system_msg, intro_msg)
 
 if __name__ == "__main__":
@@ -60,8 +67,7 @@ if __name__ == "__main__":
     from generator import generate_stream
     chat = Interface(generate_stream)
     
-    # Example of using pre-conversation text
-    chat.preface("Welcome to ChatLine")
-    chat.preface("Type 'help' for available commands")
+    # Example of using pre-conversation text in a panel
+    chat.preface("Welcome to ChatLine", color="BLUE")
     
     chat.start()
