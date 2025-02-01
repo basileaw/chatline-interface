@@ -76,12 +76,27 @@ class Terminal:
     def _handle_text(self, text: str, width: Optional[int] = None) -> List[str]:
         """Handle text wrapping with support for styled and multi-line text.
         
-        This method properly handles both pre-conversation and conversation text,
-        maintaining styling and formatting while wrapping lines appropriately.
+        This method handles both regular text with word wrapping and panel text
+        which should preserve its exact formatting.
+        
+        Args:
+            text: The text to process
+            width: Optional width constraint (defaults to terminal width)
+            
+        Returns:
+            List[str]: Lines of text, either wrapped or preserved as-is for panels
         """
         width = width or self._term_width
-        result = []
         
+        # Check if text contains panel borders
+        contains_panel = '╭' in text or '╮' in text or '╯' in text or '╰' in text
+        
+        # If this is a panel, preserve exact structure including empty lines
+        if contains_panel:
+            return text.split('\n')
+        
+        # Standard word-wrapping logic for non-panel text
+        result = []
         for para in text.split('\n'):
             if not para.strip():
                 result.append('')
@@ -177,7 +192,7 @@ class Terminal:
         """Handle scrolling of styled text with animations.
         
         This method now properly handles both pre-conversation and conversation text
-        in the scrolling animation sequence.
+        in the scrolling animation sequence, preserving panel structure when present.
         """
         lines = self._handle_text(styled_lines)
         for i in range(len(lines) + 1):

@@ -51,7 +51,7 @@ class PanelDisplayStrategy:
                 content.text.rstrip(),
                 style=content.color or ""
             ))
-        return capture.get() + "\n"
+        return capture.get()  # Rich handles newlines, don't add our own
         
     def get_visible_length(self, text: str) -> int:
         # Account for panel borders in length calculation
@@ -159,7 +159,7 @@ class Conversation:
             text_list: List of PrefaceContent objects with text and display preferences
             
         Returns:
-            str: Styled text output with an extra trailing newline for spacing.
+            str: Styled text output with spacing controlled by display strategies.
         """
         if not text_list:
             return ""
@@ -177,7 +177,6 @@ class Conversation:
             raw, new_styled = await self.stream.add(formatted)
             styled_output += new_styled
             
-        # Return output with a single trailing newline
         return styled_output
 
     async def handle_intro(self, intro_msg: str, preconversation_text: List[PrefaceContent] = None) -> Tuple[str, str, str]:
@@ -194,10 +193,7 @@ class Conversation:
         raw, styled = await self._process_message(intro_msg, True)
 
         # 4) Combine them in memory for future scrolling or commands
-        if self.preconversation_styled.strip():
-            full_styled = f"{self.preconversation_styled}\n{styled}"
-        else:
-            full_styled = styled
+        full_styled = f"{self.preconversation_styled}{styled}"  # Let Rich handle newlines
 
         self.is_silent = True
         self.prompt = ""
@@ -239,10 +235,7 @@ class Conversation:
             if last_msg := self._get_last_user_message():
                 raw, styled = await self._process_message(last_msg, True)
                 # Combine preconversation text with new styled response
-                if self.preconversation_styled.strip():
-                    full_styled = f"{self.preconversation_styled}\n{styled}"
-                else:
-                    full_styled = styled
+                full_styled = f"{self.preconversation_styled}{styled}"  # Let Rich handle newlines
                 return raw, full_styled, ""
         else:
             last_msg = self._get_last_user_message()
@@ -257,10 +250,7 @@ class Conversation:
                     self.prompt = f"> {last_msg.rstrip('?.!')}{end_char * 3}"
                     
                     # Combine preconversation text with new styled response
-                    if self.preconversation_styled.strip():
-                        full_styled = f"{self.preconversation_styled}\n{styled}"
-                    else:
-                        full_styled = styled
+                    full_styled = f"{self.preconversation_styled}{styled}"  # Let Rich handle newlines
                     return raw, full_styled, self.prompt
                 else:
                     # For edit, get user input with previous message pre-filled
@@ -273,10 +263,7 @@ class Conversation:
                         self.prompt = f"> {msg.rstrip('?.!')}{end_char * 3}"
                         
                         # Combine preconversation text with new styled response
-                        if self.preconversation_styled.strip():
-                            full_styled = f"{self.preconversation_styled}\n{styled}"
-                        else:
-                            full_styled = styled
+                        full_styled = f"{self.preconversation_styled}{styled}"  # Let Rich handle newlines
                         return raw, full_styled, self.prompt
                         
         return "", "", ""
