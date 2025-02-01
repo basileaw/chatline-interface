@@ -129,11 +129,19 @@ class Conversation:
         self.preconversation_styled = ""
         return raw, styled, self.prompt
 
+    async def _remove_last_message_pair(self) -> None:
+        """Remove the last user message and assistant response pair from history."""
+        if len(self.messages) >= 2 and self.messages[-2].role == "user":
+            self.messages.pop()  # Remove assistant's response
+            self.messages.pop()  # Remove user's message
+
     async def handle_edit_or_retry(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
         rev_streamer = self.animations.create_reverse_streamer()
         await rev_streamer.reverse_stream(intro_styled, "" if self.is_silent else self.prompt, preconversation_text=self.preconversation_styled)
         last_msg = self._get_last_user_message()
-        if not last_msg: return "", intro_styled, ""
+        if not last_msg:
+            return "", intro_styled, ""
+        await self._remove_last_message_pair()
         if self.is_silent:
             raw, styled = await self._process_message(last_msg, silent=True)
             full_styled = f"{self.preconversation_styled}\n{styled}"
@@ -146,7 +154,8 @@ class Conversation:
             return raw, styled, self.prompt
         else:
             new_input = await self.terminal.get_user_input(default_text=last_msg, add_newline=False)
-            if not new_input: return "", intro_styled, ""
+            if not new_input:
+                return "", intro_styled, ""
             await self.terminal.clear()
             raw, styled = await self._process_message(new_input, silent=False)
             end_char = '.' if not new_input.endswith(('?', '!')) else new_input[-1]
