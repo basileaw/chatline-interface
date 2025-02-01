@@ -1,21 +1,7 @@
-# chatline/__init__.py
+from pkgutil import iter_modules
+from importlib import import_module
 
-from .interface import Interface
-from .generator import generate_stream
-from .remote import RemoteGenerator
-from .terminal import Terminal
-from .conversation import Conversation
-from .animations import Animations
-from .styles import Styles
-from .stream import Stream
-
-__all__ = [
-    'Interface',
-    'generate_stream',
-    'RemoteGenerator',
-    'Terminal',
-    'Conversation',
-    'Animations',
-    'Styles',
-    'Stream'
-]
+__all__ = []
+for m in [import_module(f'.{m.name}', __name__) for m in iter_modules(__path__) if not m.name.startswith('_')]:
+    __all__.extend(getattr(m, '__all__', [n for n in dir(m) if not n.startswith('_')]))
+    locals().update({n: getattr(m, n) for n in dir(m) if not n.startswith('_')})
