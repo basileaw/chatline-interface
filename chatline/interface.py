@@ -8,7 +8,7 @@ from .conversation import Conversation
 from .animations import Animations
 from .styles import Styles
 from .stream import Stream
-from .generator import generate_stream
+from .message_provider import MessageProvider
 
 class Interface:
     def __init__(self, generator_func: Optional[Callable[[str], AsyncGenerator[str, None]]] = None):
@@ -27,8 +27,9 @@ class Interface:
         self.stream = Stream(styles=self.styles, terminal=self.terminal)
         self.animations = Animations(terminal=self.terminal, styles=self.styles)
         
-        # Set up generator function
-        self.generator = generator_func if generator_func else generate_stream
+        # Set up message provider and get generator
+        self.provider = MessageProvider(generator_func)
+        self.generator = self.provider.get_generator()
             
         # Initialize conversation
         self.conversation = Conversation(
