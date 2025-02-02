@@ -6,8 +6,7 @@ from typing import Callable, AsyncGenerator, Optional, Union
 from .terminal import Terminal
 from .conversation import Conversation
 from .animations import Animations
-from .styles import Styles
-from .stream import Stream
+from .styles import Styles, Stream  # Updated to import Stream from styles
 from .message_provider import MessageProvider, RemoteProvider
 
 class Interface:
