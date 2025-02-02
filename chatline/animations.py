@@ -4,9 +4,8 @@ import asyncio, json, time
 from typing import Any, Tuple
 
 class AsyncDotLoader:
-    def __init__(self, styles, prompt: str="", output_handler=None, no_animation=False):
+    def __init__(self, styles, prompt: str="", no_animation=False):
         self.styles = styles
-        self.out = output_handler
         self.prompt = prompt.rstrip('.?!')
         self.no_anim = no_animation
         self.dot_char = '.' if prompt.endswith('.') or not prompt.endswith(('?','!')) else prompt[-1]
@@ -47,7 +46,7 @@ class AsyncDotLoader:
                     stored.append((txt,time.time()))
                 else:
                     raw, styled = await self._process_stored_messages(stored)
-                    r2, s2 = await self.out.add(txt,self.out)
+                    r2, s2 = await self.styles.write_styled(txt)  # Updated to use styles directly
                     raw += r2
                     styled += s2
                 await asyncio.sleep(0.01)
@@ -63,7 +62,7 @@ class AsyncDotLoader:
             stored.sort(key=lambda x: x[1])
             for i,(t,ts) in enumerate(stored):
                 if i: await asyncio.sleep(ts-stored[i-1][1])
-                r,s = await self.out.add(t,self.out)
+                r,s = await self.styles.write_styled(t)  # Updated to use styles directly
                 raw += r
                 styled += s
             stored.clear()
@@ -71,7 +70,7 @@ class AsyncDotLoader:
 
     async def run_with_loading(self, stream: Any) -> Tuple[str, str]:
         """Main method to handle message streaming with loading animation."""
-        if not self.out: raise ValueError("output_handler must be provided")
+        if not self.styles: raise ValueError("styles must be provided")
         raw = styled = ""
         stored = []
         first_chunk = True
@@ -106,9 +105,11 @@ class AsyncDotLoader:
             raw += r
             styled += s
             
-            r, s = await self.out.flush()
-            if hasattr(self.out,'flush'):
-                _, s2 = await self.out.flush()
+            # Final flush using styles
+            r, s = await self.styles.flush_styled()
+            s2 = ""
+            if hasattr(self.styles, 'flush_styled'):
+                _, s2 = await self.styles.flush_styled()
                 s += s2
             
             return raw+r, styled+s
@@ -171,7 +172,7 @@ class Animations:
         self.styles = styles
 
     def create_dot_loader(self, prompt: str, output_handler=None, no_animation=False):
-        loader = AsyncDotLoader(self.styles, prompt, output_handler, no_animation)
+        loader = AsyncDotLoader(self.styles, prompt, no_animation)
         loader.terminal = self.terminal
         return loader
     

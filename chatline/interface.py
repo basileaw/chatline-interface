@@ -6,7 +6,7 @@ from typing import Callable, AsyncGenerator, Optional, Union
 from .terminal import Terminal
 from .conversation import Conversation
 from .animations import Animations
-from .styles import Styles, Stream  # Updated to import Stream from styles
+from .styles import Styles
 from .message_provider import MessageProvider, RemoteProvider
 
 class Interface:
@@ -25,9 +25,9 @@ class Interface:
         self.logger = logging.getLogger(__name__)
         
         # Initialize core components
-        self.styles = Styles()
-        self.terminal = Terminal(styles=self.styles)
-        self.stream = Stream(styles=self.styles, terminal=self.terminal)
+        self.terminal = Terminal(styles=None)  # Temporarily None
+        self.styles = Styles(terminal=self.terminal)  # Now handles all styling and output
+        self.terminal.styles = self.styles  # Set styles after initialization
         self.animations = Animations(terminal=self.terminal, styles=self.styles)
         
         # Set up message provider based on configuration
@@ -43,7 +43,6 @@ class Interface:
             terminal=self.terminal,
             generator_func=self.generator,
             styles=self.styles,
-            stream=self.stream,
             animations_manager=self.animations
         )
         

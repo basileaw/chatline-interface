@@ -54,13 +54,11 @@ class Conversation:
                  terminal, 
                  generator_func: Union[Callable[[List[Dict[str, str]]], AsyncGenerator[str, None]], Any],
                  styles, 
-                 stream, 
                  animations_manager, 
                  system_prompt: str = None):
         self.terminal = terminal
         self.generator = generator_func
         self.styles = styles
-        self.stream = stream
         self.animations = animations_manager
         self.system_prompt = system_prompt
         self.messages: List[Message] = []
@@ -94,10 +92,9 @@ class Conversation:
     async def _process_message(self, msg: str, silent=False) -> Tuple[str, str]:
         try:
             self.messages.append(Message("user", msg))
-            self.stream.set_base_color('GREEN')
+            self.styles.set_output_color('GREEN')
             loader = self.animations.create_dot_loader(
                 prompt="" if silent else f"> {msg}",
-                output_handler=self.stream,
                 no_animation=silent
             )
             
@@ -117,10 +114,10 @@ class Conversation:
         if not text_list: return ""
         out = ""
         for content in text_list:
-            self.stream.set_base_color(content.color)
+            self.styles.set_output_color(content.color)
             strat = self._display_strategies[content.display_type]
             formatted = strat.format(content)
-            _, styled = await self.stream.add(formatted)
+            _, styled = await self.styles.write_styled(formatted)
             out += styled
         return out
 
