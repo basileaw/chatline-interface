@@ -40,30 +40,57 @@ class AsyncDotLoader:
             self.animation_task = asyncio.create_task(self._animate())
             await asyncio.sleep(0.01)
         try:
-            for chunk in stream:
-                if not (c := chunk.strip()).startswith("data: ") or c=="data: [DONE]": 
-                    continue
-                try:
-                    if txt:=json.loads(c[6:])["choices"][0]["delta"].get("content",""):
-                        if first_chunk:
-                            self.resolved=True
-                            if not self.no_anim: await self.animation_complete.wait()
-                            first_chunk=False
-                        if not self.animation_complete.is_set():
-                            stored.append((txt,time.time()))
-                        else:
-                            if stored:
-                                stored.sort(key=lambda x: x[1])
-                                for i,(t,ts) in enumerate(stored):
-                                    if i: await asyncio.sleep(ts-stored[i-1][1])
-                                    r,s=await self.out.add(t,self.out)
-                                    raw,styled=raw+r,styled+s
-                                stored.clear()
-                            r2,s2=await self.out.add(txt,self.out)
-                            raw,styled=raw+r2,styled+s2
-                        await asyncio.sleep(0.01)
-                except json.JSONDecodeError:
-                    pass
+            # Handle both sync and async iterators
+            if hasattr(stream, '__aiter__'):
+                async for chunk in stream:
+                    if not (c := chunk.strip()).startswith("data: ") or c=="data: [DONE]": 
+                        continue
+                    try:
+                        if txt:=json.loads(c[6:])["choices"][0]["delta"].get("content",""):
+                            if first_chunk:
+                                self.resolved=True
+                                if not self.no_anim: await self.animation_complete.wait()
+                                first_chunk=False
+                            if not self.animation_complete.is_set():
+                                stored.append((txt,time.time()))
+                            else:
+                                if stored:
+                                    stored.sort(key=lambda x: x[1])
+                                    for i,(t,ts) in enumerate(stored):
+                                        if i: await asyncio.sleep(ts-stored[i-1][1])
+                                        r,s=await self.out.add(t,self.out)
+                                        raw,styled=raw+r,styled+s
+                                    stored.clear()
+                                r2,s2=await self.out.add(txt,self.out)
+                                raw,styled=raw+r2,styled+s2
+                            await asyncio.sleep(0.01)
+                    except json.JSONDecodeError:
+                        pass
+            else:
+                for chunk in stream:  # Original sync iterator case
+                    if not (c := chunk.strip()).startswith("data: ") or c=="data: [DONE]": 
+                        continue
+                    try:
+                        if txt:=json.loads(c[6:])["choices"][0]["delta"].get("content",""):
+                            if first_chunk:
+                                self.resolved=True
+                                if not self.no_anim: await self.animation_complete.wait()
+                                first_chunk=False
+                            if not self.animation_complete.is_set():
+                                stored.append((txt,time.time()))
+                            else:
+                                if stored:
+                                    stored.sort(key=lambda x: x[1])
+                                    for i,(t,ts) in enumerate(stored):
+                                        if i: await asyncio.sleep(ts-stored[i-1][1])
+                                        r,s=await self.out.add(t,self.out)
+                                        raw,styled=raw+r,styled+s
+                                    stored.clear()
+                                r2,s2=await self.out.add(txt,self.out)
+                                raw,styled=raw+r2,styled+s2
+                            await asyncio.sleep(0.01)
+                    except json.JSONDecodeError:
+                        pass
         finally:
             self.resolved=True
             self.animation_complete.set()

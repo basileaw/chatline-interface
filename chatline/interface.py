@@ -23,6 +23,8 @@ class Interface:
             filename=os.path.join(log_dir, 'chat_debug.log')
         )
         
+        self.logger = logging.getLogger(__name__)
+        
         # Initialize core components
         self.styles = Styles()
         self.terminal = Terminal(styles=self.styles)
@@ -31,9 +33,9 @@ class Interface:
         
         # Set up message provider based on configuration
         if endpoint:
-            self.provider = RemoteProvider(endpoint)
+            self.provider = RemoteProvider(endpoint, logger=self.logger)
         else:
-            self.provider = MessageProvider(generator_func)
+            self.provider = MessageProvider(generator_func, logger=self.logger)
             
         self.generator = self.provider.get_generator()
             
