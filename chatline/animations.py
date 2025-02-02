@@ -31,80 +31,86 @@ class AsyncDotLoader:
         finally:
             self.terminal._show_cursor()
 
+    async def _handle_single_chunk(self, chunk: str, stored: list, first_chunk: bool) -> Tuple[str, str]:
+        """Process a single chunk and update stored messages."""
+        raw = styled = ""
+        if not (c := chunk.strip()).startswith("data: ") or c=="data: [DONE]": 
+            return raw, styled
+
+        try:
+            if txt:=json.loads(c[6:])["choices"][0]["delta"].get("content",""):
+                if first_chunk:
+                    self.resolved=True
+                    if not self.no_anim: await self.animation_complete.wait()
+                
+                if not self.animation_complete.is_set():
+                    stored.append((txt,time.time()))
+                else:
+                    raw, styled = await self._process_stored_messages(stored)
+                    r2, s2 = await self.out.add(txt,self.out)
+                    raw += r2
+                    styled += s2
+                await asyncio.sleep(0.01)
+        except json.JSONDecodeError:
+            pass
+        
+        return raw, styled
+
+    async def _process_stored_messages(self, stored: list) -> Tuple[str, str]:
+        """Process any stored messages in order."""
+        raw = styled = ""
+        if stored:
+            stored.sort(key=lambda x: x[1])
+            for i,(t,ts) in enumerate(stored):
+                if i: await asyncio.sleep(ts-stored[i-1][1])
+                r,s = await self.out.add(t,self.out)
+                raw += r
+                styled += s
+            stored.clear()
+        return raw, styled
+
     async def run_with_loading(self, stream: Any) -> Tuple[str, str]:
+        """Main method to handle message streaming with loading animation."""
         if not self.out: raise ValueError("output_handler must be provided")
         raw = styled = ""
         stored = []
         first_chunk = True
+
+        # Start animation if needed
         if not self.no_anim:
             self.animation_task = asyncio.create_task(self._animate())
             await asyncio.sleep(0.01)
+
         try:
-            # Handle both sync and async iterators
+            # Process stream based on type
             if hasattr(stream, '__aiter__'):
                 async for chunk in stream:
-                    if not (c := chunk.strip()).startswith("data: ") or c=="data: [DONE]": 
-                        continue
-                    try:
-                        if txt:=json.loads(c[6:])["choices"][0]["delta"].get("content",""):
-                            if first_chunk:
-                                self.resolved=True
-                                if not self.no_anim: await self.animation_complete.wait()
-                                first_chunk=False
-                            if not self.animation_complete.is_set():
-                                stored.append((txt,time.time()))
-                            else:
-                                if stored:
-                                    stored.sort(key=lambda x: x[1])
-                                    for i,(t,ts) in enumerate(stored):
-                                        if i: await asyncio.sleep(ts-stored[i-1][1])
-                                        r,s=await self.out.add(t,self.out)
-                                        raw,styled=raw+r,styled+s
-                                    stored.clear()
-                                r2,s2=await self.out.add(txt,self.out)
-                                raw,styled=raw+r2,styled+s2
-                            await asyncio.sleep(0.01)
-                    except json.JSONDecodeError:
-                        pass
+                    r, s = await self._handle_single_chunk(chunk, stored, first_chunk)
+                    raw += r
+                    styled += s
+                    first_chunk = False
             else:
-                for chunk in stream:  # Original sync iterator case
-                    if not (c := chunk.strip()).startswith("data: ") or c=="data: [DONE]": 
-                        continue
-                    try:
-                        if txt:=json.loads(c[6:])["choices"][0]["delta"].get("content",""):
-                            if first_chunk:
-                                self.resolved=True
-                                if not self.no_anim: await self.animation_complete.wait()
-                                first_chunk=False
-                            if not self.animation_complete.is_set():
-                                stored.append((txt,time.time()))
-                            else:
-                                if stored:
-                                    stored.sort(key=lambda x: x[1])
-                                    for i,(t,ts) in enumerate(stored):
-                                        if i: await asyncio.sleep(ts-stored[i-1][1])
-                                        r,s=await self.out.add(t,self.out)
-                                        raw,styled=raw+r,styled+s
-                                    stored.clear()
-                                r2,s2=await self.out.add(txt,self.out)
-                                raw,styled=raw+r2,styled+s2
-                            await asyncio.sleep(0.01)
-                    except json.JSONDecodeError:
-                        pass
+                for chunk in stream:
+                    r, s = await self._handle_single_chunk(chunk, stored, first_chunk)
+                    raw += r
+                    styled += s
+                    first_chunk = False
+
         finally:
-            self.resolved=True
+            # Cleanup and process any remaining messages
+            self.resolved = True
             self.animation_complete.set()
             if self.animation_task: await self.animation_task
-            if stored:
-                stored.sort(key=lambda x: x[1])
-                for i,(t,ts) in enumerate(stored):
-                    if i: await asyncio.sleep(ts-stored[i-1][1])
-                    r,s=await self.out.add(t,self.out)
-                    raw,styled=raw+r,styled+s
-            r,s=await self.out.flush()
+            
+            r, s = await self._process_stored_messages(stored)
+            raw += r
+            styled += s
+            
+            r, s = await self.out.flush()
             if hasattr(self.out,'flush'):
-                _,s2=await self.out.flush()
-                s+=s2
+                _, s2 = await self.out.flush()
+                s += s2
+            
             return raw+r, styled+s
 
 class ReverseStreamer:

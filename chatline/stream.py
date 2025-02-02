@@ -26,7 +26,7 @@ class Stream:
         if color: self._base_color = self.styles.get_color(color)
         else: self._base_color = self.styles.get_format('RESET')
 
-    def _process_chunk(self, text: str) -> str:
+    def _style_chunk(self, text: str) -> str:
         if not text: return ""
         if any(c in text for c in "╭╮╯╰│"): return text
         out = []
@@ -72,7 +72,7 @@ class Stream:
                 for char in chunk:
                     if char.isspace():
                         if self.word_buffer:
-                            styled_word = self._process_chunk(self.word_buffer)
+                            styled_word = self._style_chunk(self.word_buffer)
                             sys.stdout.write(styled_word)
                             styled_out += styled_word
                             self.word_buffer = ""
@@ -91,7 +91,7 @@ class Stream:
         if self.terminal: self.terminal._hide_cursor()
         try:
             if self.word_buffer:
-                styled_word = self._process_chunk(self.word_buffer)
+                styled_word = self._style_chunk(self.word_buffer)
                 sys.stdout.write(styled_word)
                 styled_out += styled_word
                 self.word_buffer = ""
