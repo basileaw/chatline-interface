@@ -1,11 +1,8 @@
 # conversation.py
 
 import logging
-from typing import List, Dict, Any, Tuple, Optional, Protocol, Union, Callable, AsyncGenerator
+from typing import List, Dict, Any, Tuple, Optional, Union, Callable, AsyncGenerator
 from dataclasses import dataclass
-from rich.console import Console
-from rich.panel import Panel
-from functools import partial
 
 @dataclass
 class Message:
@@ -17,26 +14,6 @@ class PrefaceContent:
     text: str
     color: Optional[str]
     display_type: str = "text"
-
-class DisplayStrategy(Protocol):
-    def format(self, content: PrefaceContent) -> str: ...
-    def get_visible_length(self, text: str) -> int: ...
-
-class TextDisplayStrategy:
-    def __init__(self, styles): self.styles = styles
-    def format(self, content: PrefaceContent) -> str: return content.text + "\n"
-    def get_visible_length(self, text: str) -> int: return self.styles.get_visible_length(text)
-
-class PanelDisplayStrategy:
-    def __init__(self, styles):
-        self.styles = styles
-        self.console = Console(force_terminal=True, color_system="truecolor", record=True)
-    def format(self, content: PrefaceContent) -> str:
-        with self.console.capture() as c:
-            self.console.print(Panel(content.text.rstrip(), style=content.color or ""))
-        return c.get()
-    def get_visible_length(self, text: str) -> int:
-        return self.styles.get_visible_length(text) + 4
 
 class Conversation:
     @staticmethod
@@ -67,8 +44,8 @@ class Conversation:
         self.preconversation_text: List[PrefaceContent] = []
         self.preconversation_styled = ""
         self._display_strategies = {
-            "text": TextDisplayStrategy(styles),
-            "panel": PanelDisplayStrategy(styles)
+            "text": self.styles.create_display_strategy("text"),
+            "panel": self.styles.create_display_strategy("panel")
         }
 
     def _append_single_blank_line(self, styled_text: str) -> str:

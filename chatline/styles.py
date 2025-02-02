@@ -3,12 +3,15 @@
 import re
 import sys
 import asyncio
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Protocol, TYPE_CHECKING
 from dataclasses import dataclass
 from rich.style import Style
 from rich.console import Console
 from rich.panel import Panel
 from io import StringIO
+
+if TYPE_CHECKING:
+    from .conversation import PrefaceContent
 
 ANSI_REGEX = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 FMT = lambda x: f'\033[{x}m'
@@ -44,6 +47,33 @@ class Pattern:
     styles: List[str] = None
     remove_delimiters: bool = False
 
+class DisplayStrategy(Protocol):
+    def format(self, content: 'PrefaceContent') -> str: ...
+    def get_visible_length(self, text: str) -> int: ...
+
+class TextDisplayStrategy:
+    def __init__(self, styles): 
+        self.styles = styles
+        
+    def format(self, content: 'PrefaceContent') -> str: 
+        return content.text + "\n"
+        
+    def get_visible_length(self, text: str) -> int: 
+        return self.styles.get_visible_length(text)
+
+class PanelDisplayStrategy:
+    def __init__(self, styles):
+        self.styles = styles
+        self.console = Console(force_terminal=True, color_system="truecolor", record=True)
+        
+    def format(self, content: 'PrefaceContent') -> str:
+        with self.console.capture() as c:
+            self.console.print(Panel(content.text.rstrip(), style=content.color or ""))
+        return c.get()
+        
+    def get_visible_length(self, text: str) -> int:
+        return self.styles.get_visible_length(text) + 4
+
 class Styles:
     def __init__(self, terminal=None):
         # Style patterns initialization
@@ -70,6 +100,16 @@ class Styles:
             file=StringIO(),
             highlight=False
         )
+
+    def create_display_strategy(self, strategy_type: str) -> DisplayStrategy:
+        """Create a display strategy of the specified type."""
+        strategies = {
+            "text": TextDisplayStrategy(self),
+            "panel": PanelDisplayStrategy(self)
+        }
+        if strategy_type not in strategies:
+            raise ValueError(f"Unknown strategy type: {strategy_type}")
+        return strategies[strategy_type]
 
     # Core styling methods
     def get_format(self, name:str) -> str: return FORMATS.get(name,'')
