@@ -7,7 +7,7 @@ from .terminal import Terminal
 from .conversation import Conversation
 from .animations import Animations
 from .styles import Styles
-from .message_provider import MessageProvider, RemoteProvider
+from .stream import EmbeddedStream, RemoteStream
 
 class Interface:
     def __init__(self, 
@@ -26,17 +26,17 @@ class Interface:
         
         # Initialize core components
         self.terminal = Terminal(styles=None)  # Temporarily None
-        self.styles = Styles(terminal=self.terminal)  # Now handles all styling and output
-        self.terminal.styles = self.styles  # Set styles after initialization
+        self.styles = Styles(terminal=self.terminal)
+        self.terminal.styles = self.styles
         self.animations = Animations(terminal=self.terminal, styles=self.styles)
         
-        # Set up message provider based on configuration
+        # Set up stream based on configuration
         if endpoint:
-            self.provider = RemoteProvider(endpoint, logger=self.logger)
+            self.stream = RemoteStream(endpoint, logger=self.logger)
         else:
-            self.provider = MessageProvider(generator_func, logger=self.logger)
+            self.stream = EmbeddedStream(generator_func, logger=self.logger)
             
-        self.generator = self.provider.get_generator()
+        self.generator = self.stream.get_generator()
             
         # Initialize conversation
         self.conversation = Conversation(

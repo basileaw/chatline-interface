@@ -1,19 +1,33 @@
-# message_provider.py
+# stream.py
 
 import httpx
 from typing import Optional, Callable, AsyncGenerator, Dict, List, Any
 from .generator import generate_stream
 
-class MessageProvider:
+class Stream:
+    """
+    Base class for all stream providers. Handles the generation of message streams,
+    whether from an embedded model or remote endpoint.
+    """
+    def __init__(self, logger: Any = None):
+        self.logger = logger
+
+    def get_generator(self) -> Callable:
+        """Must be implemented by subclasses to return their specific generator."""
+        raise NotImplementedError
+
+class EmbeddedStream(Stream):
+    """Handles streaming from a local/embedded model."""
     def __init__(self, generator_func: Optional[Callable[[str], AsyncGenerator[str, None]]] = None,
                  logger: Any = None):
+        super().__init__(logger=logger)
         self.generator = generator_func if generator_func else generate_stream
-        self.logger = logger
 
     def get_generator(self) -> Callable:
         return self.generator
 
-class RemoteProvider(MessageProvider):
+class RemoteStream(Stream):
+    """Handles streaming from a remote endpoint."""
     def __init__(self, endpoint: str, logger: Any = None):
         super().__init__(logger=logger)
         self.endpoint = endpoint.rstrip('/')
