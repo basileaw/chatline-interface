@@ -274,6 +274,9 @@ class Styles:
             return "", ""
             
         styled_out = ""
+        if self.terminal:
+            self.terminal._hide_cursor()  # Ensure cursor is hidden during streaming
+            
         try:
             if any(c in chunk for c in "╭╮╯╰│"):
                 sys.stdout.write(chunk)
@@ -294,7 +297,8 @@ class Styles:
             sys.stdout.flush()
             return chunk, styled_out
         finally:
-            pass  # Cursor management moved to Terminal
+            if self.terminal:
+                self.terminal._hide_cursor()  # Ensure cursor remains hidden after streaming
 
     async def flush_styled(self) -> Tuple[str, str]:
         """Flush any remaining styled content."""

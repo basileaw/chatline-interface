@@ -70,7 +70,8 @@ class Terminal:
 
     def _write(self, text: str = "", style: Optional[str] = None, newline: bool = False) -> None:
         """Consolidated write method with optional styling."""
-        with self.cursor_control(False):
+        self._hide_cursor()  # Always hide cursor before writing
+        try:
             if style:
                 sys.stdout.write(self.styles.get_format(style))
             sys.stdout.write(text)
@@ -79,6 +80,8 @@ class Terminal:
             if newline:
                 sys.stdout.write('\n')
             sys.stdout.flush()
+        finally:
+            self._hide_cursor()  # Ensure cursor remains hidden after writing
 
     def _clear_screen(self) -> None:
         """Clear the terminal screen."""
@@ -154,21 +157,35 @@ class Terminal:
                 if not document.text.strip():
                     raise ValidationError(message='', cursor_position=0)
 
-        with self.cursor_control(True):
-            if add_newline:
-                self._write("\n")
+        if add_newline:
+            self._write("\n")
 
-            self._is_edit_mode = bool(default_text)
-            try:
-                result = await self.prompt_session.prompt_async(
-                    FormattedText([('class:prompt','> ')]),
-                    default=default_text,
-                    validator=NonEmptyValidator(),
-                    validate_while_typing=False
-                )
-                return result.strip()
-            finally:
-                self._is_edit_mode = False
+        self._is_edit_mode = bool(default_text)
+        try:
+            # Explicitly show cursor for input
+            self._cursor_visible = True
+            sys.stdout.write("\033[?25h")
+            sys.stdout.flush()
+            
+            result = await self.prompt_session.prompt_async(
+                FormattedText([('class:prompt','> ')]),
+                default=default_text,
+                validator=NonEmptyValidator(),
+                validate_while_typing=False
+            )
+            
+            # Immediately hide cursor after input
+            self._cursor_visible = False
+            sys.stdout.write("\033[?25l")
+            sys.stdout.flush()
+            
+            return result.strip()
+        finally:
+            self._is_edit_mode = False
+            # Ensure cursor is hidden even if an error occurs
+            self._cursor_visible = False
+            sys.stdout.write("\033[?25l")
+            sys.stdout.flush()
 
     async def handle_scroll(self, styled_lines: str, prompt: str, delay: float = 0.5) -> None:
         """Handle scrolling with preserved panel structure."""
