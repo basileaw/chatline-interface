@@ -326,3 +326,9 @@ class Styles:
         self._active_patterns.clear()
         self._word_buffer = ""
         self._current_line_length = 0
+
+    def append_single_blank_line(self, styled_text: str) -> str:
+        """Append a single blank line to styled text if needed."""
+        if styled_text.strip():
+            return styled_text.rstrip('\n') + "\n\n"
+        return styled_text

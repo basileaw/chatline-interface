@@ -43,33 +43,40 @@ class Conversation:
         self.prompt = ""
         self.preconversation_text: List[PrefaceContent] = []
         self.preconversation_styled = ""
+        self._init_display_strategies()
+
+    def _init_display_strategies(self) -> None:
+        """Initialize display strategies at startup."""
         self._display_strategies = {
             "text": self.styles.create_display_strategy("text"),
             "panel": self.styles.create_display_strategy("panel")
         }
 
-    def _append_single_blank_line(self, styled_text: str) -> str:
-        if styled_text.strip():
-            return styled_text.rstrip('\n') + "\n\n"
-        return styled_text
-
-    def preface(self, text: str, color: Optional[str] = None, display_type: str = "panel") -> None:
-        self.preconversation_text.append(PrefaceContent(text, color, display_type))
-
-    def start(self, system_msg: str = None, intro_msg: str = None) -> None:
-        self.run_conversation(system_msg, intro_msg, self.preconversation_text)
-
-    def _get_last_user_message(self) -> Optional[str]:
-        return next((m.content for m in reversed(self.messages) if m.role == "user"), None)
-
     async def get_messages(self) -> List[Dict[str, str]]:
+        """Get all messages including system prompt."""
         base = [{"role": "system", "content": self.system_prompt}] if self.system_prompt else []
         return base + [{"role": m.role, "content": m.content} for m in self.messages]
 
-    async def _process_message(self, msg: str, silent=False) -> Tuple[str, str]:
+    async def _process_preconversation_text(self, text_list: List[PrefaceContent]) -> str:
+        """Process preconversation text with proper styling."""
+        if not text_list: 
+            return ""
+            
+        out = ""
+        for content in text_list:
+            self.styles.set_output_color(content.color)
+            strat = self._display_strategies[content.display_type]
+            formatted = strat.format(content)
+            _, styled = await self.styles.write_styled(formatted)
+            out += styled
+        return out
+
+    async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
+        """Process a single message with proper error handling."""
         try:
             self.messages.append(Message("user", msg))
             self.styles.set_output_color('GREEN')
+            
             loader = self.animations.create_dot_loader(
                 prompt="" if silent else f"> {msg}",
                 no_animation=silent
@@ -84,58 +91,72 @@ class Conversation:
             
         except Exception as e:
             logging.error(f"Error processing message: {str(e)}", exc_info=True)
-            # Return empty strings on error to maintain the return type
             return "", ""
 
-    async def _process_preconversation_text(self, text_list: List[PrefaceContent]) -> str:
-        if not text_list: return ""
-        out = ""
-        for content in text_list:
-            self.styles.set_output_color(content.color)
-            strat = self._display_strategies[content.display_type]
-            formatted = strat.format(content)
-            _, styled = await self.styles.write_styled(formatted)
-            out += styled
-        return out
-
-    async def handle_intro(self, intro_msg: str, preconversation_text: List[PrefaceContent] = None) -> Tuple[str, str, str]:
-        self.preconversation_styled = await self._process_preconversation_text(preconversation_text)
-        panel_with_blank = self._append_single_blank_line(self.preconversation_styled)
-        if panel_with_blank.strip():
-            await self.terminal.update_display(panel_with_blank, preserve_cursor=True)
-        raw, styled = await self._process_message(intro_msg, silent=True)
-        full_styled = panel_with_blank + styled
-        await self.terminal.update_display(full_styled)
-        self.is_silent = True
-        self.prompt = ""
-        return raw, full_styled, ""
-
-    async def handle_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
-        await self.terminal.handle_scroll(intro_styled, f"> {user_input}", 0.08)
-        raw, styled = await self._process_message(user_input)
-        self.is_silent = False
-        end_char = '.' if not user_input.endswith(('?', '!')) else user_input[-1]
-        self.prompt = f"> {user_input.rstrip('?.!')}{end_char * 3}"
-        self.preconversation_styled = ""
-        return raw, styled, self.prompt
+    async def _get_last_user_message(self) -> Optional[str]:
+        """Get the most recent user message."""
+        return next((m.content for m in reversed(self.messages) if m.role == "user"), None)
 
     async def _remove_last_message_pair(self) -> None:
-        """Remove the last user message and assistant response pair from history."""
+        """Remove the last user message and assistant response pair."""
         if len(self.messages) >= 2 and self.messages[-2].role == "user":
             self.messages.pop()  # Remove assistant's response
             self.messages.pop()  # Remove user's message
 
-    async def handle_edit_or_retry(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
+    async def handle_intro(self, 
+                         intro_msg: str, 
+                         preconversation_text: List[PrefaceContent] = None) -> Tuple[str, str, str]:
+        """Handle the introduction sequence."""
+        self.preconversation_styled = await self._process_preconversation_text(preconversation_text)
+        panel_with_blank = self.styles.append_single_blank_line(self.preconversation_styled)
+        
+        if panel_with_blank.strip():
+            await self.terminal.update_display(panel_with_blank, preserve_cursor=True)
+            
+        raw, styled = await self._process_message(intro_msg, silent=True)
+        full_styled = panel_with_blank + styled
+        await self.terminal.update_display(full_styled)
+        
+        self.is_silent = True
+        self.prompt = ""
+        return raw, full_styled, ""
+
+    async def handle_message(self, 
+                           user_input: str, 
+                           intro_styled: str) -> Tuple[str, str, str]:
+        """Handle a normal user message."""
+        await self.terminal.handle_scroll(intro_styled, f"> {user_input}", 0.08)
+        raw, styled = await self._process_message(user_input)
+        
+        self.is_silent = False
+        end_char = '.' if not user_input.endswith(('?', '!')) else user_input[-1]
+        self.prompt = f"> {user_input.rstrip('?.!')}{end_char * 3}"
+        self.preconversation_styled = ""
+        
+        return raw, styled, self.prompt
+
+    async def handle_edit_or_retry(self, 
+                                 intro_styled: str, 
+                                 is_retry: bool = False) -> Tuple[str, str, str]:
+        """Handle edit or retry operations."""
         rev_streamer = self.animations.create_reverse_streamer()
-        await rev_streamer.reverse_stream(intro_styled, "" if self.is_silent else self.prompt, preconversation_text=self.preconversation_styled)
-        last_msg = self._get_last_user_message()
+        await rev_streamer.reverse_stream(
+            intro_styled, 
+            "" if self.is_silent else self.prompt,
+            preconversation_text=self.preconversation_styled
+        )
+        
+        last_msg = await self._get_last_user_message()
         if not last_msg:
             return "", intro_styled, ""
+            
         await self._remove_last_message_pair()
+        
         if self.is_silent:
             raw, styled = await self._process_message(last_msg, silent=True)
             full_styled = f"{self.preconversation_styled}\n{styled}"
             return raw, full_styled, ""
+            
         if is_retry:
             await self.terminal.clear()
             raw, styled = await self._process_message(last_msg, silent=False)
@@ -153,41 +174,57 @@ class Conversation:
             return raw, styled, self.prompt
 
     async def handle_edit(self, intro_styled: str) -> Tuple[str, str, str]:
+        """Handle edit operation."""
         return await self.handle_edit_or_retry(intro_styled, is_retry=False)
 
     async def handle_retry(self, intro_styled: str) -> Tuple[str, str, str]:
+        """Handle retry operation."""
         return await self.handle_edit_or_retry(intro_styled, is_retry=True)
 
-    def run_conversation(self, system_msg: str = None, intro_msg: str = None,
-                         preconversation_text: List[PrefaceContent] = None):
-        import asyncio
-        asyncio.run(self._run_conversation(system_msg, intro_msg, preconversation_text))
+    def preface(self, text: str, color: Optional[str] = None, display_type: str = "panel") -> None:
+        """Add preface content."""
+        self.preconversation_text.append(PrefaceContent(text, color, display_type))
 
-    async def _run_conversation(self, system_msg: str = None, intro_msg: str = None,
-                                preconversation_text: List[PrefaceContent] = None):
+    def start(self, system_msg: str = None, intro_msg: str = None) -> None:
+        """Start the conversation."""
+        import asyncio
+        asyncio.run(self._run_conversation(system_msg, intro_msg, self.preconversation_text))
+
+    async def _run_conversation(self, 
+                              system_msg: str = None, 
+                              intro_msg: str = None,
+                              preconversation_text: List[PrefaceContent] = None) -> None:
+        """Main conversation loop."""
         try:
             if system_msg is None or intro_msg is None:
                 system_msg, intro_msg = self.get_default_messages()
+            
             self.system_prompt = system_msg
             _, intro_styled, _ = await self.handle_intro(intro_msg, preconversation_text)
+            
             while True:
-                user = await self.terminal.get_user_input()
-                if not user: continue
+                user_input = await self.terminal.get_user_input()
+                if not user_input: 
+                    continue
+                    
                 try:
-                    cmd = user.lower().strip()
+                    cmd = user_input.lower().strip()
                     if cmd == "edit":
                         _, intro_styled, _ = await self.handle_edit(intro_styled)
                     elif cmd == "retry":
                         _, intro_styled, _ = await self.handle_retry(intro_styled)
                     else:
-                        _, intro_styled, _ = await self.handle_message(user, intro_styled)
+                        _, intro_styled, _ = await self.handle_message(user_input, intro_styled)
                 except Exception as e:
                     logging.error(f"Error processing message: {str(e)}", exc_info=True)
                     print(f"\nAn error occurred: {str(e)}")
+                    
         except KeyboardInterrupt:
             print("\nExiting...")
         except Exception as e:
             logging.error(f"Critical error: {str(e)}", exc_info=True)
             raise
         finally:
+            # Ensure display is cleaned up and cursor is visible on exit
             await self.terminal.update_display()
+            self.terminal._show_cursor()
