@@ -2,16 +2,18 @@
 
 import logging
 import os
-from typing import Callable, AsyncGenerator, Optional
+from typing import Callable, AsyncGenerator, Optional, Union
 from .terminal import Terminal
 from .conversation import Conversation
 from .animations import Animations
 from .styles import Styles
 from .stream import Stream
-from .message_provider import MessageProvider
+from .message_provider import MessageProvider, RemoteProvider
 
 class Interface:
-    def __init__(self, generator_func: Optional[Callable[[str], AsyncGenerator[str, None]]] = None):
+    def __init__(self, 
+                 endpoint: Optional[str] = None,
+                 generator_func: Optional[Callable[[str], AsyncGenerator[str, None]]] = None):
         # Set up logging
         log_dir = os.path.join(os.path.dirname(__file__), 'logs')
         os.makedirs(log_dir, exist_ok=True)
@@ -27,8 +29,12 @@ class Interface:
         self.stream = Stream(styles=self.styles, terminal=self.terminal)
         self.animations = Animations(terminal=self.terminal, styles=self.styles)
         
-        # Set up message provider and get generator
-        self.provider = MessageProvider(generator_func)
+        # Set up message provider based on configuration
+        if endpoint:
+            self.provider = RemoteProvider(endpoint)
+        else:
+            self.provider = MessageProvider(generator_func)
+            
         self.generator = self.provider.get_generator()
             
         # Initialize conversation

@@ -7,9 +7,9 @@ name = "pypi"
 boto3 = "*"
 rich = "*"
 prompt-toolkit = "*"
-aiohttp = "*"
 fastapi = "*"
 uvicorn = "*"
+httpx = "*"
 
 [dev-packages]
 
