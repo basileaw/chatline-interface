@@ -1,4 +1,4 @@
-# test_backend.py
+# server.py
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 import asyncio
@@ -19,4 +19,4 @@ async def stream_chat():
     return StreamingResponse(fake_stream(), media_type="text/event-stream")
 
 if __name__ == "__main__":
-    uvicorn.run("test_backend:app", host="127.0.0.1", port=5000, reload=True)
+    uvicorn.run("server:app", host="127.0.0.1", port=5000, reload=True)
