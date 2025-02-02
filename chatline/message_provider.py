@@ -2,8 +2,11 @@
 
 import logging
 import httpx
-from typing import Optional, Callable, AsyncGenerator, Dict, List
+import asyncio
 from .generator import generate_stream
+from typing import Optional, Callable, AsyncGenerator, Dict, List, Iterator
+
+logger = logging.getLogger("uvicorn")
 
 class MessageProvider:
     """Base provider class that handles message generation."""
@@ -19,19 +22,19 @@ class RemoteProvider(MessageProvider):
     def __init__(self, endpoint: str):
         super().__init__()
         self.endpoint = endpoint.rstrip('/')
-        self.client = httpx.AsyncClient()
+        self.client = httpx.Client()  # Synchronous client!
 
-    async def stream_from_endpoint(self, messages: List[Dict[str, str]], **kwargs) -> AsyncGenerator[str, None]:
-        """Streams responses from the remote endpoint."""
+    def stream_from_endpoint(self, messages: List[Dict[str, str]], **kwargs) -> Iterator[str]:
+        """Streams responses from the remote endpoint synchronously."""
         try:
-            async with self.client.stream('POST', f"{self.endpoint}/stream", 
-                                        json={'messages': messages, **kwargs}) as response:
-                async for line in response.aiter_lines():
+            with self.client.stream('POST', f"{self.endpoint}/stream", 
+                                  json={'messages': messages, **kwargs}, timeout=30.0) as response:
+                for line in response.iter_lines():
                     if line:
                         yield line
                 yield 'data: [DONE]\n\n'
         except Exception as e:
-            logging.error(f"Remote streaming error: {str(e)}")
+            logger.error(f"Remote streaming error: {str(e)}")
             yield 'data: [ERROR]\n\n'
 
     def get_generator(self) -> Callable:
