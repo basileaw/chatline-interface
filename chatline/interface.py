@@ -73,9 +73,9 @@ class Interface:
             self.logger.error("Preface error: %s", str(e))
             raise
 
-    def start(self, system_msg=None, intro_msg=None):
+    def start(self, messages=None):
         try:
-            self.conversation.start(system_msg, intro_msg)
+            self.conversation.start(messages)
         except KeyboardInterrupt:
             self.logger.info("User interrupted")
             self.terminal._show_cursor()

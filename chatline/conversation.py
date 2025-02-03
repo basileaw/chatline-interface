@@ -31,6 +31,58 @@ class Conversation:
             "panel": self.styles.create_display_strategy("panel")
         }
 
+    default_messages = {
+        "system": ('Be helpful, concise, and honest. Use text styles:\n'
+                  '- "quotes" for dialogue\n'
+                  '- [brackets] for observations\n'
+                  '- underscores for emphasis\n'
+                  '- asterisks for bold text'),
+        "user": "Introduce yourself in 3 lines, 7 words each..."
+    }
+    
+    def start(self, messages=None):
+        import asyncio
+        try:
+            if messages is None:
+                messages = self.default_messages
+            asyncio.run(self._run_conversation(messages["system"], messages["user"], self.preconversation_text))
+        except KeyboardInterrupt:
+            print("\nExiting...")
+        finally:
+            self.terminal._show_cursor()
+
+    async def _run_conversation(self, system_msg=None, intro_msg=None, preface_text=None):
+        try:
+            if system_msg is None or intro_msg is None:
+                system_msg = self.default_messages["system"]
+                intro_msg = self.default_messages["user"]
+            
+            self.system_prompt = system_msg
+            _, intro_styled, _ = await self.handle_intro(intro_msg, preface_text)
+            
+            while True:
+                user_input = await self.terminal.get_user_input()
+                if not user_input:
+                    continue
+                    
+                try:
+                    cmd = user_input.lower().strip()
+                    if cmd == "edit":
+                        _, intro_styled, _ = await self.handle_edit(intro_styled)
+                    elif cmd == "retry":
+                        _, intro_styled, _ = await self.handle_retry(intro_styled)
+                    else:
+                        _, intro_styled, _ = await self.handle_message(user_input, intro_styled)
+                except Exception as e:
+                    logging.error("Conversation error: %s", str(e), exc_info=True)
+                    print(f"\nAn error occurred: {str(e)}")
+                    
+        except Exception as e:
+            logging.error("Critical error: %s", str(e), exc_info=True)
+            raise
+        finally:
+            await self.terminal.update_display()
+            
     async def _process_message(self, msg, silent=False):
         try:
             self.messages.append(Message("user", msg))
@@ -108,8 +160,8 @@ class Conversation:
             return "", intro_styled, ""
         
         if len(self.messages) >= 2 and self.messages[-2].role == "user":
-            self.messages.pop()  # Remove assistant response
-            self.messages.pop()  # Remove user message
+            self.messages.pop()
+            self.messages.pop()
         
         if self.is_silent:
             raw, styled = await self._process_message(last_msg, silent=True)
@@ -131,56 +183,11 @@ class Conversation:
             self.prompt = f"> {new_input.rstrip('?.!')}{end_char * 3}"
             return raw, styled, self.prompt
 
-    def handle_edit(self, intro_styled):
-        return self.handle_edit_or_retry(intro_styled, is_retry=False)
+    async def handle_edit(self, intro_styled):
+        return await self.handle_edit_or_retry(intro_styled, is_retry=False)
 
-    def handle_retry(self, intro_styled):
-        return self.handle_edit_or_retry(intro_styled, is_retry=True)
+    async def handle_retry(self, intro_styled):
+        return await self.handle_edit_or_retry(intro_styled, is_retry=True)
 
     def preface(self, text, color=None, display_type="panel"):
         self.preconversation_text.append(PrefaceContent(text, color, display_type))
-
-    def start(self, system_msg=None, intro_msg=None):
-        import asyncio
-        try:
-            asyncio.run(self._run_conversation(system_msg, intro_msg, self.preconversation_text))
-        except KeyboardInterrupt:
-            print("\nExiting...")
-        finally:
-            self.terminal._show_cursor()
-
-    async def _run_conversation(self, system_msg=None, intro_msg=None, preface_text=None):
-        try:
-            if system_msg is None or intro_msg is None:
-                system_msg = ('Be helpful, concise, and honest. Use text styles:\n'
-                           '- "quotes" for dialogue\n'
-                           '- [brackets] for observations\n'
-                           '- underscores for emphasis\n'
-                           '- asterisks for bold text')
-                intro_msg = "Introduce yourself in 3 lines, 7 words each..."
-            
-            self.system_prompt = system_msg
-            _, intro_styled, _ = await self.handle_intro(intro_msg, preface_text)
-            
-            while True:
-                user_input = await self.terminal.get_user_input()
-                if not user_input:
-                    continue
-                    
-                try:
-                    cmd = user_input.lower().strip()
-                    if cmd == "edit":
-                        _, intro_styled, _ = await self.handle_edit(intro_styled)
-                    elif cmd == "retry":
-                        _, intro_styled, _ = await self.handle_retry(intro_styled)
-                    else:
-                        _, intro_styled, _ = await self.handle_message(user_input, intro_styled)
-                except Exception as e:
-                    logging.error("Conversation error: %s", str(e), exc_info=True)
-                    print(f"\nAn error occurred: {str(e)}")
-                    
-        except Exception as e:
-            logging.error("Critical error: %s", str(e), exc_info=True)
-            raise
-        finally:
-            await self.terminal.update_display()
