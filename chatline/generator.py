@@ -1,9 +1,10 @@
-#generator.py 
+# generator.py 
 
 import boto3
 import json
 import time
 import logging
+import asyncio
 from botocore.config import Config
 from botocore.exceptions import ProfileNotFound
 
@@ -34,12 +35,12 @@ def _get_clients():
 bedrock, runtime = _get_clients()
 MODEL_ID = "anthropic.claude-3-5-haiku-20241022-v1:0"
 
-def generate_stream(messages, max_gen_len=1024, temperature=0.9):
+async def generate_stream(messages, max_gen_len=1024, temperature=0.9):
     """Generate streaming responses from Bedrock."""
     try:
-        # delay for 5 seconds before starting the response
+        time.sleep(0)  # Preserved from original
         
-        time.sleep(0)
+        # Get response from Bedrock
         response = runtime.converse_stream(
             modelId=MODEL_ID,
             messages=[{"role": m["role"], "content": [{"text": m["content"]}]}
@@ -52,6 +53,7 @@ def generate_stream(messages, max_gen_len=1024, temperature=0.9):
             }
         )
         
+        # Process stream events
         for event in response.get('stream', []):
             text = event.get('contentBlockDelta', {}).get('delta', {}).get('text', '')
             if text:
@@ -63,6 +65,7 @@ def generate_stream(messages, max_gen_len=1024, temperature=0.9):
                     }]
                 }
                 yield f'data: {json.dumps(chunk)}\n\n'
+                await asyncio.sleep(0)  # Allow other tasks to run
                 
         yield 'data: [DONE]\n\n'
         
@@ -70,18 +73,24 @@ def generate_stream(messages, max_gen_len=1024, temperature=0.9):
         logger.error(f"Generation error: {str(e)}")
         yield 'data: [ERROR]\n\n'
 
-
 if __name__ == "__main__":
-    if bedrock.get_foundation_model(modelIdentifier=MODEL_ID).get('modelDetails', {}).get('responseStreamingSupported'):
-        print("\nRaw chunks:")
-        for o in generate_stream([
+    async def test_generator():
+        messages = [
             {"role": "user", "content": "Tell me a joke about computers."},
             {"role": "system", "content": "Be helpful and humorous."}
-        ]):
-            print(f"\nChunk: {o}")
+        ]
+        
+        print("\nRaw chunks:")
+        async for chunk in generate_stream(messages):
+            print(f"\nChunk: {chunk}")
             try:
-                data = json.loads(o.replace('data: ', '').strip())
-                if data != '[DONE]':
-                    print("Parsed content:", data['choices'][0]['delta']['content'], end='', flush=True)
+                if chunk.startswith('data: '):
+                    data = json.loads(chunk.replace('data: ', '').strip())
+                    if data != '[DONE]':
+                        print("Parsed content:", data['choices'][0]['delta']['content'], end='', flush=True)
             except json.JSONDecodeError:
                 continue
+
+    # Run test if module is run directly
+    if bedrock.get_foundation_model(modelIdentifier=MODEL_ID).get('modelDetails', {}).get('responseStreamingSupported'):
+        asyncio.run(test_generator())
