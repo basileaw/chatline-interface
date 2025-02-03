@@ -1,12 +1,9 @@
 # animations.py
 
-import asyncio
-import json
-import time
-from typing import Any, Tuple, List, Optional
+import asyncio, json, time
 
 class AsyncDotLoader:
-    def __init__(self, styles, prompt: str="", no_animation: bool=False):
+    def __init__(self, styles, prompt="", no_animation=False):
         self.styles = styles
         self.prompt = prompt.rstrip('.?!')
         self.no_anim = no_animation
@@ -16,10 +13,9 @@ class AsyncDotLoader:
         self.animation_task = None
         self.resolved = False
         self.terminal = None
-        self._stored_messages: List[Tuple[str, float]] = []
+        self._stored_messages = []
 
-    async def _animate(self) -> None:
-        """Animate loading dots."""
+    async def _animate(self):
         try:
             while not self.animation_complete.is_set():
                 await self.terminal.write_loading_state(self.prompt, self.dots, self.dot_char)
@@ -34,8 +30,7 @@ class AsyncDotLoader:
             self.animation_complete.set()
             raise e
 
-    async def _handle_message_chunk(self, chunk: str, first_chunk: bool) -> Tuple[str, str]:
-        """Process a single message chunk."""
+    async def _handle_message_chunk(self, chunk, first_chunk):
         raw = styled = ""
         if not (c := chunk.strip()).startswith("data: ") or c == "data: [DONE]":
             return raw, styled
@@ -60,22 +55,19 @@ class AsyncDotLoader:
 
         return raw, styled
 
-    async def _process_stored_messages(self) -> Tuple[str, str]:
-        """Process stored messages in chronological order."""
+    async def _process_stored_messages(self):
         raw = styled = ""
         if self._stored_messages:
             self._stored_messages.sort(key=lambda x: x[1])
             for i, (text, ts) in enumerate(self._stored_messages):
-                if i:
-                    await asyncio.sleep(ts - self._stored_messages[i-1][1])
+                if i: await asyncio.sleep(ts - self._stored_messages[i-1][1])
                 r, s = await self.styles.write_styled(text)
                 raw += r
                 styled += s
             self._stored_messages.clear()
         return raw, styled
 
-    async def run_with_loading(self, stream: Any) -> Tuple[str, str]:
-        """Run stream with loading animation."""
+    async def run_with_loading(self, stream):
         if not self.styles:
             raise ValueError("styles must be provided")
 
@@ -117,14 +109,12 @@ class AsyncDotLoader:
             return raw, styled
 
 class ReverseStreamer:
-    def __init__(self, styles, terminal=None, base_color: str='GREEN'):
+    def __init__(self, styles, terminal=None, base_color='GREEN'):
         self.styles = styles
         self.terminal = terminal
         self._base_color = self.styles.get_base_color(base_color)
 
-    async def reverse_stream(self, styled_text: str, preserved_msg: str="", 
-                           delay: float=0.08, preconversation_text: str="") -> None:
-        """Reverse stream text with preservation of messages."""
+    async def reverse_stream(self, styled_text, preserved_msg="", delay=0.08, preconversation_text=""):
         if preconversation_text and styled_text.startswith(preconversation_text):
             conversation_text = styled_text[len(preconversation_text):].lstrip()
         else:
@@ -138,18 +128,14 @@ class ReverseStreamer:
         final_text = preconversation_text.rstrip()+"\n\n" if preconversation_text else ""
         await self.terminal.update_animated_display(final_text)
 
-    def _prepare_lines(self, styled_text: str) -> List[dict]:
-        """Prepare text for reverse streaming."""
+    def _prepare_lines(self, styled_text):
         lines = styled_text.splitlines()
         return [
             self.styles.split_into_styled_words(line) if line.strip() else []
             for line in lines
         ]
 
-    async def _reverse_stream_lines(self, lines: List[List[dict]], preserved_msg: str,
-                                  no_spacing: bool, delay: float, 
-                                  preconversation_text: str="") -> None:
-        """Stream lines in reverse."""
+    async def _reverse_stream_lines(self, lines, preserved_msg, no_spacing, delay, preconversation_text=""):
         for line_idx in range(len(lines)-1, -1, -1):
             while lines[line_idx]:
                 lines[line_idx].pop()
@@ -162,8 +148,7 @@ class ReverseStreamer:
                 )
                 await asyncio.sleep(delay)
 
-    async def _handle_punctuation(self, preserved_msg: str, delay: float) -> None:
-        """Handle punctuation during reverse streaming."""
+    async def _handle_punctuation(self, preserved_msg, delay):
         if not preserved_msg:
             return
 
@@ -180,17 +165,14 @@ class ReverseStreamer:
                 await asyncio.sleep(delay)
 
 class Animations:
-    """Manager class for animation components."""
     def __init__(self, terminal, styles):
         self.terminal = terminal
         self.styles = styles
 
-    def create_dot_loader(self, prompt: str, no_animation: bool=False) -> AsyncDotLoader:
-        """Create a new dot loading animation."""
+    def create_dot_loader(self, prompt, no_animation=False):
         loader = AsyncDotLoader(self.styles, prompt, no_animation)
         loader.terminal = self.terminal
         return loader
 
-    def create_reverse_streamer(self, base_color: str='GREEN') -> ReverseStreamer:
-        """Create a new reverse streaming animation."""
+    def create_reverse_streamer(self, base_color='GREEN'):
         return ReverseStreamer(self.styles, self.terminal, base_color)
