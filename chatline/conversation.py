@@ -1,7 +1,6 @@
 # conversation.py
 
 import logging
-from typing import List, Dict, Any, Tuple, Optional, Union, Callable, AsyncGenerator
 from dataclasses import dataclass
 
 @dataclass
@@ -12,33 +11,27 @@ class Message:
 @dataclass
 class PrefaceContent:
     text: str
-    color: Optional[str]
+    color: str = None
     display_type: str = "text"
 
 class Conversation:
-    def __init__(self, 
-                 terminal, 
-                 generator_func: Union[Callable[[List[Dict[str, str]]], AsyncGenerator[str, None]], Any],
-                 styles, 
-                 animations_manager, 
-                 system_prompt: str = None):
+    def __init__(self, terminal, generator_func, styles, animations_manager, system_prompt=None):
         self.terminal = terminal
         self.generator = generator_func
         self.styles = styles
         self.animations = animations_manager
         self.system_prompt = system_prompt
-        self.messages: List[Message] = []
+        self.messages = []
         self.is_silent = False
         self.prompt = ""
-        self.preconversation_text: List[PrefaceContent] = []
+        self.preconversation_text = []
         self.preconversation_styled = ""
         self._display_strategies = {
             "text": self.styles.create_display_strategy("text"),
             "panel": self.styles.create_display_strategy("panel")
         }
 
-    async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
-        """Process a single message with error handling."""
+    async def _process_message(self, msg, silent=False):
         try:
             self.messages.append(Message("user", msg))
             self.styles.set_output_color('GREEN')
@@ -51,26 +44,23 @@ class Conversation:
             messages = await self.get_messages()
             raw, styled = await loader.run_with_loading(self.generator(messages))
             
-            if raw:  # Only append assistant message if we got a valid response
+            if raw:
                 self.messages.append(Message("assistant", raw))
             return raw, styled
             
         except Exception as e:
-            logging.error("Error processing message: %s", str(e), exc_info=True)
+            logging.error("Message processing error: %s", str(e), exc_info=True)
             return "", ""
 
-    async def get_messages(self) -> List[Dict[str, str]]:
-        """Get formatted message history."""
+    async def get_messages(self):
         if self.system_prompt:
             return [{"role": "system", "content": self.system_prompt}] + \
                    [{"role": m.role, "content": m.content} for m in self.messages]
         return [{"role": m.role, "content": m.content} for m in self.messages]
 
-    async def _process_preface(self, text_list: List[PrefaceContent]) -> str:
-        """Process preface content with styling."""
+    async def _process_preface(self, text_list):
         if not text_list:
             return ""
-            
         out = ""
         for content in text_list:
             self.styles.set_output_color(content.color)
@@ -79,8 +69,7 @@ class Conversation:
             out += styled
         return out
 
-    async def handle_intro(self, intro_msg: str, preface_text: List[PrefaceContent] = None) -> Tuple[str, str, str]:
-        """Handle introduction sequence."""
+    async def handle_intro(self, intro_msg, preface_text=None):
         self.preconversation_styled = await self._process_preface(preface_text)
         styled_panel = self.styles.append_single_blank_line(self.preconversation_styled)
         
@@ -95,8 +84,7 @@ class Conversation:
         self.prompt = ""
         return raw, full_styled, ""
 
-    async def handle_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
-        """Handle normal message input."""
+    async def handle_message(self, user_input, intro_styled):
         await self.terminal.handle_scroll(intro_styled, f"> {user_input}", 0.08)
         raw, styled = await self._process_message(user_input)
         
@@ -107,8 +95,7 @@ class Conversation:
         
         return raw, styled, self.prompt
 
-    async def handle_edit_or_retry(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
-        """Handle edit or retry operations."""
+    async def handle_edit_or_retry(self, intro_styled, is_retry=False):
         rev_streamer = self.animations.create_reverse_streamer()
         await rev_streamer.reverse_stream(
             intro_styled, 
@@ -120,7 +107,6 @@ class Conversation:
         if not last_msg:
             return "", intro_styled, ""
         
-        # Remove last message pair
         if len(self.messages) >= 2 and self.messages[-2].role == "user":
             self.messages.pop()  # Remove assistant response
             self.messages.pop()  # Remove user message
@@ -145,20 +131,16 @@ class Conversation:
             self.prompt = f"> {new_input.rstrip('?.!')}{end_char * 3}"
             return raw, styled, self.prompt
 
-    async def handle_edit(self, intro_styled: str) -> Tuple[str, str, str]:
-        """Handle edit operation."""
-        return await self.handle_edit_or_retry(intro_styled, is_retry=False)
+    def handle_edit(self, intro_styled):
+        return self.handle_edit_or_retry(intro_styled, is_retry=False)
 
-    async def handle_retry(self, intro_styled: str) -> Tuple[str, str, str]:
-        """Handle retry operation."""
-        return await self.handle_edit_or_retry(intro_styled, is_retry=True)
+    def handle_retry(self, intro_styled):
+        return self.handle_edit_or_retry(intro_styled, is_retry=True)
 
-    def preface(self, text: str, color: Optional[str] = None, display_type: str = "panel") -> None:
-        """Add preface content."""
+    def preface(self, text, color=None, display_type="panel"):
         self.preconversation_text.append(PrefaceContent(text, color, display_type))
 
-    def start(self, system_msg: str = None, intro_msg: str = None) -> None:
-        """Start the conversation."""
+    def start(self, system_msg=None, intro_msg=None):
         import asyncio
         try:
             asyncio.run(self._run_conversation(system_msg, intro_msg, self.preconversation_text))
@@ -167,19 +149,15 @@ class Conversation:
         finally:
             self.terminal._show_cursor()
 
-    async def _run_conversation(self, system_msg: str = None, intro_msg: str = None,
-                              preface_text: List[PrefaceContent] = None) -> None:
-        """Main conversation loop."""
+    async def _run_conversation(self, system_msg=None, intro_msg=None, preface_text=None):
         try:
             if system_msg is None or intro_msg is None:
-                system_msg, intro_msg = (
-                    'Be helpful, concise, and honest. Use text styles:\n'
-                    '- "quotes" for dialogue\n'
-                    '- [brackets] for observations\n'
-                    '- underscores for emphasis\n'
-                    '- asterisks for bold text',
-                    "Introduce yourself in 3 lines, 7 words each..."
-                )
+                system_msg = ('Be helpful, concise, and honest. Use text styles:\n'
+                           '- "quotes" for dialogue\n'
+                           '- [brackets] for observations\n'
+                           '- underscores for emphasis\n'
+                           '- asterisks for bold text')
+                intro_msg = "Introduce yourself in 3 lines, 7 words each..."
             
             self.system_prompt = system_msg
             _, intro_styled, _ = await self.handle_intro(intro_msg, preface_text)
@@ -198,11 +176,11 @@ class Conversation:
                     else:
                         _, intro_styled, _ = await self.handle_message(user_input, intro_styled)
                 except Exception as e:
-                    logging.error("Error in conversation loop: %s", str(e), exc_info=True)
+                    logging.error("Conversation error: %s", str(e), exc_info=True)
                     print(f"\nAn error occurred: {str(e)}")
                     
         except Exception as e:
-            logging.error("Critical conversation error: %s", str(e), exc_info=True)
+            logging.error("Critical error: %s", str(e), exc_info=True)
             raise
         finally:
             await self.terminal.update_display()
