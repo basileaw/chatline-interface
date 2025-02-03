@@ -1,7 +1,6 @@
 # stream.py
 
 import httpx
-from .generator import generate_stream
 
 class Stream:
     def __init__(self, logger=None):
@@ -11,11 +10,13 @@ class Stream:
         raise NotImplementedError
 
 class EmbeddedStream(Stream):
-    def __init__(self, generator_func=None, logger=None):
+    def __init__(self, generator=None, logger=None):
         super().__init__(logger=logger)
-        self.generator = generator_func if generator_func else generate_stream
+        if not generator:
+            raise ValueError("Generator function must be provided")
+        self.generator = generator
         if self.logger:
-            self.logger.debug("Initialized %s generator", "custom" if generator_func else "default")
+            self.logger.debug("Initialized embedded stream with generator")
 
     def get_generator(self):
         return self.generator

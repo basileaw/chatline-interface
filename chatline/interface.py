@@ -2,27 +2,21 @@
 
 import logging
 import os
-from typing import Callable, AsyncGenerator, Optional
 from .terminal import Terminal
 from .conversation import Conversation
 from .animations import Animations
 from .styles import Styles
 from .stream import EmbeddedStream, RemoteStream
+from .generator import generate_stream
 
 class Interface:
-    def __init__(self, 
-                 endpoint: Optional[str] = None,
-                 generator_func: Optional[Callable[[str], AsyncGenerator[str, None]]] = None):
-        """Initialize chat interface with either local or remote stream."""
-        self._init_logging()
-        try:
-            self._init_components(endpoint, generator_func)
-        except Exception as e:
-            self.logger.error("Failed to initialize interface: %s", str(e))
-            raise
+    def __init__(self, endpoint=None, generator_func=None):
+        self._setup_logging()
+        if not endpoint and not generator_func:
+            generator_func = generate_stream
+        self._init_components(endpoint, generator_func)
 
-    def _init_logging(self) -> None:
-        """Set up logging configuration."""
+    def _setup_logging(self):
         log_dir = os.path.join(os.path.dirname(__file__), 'logs')
         os.makedirs(log_dir, exist_ok=True)
         
@@ -31,64 +25,61 @@ class Interface:
             format='%(asctime)s - %(levelname)s - %(message)s',
             filename=os.path.join(log_dir, 'chat_debug.log')
         )
-        
         self.logger = logging.getLogger(__name__)
-        self.logger.debug("Logging initialized")
 
-    def _init_components(self, endpoint: Optional[str],
-                        generator_func: Optional[Callable]) -> None:
-        """Initialize all interface components in dependency order."""
-        # Initialize core display components
-        self.terminal = Terminal(styles=None)
-        self.styles = Styles(terminal=self.terminal)
-        self.terminal.styles = self.styles
-        self.animations = Animations(terminal=self.terminal, styles=self.styles)
-        
-        # Set up appropriate stream
-        if endpoint:
-            self.logger.info("Using remote stream: %s", endpoint)
-            self.stream = RemoteStream(endpoint, logger=self.logger)
-        else:
-            self.logger.info("Using embedded stream")
-            self.stream = EmbeddedStream(generator_func, logger=self.logger)
-        
-        self.generator = self.stream.get_generator()
-        
-        # Initialize conversation manager
-        self.conversation = Conversation(
-            terminal=self.terminal,
-            generator_func=self.generator,
-            styles=self.styles,
-            animations_manager=self.animations
-        )
-        
-        # Initial terminal setup
-        self.terminal._clear_screen()
-        self.terminal._hide_cursor()
+    def _init_components(self, endpoint, generator_func):
+        try:
+            # Terminal and styles initialization
+            self.terminal = Terminal(styles=None)
+            self.styles = Styles(terminal=self.terminal)
+            self.terminal.styles = self.styles
+            
+            # Animations setup
+            self.animations = Animations(
+                terminal=self.terminal,
+                styles=self.styles
+            )
+            
+            # Stream initialization
+            if endpoint:
+                self.logger.info("Using remote endpoint: %s", endpoint)
+                self.stream = RemoteStream(endpoint, logger=self.logger)
+            else:
+                self.logger.info("Using embedded stream")
+                self.stream = EmbeddedStream(generator_func, logger=self.logger)
+                
+            self.generator = self.stream.get_generator()
+            
+            # Conversation setup
+            self.conversation = Conversation(
+                terminal=self.terminal,
+                generator_func=self.generator,
+                styles=self.styles,
+                animations_manager=self.animations
+            )
+            
+            self.terminal._clear_screen()
+            self.terminal._hide_cursor()
+            
+        except Exception as e:
+            self.logger.error("Init error: %s", str(e))
+            raise
 
-    def preface(self, text: str, color: Optional[str] = None, 
-                display_type: str = "panel") -> None:
-        """Add preface text to be displayed before conversation."""
+    def preface(self, text, color=None, display_type="panel"):
         try:
             self.conversation.preface(text, color, display_type)
-            self.logger.debug("Added preface text: %.50s...", text)
+            self.logger.debug("Added preface: %s", text[:50])
         except Exception as e:
-            self.logger.error("Error adding preface: %s", str(e))
+            self.logger.error("Preface error: %s", str(e))
             raise
 
-    def start(self, system_msg: str = None, intro_msg: str = None) -> None:
-        """Start the conversation."""
+    def start(self, system_msg=None, intro_msg=None):
         try:
-            self.logger.info("Starting conversation")
             self.conversation.start(system_msg, intro_msg)
         except KeyboardInterrupt:
-            self.logger.info("Conversation interrupted by user")
-            self._ensure_cleanup()
+            self.logger.info("User interrupted")
+            self.terminal._show_cursor()
         except Exception as e:
-            self.logger.error("Error in conversation: %s", str(e))
-            self._ensure_cleanup()
+            self.logger.error("Start error: %s", str(e))
+            self.terminal._show_cursor()
             raise
-
-    def _ensure_cleanup(self) -> None:
-        """Ensure proper cleanup on exit."""
-        self.terminal._show_cursor()
