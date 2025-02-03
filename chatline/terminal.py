@@ -1,8 +1,6 @@
 # terminal.py
 
 import asyncio, time, sys, shutil
-from typing import List, Optional, ContextManager
-from contextlib import contextmanager
 from prompt_toolkit import PromptSession
 from prompt_toolkit.validation import Validator, ValidationError
 from prompt_toolkit.formatted_text import FormattedText
@@ -30,70 +28,38 @@ class Terminal:
 
         self.prompt_session = PromptSession(key_bindings=kb, complete_while_typing=False)
 
-    def _is_terminal(self) -> bool:
-        return sys.stdout.isatty()
+    def _is_terminal(self): return sys.stdout.isatty()
+    async def _yield_to_event_loop(self): await asyncio.sleep(0)
 
-    async def _yield_to_event_loop(self) -> None:
-        await asyncio.sleep(0)
+    def _manage_cursor(self, show):
+        if self._cursor_visible != show and self._is_terminal():
+            self._cursor_visible = show
+            sys.stdout.write("\033[?25h" if show else "\033[?25l")
+            sys.stdout.flush()
 
-    class CursorContext:
-        def __init__(self, terminal, show: bool):
-            self.terminal = terminal
-            self.show = show
+    def _show_cursor(self): self._manage_cursor(True)
+    def _hide_cursor(self): self._manage_cursor(False)
 
-        def __enter__(self):
-            if self.terminal._cursor_visible != self.show:
-                self.terminal._cursor_visible = self.show
-                if self.terminal._is_terminal():
-                    sys.stdout.write("\033[?25h" if self.show else "\033[?25l")
-                    sys.stdout.flush()
-            return self
-
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            if not self.show and self.terminal._cursor_visible:
-                self.terminal._cursor_visible = False
-                if self.terminal._is_terminal():
-                    sys.stdout.write("\033[?25l")
-                    sys.stdout.flush()
-
-    def cursor_control(self, show: bool) -> 'Terminal.CursorContext':
-        """Control cursor visibility."""
-        return self.CursorContext(self, show)
-
-    def _show_cursor(self) -> None:
-        with self.cursor_control(True):
-            pass
-
-    def _hide_cursor(self) -> None:
-        with self.cursor_control(False):
-            pass
-
-    def _write(self, text: str = "", style: Optional[str] = None, newline: bool = False) -> None:
-        """Consolidated write method with optional styling."""
-        self._hide_cursor()  # Always hide cursor before writing
+    def _write(self, text="", style=None, newline=False):
+        self._hide_cursor()
         try:
-            if style:
-                sys.stdout.write(self.styles.get_format(style))
+            if style: sys.stdout.write(self.styles.get_format(style))
             sys.stdout.write(text)
-            if style:
-                sys.stdout.write(self.styles.get_format('RESET'))
-            if newline:
-                sys.stdout.write('\n')
+            if style: sys.stdout.write(self.styles.get_format('RESET'))
+            if newline: sys.stdout.write('\n')
             sys.stdout.flush()
         finally:
-            self._hide_cursor()  # Ensure cursor remains hidden after writing
+            self._hide_cursor()
 
-    def _clear_screen(self) -> None:
-        """Clear the terminal screen."""
+    def _clear_screen(self):
         if self._is_terminal():
-            self._write("\033[2J\033[H")
+            sys.stdout.write("\033[2J\033[H")
+            sys.stdout.flush()
 
-    def _handle_text(self, text: str, width: Optional[int] = None) -> List[str]:
-        """Handle text wrapping with special character preservation."""
+    def _handle_text(self, text, width=None):
         width = width or self.term_width
-        if any(x in text for x in ('╭','╮','╯','╰')):
-            return text.split('\n')
-
+        if any(x in text for x in ('╭','╮','╯','╰')): return text.split('\n')
+        
         result = []
         for para in text.split('\n'):
             if not para.strip():
@@ -102,8 +68,7 @@ class Terminal:
             line, words = '', para.split()
             for word in words:
                 if len(word) > width:
-                    if line:
-                        result.append(line)
+                    if line: result.append(line)
                     result.extend(word[i:i+width] for i in range(0, len(word), width))
                     line = ''
                 else:
@@ -113,25 +78,43 @@ class Terminal:
                     else:
                         result.append(line)
                         line = word
-            if line:
-                result.append(line)
+            if line: result.append(line)
         return result
 
-    async def clear(self) -> None:
+    async def clear(self):
         self._clear_screen()
         await self._yield_to_event_loop()
 
-    async def write_lines(self, lines: List[str], newline: bool = True) -> None:
-        for line in lines:
-            self._write(line, newline=newline)
+    async def write_lines(self, lines, newline=True):
+        for line in lines: self._write(line, newline=newline)
         await self._yield_to_event_loop()
 
-    async def write_prompt(self, prompt: str, style: Optional[str] = None) -> None:
+    async def write_prompt(self, prompt, style=None):
         self._write(prompt, style)
         await self._yield_to_event_loop()
 
-    async def scroll_up(self, text: str, prompt: str, delay: float = 0.5) -> None:
-        """Scroll text upward with animation."""
+    async def write_loading_state(self, prompt, dots, dot_char='.'):
+        self._write(f"\r{' '*80}\r{prompt}{dot_char*dots}")
+        await self._yield_to_event_loop()
+
+    async def update_display(self, content=None, prompt=None, preserve_cursor=False):
+        if not preserve_cursor: self._hide_cursor()
+        await self.clear()
+        if content: await self.write_lines([content], bool(prompt))
+        if prompt: await self.write_prompt(prompt)
+        if not preserve_cursor: self._hide_cursor()
+
+    async def update_animated_display(self, content="", preserved_msg="", no_spacing=False):
+        self._clear_screen()
+        if content:
+            if preserved_msg: self._write(preserved_msg + ("" if no_spacing else "\n\n"))
+            self._write(content)
+        else:
+            self._write(preserved_msg)
+        self._write("", 'RESET')
+        await self._yield_to_event_loop()
+
+    async def scroll_up(self, text, prompt, delay=0.5):
         lines = self._handle_text(text)
         for i in range(len(lines)+1):
             await self.clear()
@@ -139,73 +122,31 @@ class Terminal:
             await self.write_prompt(prompt, 'RESET')
             await asyncio.sleep(delay)
 
-    async def update_display(self, content: str = None, prompt: str = None, preserve_cursor: bool = False) -> None:
-        with self.cursor_control(preserve_cursor):
-            await self.clear()
-            if content:
-                await self.write_lines([content], bool(prompt))
-            if prompt:
-                await self.write_prompt(prompt)
+    async def handle_scroll(self, styled_lines, prompt, delay=0.5):
+        lines = self._handle_text(styled_lines)
+        for i in range(len(lines)+1):
+            self._clear_screen()
+            for ln in lines[i:]: self._write(ln, newline=True)
+            self._write(self.styles.get_format('RESET')+prompt)
+            time.sleep(delay)
 
-    async def write_loading_state(self, prompt: str, dots: int, dot_char: str = '.') -> None:
-        self._write(f"\r{' '*80}\r{prompt}{dot_char*dots}")
-        await self._yield_to_event_loop()
-
-    async def get_user_input(self, default_text: str = "", add_newline: bool = True) -> str:
+    async def get_user_input(self, default_text="", add_newline=True):
         class NonEmptyValidator(Validator):
             def validate(self, document):
                 if not document.text.strip():
                     raise ValidationError(message='', cursor_position=0)
 
-        if add_newline:
-            self._write("\n")
-
+        if add_newline: self._write("\n")
         self._is_edit_mode = bool(default_text)
         try:
-            # Explicitly show cursor for input
-            self._cursor_visible = True
-            sys.stdout.write("\033[?25h")
-            sys.stdout.flush()
-            
+            self._show_cursor()
             result = await self.prompt_session.prompt_async(
                 FormattedText([('class:prompt','> ')]),
                 default=default_text,
                 validator=NonEmptyValidator(),
                 validate_while_typing=False
             )
-            
-            # Immediately hide cursor after input
-            self._cursor_visible = False
-            sys.stdout.write("\033[?25l")
-            sys.stdout.flush()
-            
             return result.strip()
         finally:
             self._is_edit_mode = False
-            # Ensure cursor is hidden even if an error occurs
-            self._cursor_visible = False
-            sys.stdout.write("\033[?25l")
-            sys.stdout.flush()
-
-    async def handle_scroll(self, styled_lines: str, prompt: str, delay: float = 0.5) -> None:
-        """Handle scrolling with preserved panel structure."""
-        lines = self._handle_text(styled_lines)
-        for i in range(len(lines)+1):
-            with self.cursor_control(False):
-                self._clear_screen()
-                for ln in lines[i:]:
-                    self._write(ln, newline=True)
-                self._write(self.styles.get_format('RESET')+prompt)
-                time.sleep(delay)
-
-    async def update_animated_display(self, content: str = "", preserved_msg: str = "", no_spacing: bool = False) -> None:
-        """Update the display with animation support."""
-        with self.cursor_control(False):
-            self._clear_screen()
-            if content:
-                if preserved_msg:
-                    self._write(preserved_msg+("" if no_spacing else "\n\n"))
-                self._write(content)
-            else:
-                self._write(preserved_msg)
-            self._write("", 'RESET')
+            self._hide_cursor()
