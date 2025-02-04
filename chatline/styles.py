@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from rich.style import Style
 from rich.console import Console
 from rich.panel import Panel
+from rich.align import Align
 from io import StringIO
 
 ANSI_REGEX = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
@@ -19,7 +20,10 @@ FORMATS = {
 COLORS = {
     'GREEN': {'ansi': '\033[38;5;47m', 'rich': 'green3'},
     'PINK':  {'ansi': '\033[38;5;212m','rich': 'pink1'},
-    'BLUE':  {'ansi': '\033[38;5;75m', 'rich': 'blue1'}
+    'BLUE':  {'ansi': '\033[38;5;75m', 'rich': 'blue1'},
+    'GRAY':  {'ansi': '\033[38;5;245m','rich': 'gray50'},
+    'YELLOW': {'ansi': '\033[38;5;227m','rich': 'yellow1'},
+    'WHITE': {'ansi': '\033[38;5;255m','rich': 'white'}
 }
 BOX_CHARS = {'─','│','╭','╮','╯','╰'}
 
@@ -53,7 +57,17 @@ class PanelDisplayStrategy:
         
     def format(self, content):
         with self.console.capture() as c:
-            self.console.print(Panel(content.text.rstrip(), style=content.color or ""))
+            self.console.print(
+                Panel(
+                    Align.center(content.text.rstrip()),  # Wrap content with Align.center()
+                    title="Baze Inc.",
+                    title_align="right",
+                    border_style="dim yellow",
+                    style=content.color or "on grey23",
+                    padding=(1, 2),
+                    expand=True
+                )
+            )
         return c.get()
         
     def get_visible_length(self, text):
@@ -68,11 +82,11 @@ class Styles:
     def _init_patterns(self):
         patterns = {
             'quotes':   {'start': '"', 'end': '"', 'color': 'PINK'},
-            'brackets': {'start': '[', 'end': ']', 'color': 'BLUE'},
+            'brackets': {'start': '[', 'end': ']', 'color': 'GRAY','styles': ['ITALIC'], 'remove_delimiters': True},
             'emphasis': {'start': '_', 'end': '_', 'color': None, 'styles': ['ITALIC'], 'remove_delimiters': True},
             'strong':   {'start': '*', 'end': '*', 'color': None, 'styles': ['BOLD'],   'remove_delimiters': True}
         }
-        patterns.update({k:{**v,'styles':[],'remove_delimiters':False} for k,v in list(patterns.items())[:2]})
+        patterns.update({k:{**v,'styles':[],'remove_delimiters':False} for k,v in list(patterns.items())[:1]})
         
         self.by_name = {}
         self.start_map = {}

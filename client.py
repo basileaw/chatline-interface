@@ -12,7 +12,7 @@ def parse_args():
 def main():
     args = parse_args()
     chat = Interface(endpoint=args.endpoint)
-    chat.preface("Welcome to ChatLine", color="BLUE")
+    chat.preface("Welcome to ChatLine", color="WHITE")
     chat.start()
 
 if __name__ == "__main__":

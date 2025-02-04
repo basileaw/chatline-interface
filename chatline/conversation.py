@@ -67,12 +67,16 @@ class StateManager:
 
 class Conversation:
     default_messages = {
-        "system": ('Be helpful, concise, and honest. Use text styles:\n'
-                  '- "quotes" for dialogue\n'
-                  '- [brackets] for observations\n'
-                  '- underscores for emphasis\n'
-                  '- asterisks for bold text'),
-        "user": "Introduce yourself in 3 lines, 7 words each..."
+        "system": (
+            'Write in present tense. Write in third person. Use the following text styles:\n'
+            '- "quotes" for dialogue\n'
+            '- [Brackets...] for actions\n'
+            '- underscores for emphasis\n'
+            '- asterisks for bold text'),
+        "user": (
+            """Write the line: "[The machine powers on and hums...]\n\n"""
+            """Then, start a new, 100-word paragraph."""
+            """Begin with a greeting from the machine itself: " "Hey there," " """)
     }
 
     def __init__(self, terminal, generator_func, styles, animations_manager, system_prompt=None):
