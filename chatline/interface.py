@@ -4,12 +4,11 @@ import logging
 import os
 from typing import Optional, Dict, Any, Callable
 from .terminal import Terminal
-from .conversation import Conversation
+from .conversation import Conversation, StateManager  # Updated import
 from .animations import Animations
 from .styles import Styles
 from .stream import EmbeddedStream, RemoteStream
 from .generator import generate_stream
-from .conversation_state import StateManager
 
 class Interface:
     def __init__(self, 
