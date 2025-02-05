@@ -59,7 +59,7 @@ class PanelDisplayStrategy:
         with self.console.capture() as c:
             self.console.print(
                 Panel(
-                    Align.center(content.text.rstrip()),  # Wrap content with Align.center()
+                    Align.center(content.text.rstrip()),
                     title="Baze Inc.",
                     title_align="right",
                     border_style="dim yellow",
@@ -99,15 +99,16 @@ class Styles:
                 raise ValueError(f"Duplicate delimiter in '{pat.name}'")
             used.update([pat.start, pat.end])
             self.by_name[name] = self.start_map[pat.start] = self.end_map[pat.end] = pat
-            
+
         self.rich_styles = {n:Style(color=c['rich']) for n,c in COLORS.items()}
 
     def _init_state(self):
         self._base_color = FORMATS['RESET']
         self._active_patterns = []
-        self._current_line_length = 0
         self._word_buffer = ""
         self._buffer_lock = asyncio.Lock()
+        self._current_line_length = 0
+        self.term_width = self.terminal.term_width if self.terminal else 80  # Safe fallback
         self._rich_console = Console(
             force_terminal=True,
             color_system="truecolor",
@@ -253,15 +254,33 @@ class Styles:
                 for char in chunk:
                     if char.isspace():
                         if self._word_buffer:
+                            # Calculate word length without ANSI codes
+                            word_length = self.get_visible_length(self._word_buffer)
+                            
+                            # Check if word fits on current line
+                            if self._current_line_length + word_length >= self.term_width:
+                                # Insert newline before word
+                                sys.stdout.write('\n')
+                                styled_out += '\n'
+                                self._current_line_length = 0
+                            
+                            # Style and write the word
                             styled_word = self._style_chunk(self._word_buffer)
                             sys.stdout.write(styled_word)
                             styled_out += styled_word
+                            self._current_line_length += word_length
                             self._word_buffer = ""
+                        
+                        # Handle the space character
                         sys.stdout.write(char)
                         styled_out += char
-                        self._current_line_length = 0 if char == '\n' else self._current_line_length + 1
+                        if char == '\n':
+                            self._current_line_length = 0
+                        else:
+                            self._current_line_length += 1
                     else:
                         self._word_buffer += char
+                        
             sys.stdout.flush()
             return chunk, styled_out
         finally:
@@ -271,6 +290,15 @@ class Styles:
         styled_out = ""
         try:
             if self._word_buffer:
+                # Calculate final word length
+                word_length = self.get_visible_length(self._word_buffer)
+                
+                # Check if we need a line wrap
+                if self._current_line_length + word_length >= self.term_width:
+                    sys.stdout.write('\n')
+                    styled_out += '\n'
+                    self._current_line_length = 0
+                
                 styled_word = self._style_chunk(self._word_buffer)
                 sys.stdout.write(styled_word)
                 styled_out += styled_word
