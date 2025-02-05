@@ -75,7 +75,7 @@ class Conversation:
             '- asterisks for bold text'),
         "user": (
             """Write the line: "[The machine powers on and hums...]\n\n"""
-            """Then, start a new, 100-word paragraph."""
+            """Then, start a new, 25-word paragraph."""
             """Begin with a greeting from the machine itself: " "Hey there," " """)
     }
 

@@ -142,28 +142,81 @@ class ReverseStreamer:
         """Reassemble tokens back into a single string."""
         return ''.join(token['value'] for token in tokens)
 
+    @staticmethod
+    def group_tokens_by_word(tokens):
+        """
+        Group the token list into word groups. Each group is a tuple:
+          (group_type, tokens)
+        where group_type is 'word' (for non-space characters) or 'space' (for whitespace).
+        ANSI tokens are merged into the current group.
+        """
+        groups = []
+        current_group = []
+        current_type = None  # 'word' or 'space'
+        for token in tokens:
+            if token['type'] == 'ansi':
+                # ANSI tokens are added to the current group if it exists; otherwise, start a new 'word' group.
+                if current_group:
+                    current_group.append(token)
+                else:
+                    current_group = [token]
+                    current_type = 'word'
+            else:  # token is a visible character
+                if token['value'].isspace():
+                    if current_group and current_type == 'space':
+                        current_group.append(token)
+                    elif current_group and current_type == 'word':
+                        groups.append((current_type, current_group))
+                        current_group = [token]
+                        current_type = 'space'
+                    else:
+                        current_group = [token]
+                        current_type = 'space'
+                else:
+                    if current_group and current_type == 'word':
+                        current_group.append(token)
+                    elif current_group and current_type == 'space':
+                        groups.append((current_type, current_group))
+                        current_group = [token]
+                        current_type = 'word'
+                    else:
+                        current_group = [token]
+                        current_type = 'word'
+        if current_group:
+            groups.append((current_type, current_group))
+        return groups
+
     async def reverse_stream(self, styled_text, preserved_msg="", delay=0.08, preconversation_text=""):
         """
-        Reverse-stream animation using tokenization. ANSI escape sequences
-        are preserved intact while visible characters are removed one by one.
+        Reverse-stream animation performed word-by-word.
+        ANSI escape sequences are preserved intact by first tokenizing the text and then grouping
+        visible characters into word groups.
         """
-        # If preconversation text exists, remove it from the animated portion.
         if preconversation_text and styled_text.startswith(preconversation_text):
             conversation_text = styled_text[len(preconversation_text):].lstrip()
         else:
             conversation_text = styled_text
 
+        # Tokenize the conversation text.
         tokens = self.tokenize_text(conversation_text)
+        # Group the tokens into words and whitespace groups.
+        groups = self.group_tokens_by_word(tokens)
+
         no_spacing = not preserved_msg
 
-        # Gradually remove visible characters while preserving ANSI tokens.
-        while any(token['type'] == 'char' for token in tokens):
-            # Find and remove the last visible-character token.
-            for i in range(len(tokens)-1, -1, -1):
-                if tokens[i]['type'] == 'char':
-                    del tokens[i]
-                    break
-            new_text = self.reassemble_tokens(tokens)
+        # Remove one word group (and any trailing space group) at a time.
+        while any(group_type == 'word' for group_type, _ in groups):
+            # First, if the last group is a whitespace group, remove it.
+            while groups and groups[-1][0] == 'space':
+                groups.pop()
+            if groups:
+                # Remove the last word group.
+                groups.pop()
+            # Reassemble the remaining tokens.
+            remaining_tokens = []
+            for _, grp in groups:
+                remaining_tokens.extend(grp)
+            new_text = self.reassemble_tokens(remaining_tokens)
             if preconversation_text:
                 full_display = preconversation_text.rstrip() + "\n\n" + new_text
             else:
@@ -173,7 +226,8 @@ class ReverseStreamer:
 
         await self._handle_punctuation(preserved_msg, delay)
 
-        final_text = preconversation_text.rstrip() + "\n\n" if preconversation_text else ""
+        # Always ensure one empty line is present after the streamed response.
+        final_text = (preconversation_text.rstrip() if preconversation_text else "") + "\n\n"
         await self.terminal.update_animated_display(final_text)
 
     async def _handle_punctuation(self, preserved_msg, delay):
