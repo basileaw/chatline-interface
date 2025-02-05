@@ -1,6 +1,6 @@
 # animations.py
 
-import asyncio, json, time
+import asyncio, json, time, re
 
 class AsyncDotLoader:
     def __init__(self, styles, prompt="", no_animation=False):
@@ -60,7 +60,8 @@ class AsyncDotLoader:
         if self._stored_messages:
             self._stored_messages.sort(key=lambda x: x[1])
             for i, (text, ts) in enumerate(self._stored_messages):
-                if i: await asyncio.sleep(ts - self._stored_messages[i-1][1])
+                if i:
+                    await asyncio.sleep(ts - self._stored_messages[i-1][1])
                 r, s = await self.styles.write_styled(text)
                 raw += r
                 styled += s
@@ -114,39 +115,66 @@ class ReverseStreamer:
         self.terminal = terminal
         self._base_color = self.styles.get_base_color(base_color)
 
+    @staticmethod
+    def tokenize_text(text):
+        """
+        Tokenize the input text into a list of tokens.
+        Each token is a dict with keys:
+          - 'type': either 'ansi' or 'char'
+          - 'value': the token text
+        """
+        ANSI_REGEX = re.compile(r'(\x1B\[[0-?]*[ -/]*[@-~])')
+        tokens = []
+        parts = re.split(ANSI_REGEX, text)
+        for part in parts:
+            if not part:
+                continue
+            if ANSI_REGEX.fullmatch(part):
+                tokens.append({'type': 'ansi', 'value': part})
+            else:
+                # Break visible text into individual characters.
+                for char in part:
+                    tokens.append({'type': 'char', 'value': char})
+        return tokens
+
+    @staticmethod
+    def reassemble_tokens(tokens):
+        """Reassemble tokens back into a single string."""
+        return ''.join(token['value'] for token in tokens)
+
     async def reverse_stream(self, styled_text, preserved_msg="", delay=0.08, preconversation_text=""):
+        """
+        Reverse-stream animation using tokenization. ANSI escape sequences
+        are preserved intact while visible characters are removed one by one.
+        """
+        # If preconversation text exists, remove it from the animated portion.
         if preconversation_text and styled_text.startswith(preconversation_text):
             conversation_text = styled_text[len(preconversation_text):].lstrip()
         else:
             conversation_text = styled_text
 
-        lines = self._prepare_lines(conversation_text)
+        tokens = self.tokenize_text(conversation_text)
         no_spacing = not preserved_msg
-        await self._reverse_stream_lines(lines, preserved_msg, no_spacing, delay, preconversation_text)
+
+        # Gradually remove visible characters while preserving ANSI tokens.
+        while any(token['type'] == 'char' for token in tokens):
+            # Find and remove the last visible-character token.
+            for i in range(len(tokens)-1, -1, -1):
+                if tokens[i]['type'] == 'char':
+                    del tokens[i]
+                    break
+            new_text = self.reassemble_tokens(tokens)
+            if preconversation_text:
+                full_display = preconversation_text.rstrip() + "\n\n" + new_text
+            else:
+                full_display = new_text
+            await self.terminal.update_animated_display(full_display, preserved_msg, no_spacing)
+            await asyncio.sleep(delay)
+
         await self._handle_punctuation(preserved_msg, delay)
-        
-        final_text = preconversation_text.rstrip()+"\n\n" if preconversation_text else ""
+
+        final_text = preconversation_text.rstrip() + "\n\n" if preconversation_text else ""
         await self.terminal.update_animated_display(final_text)
-
-    def _prepare_lines(self, styled_text):
-        lines = styled_text.splitlines()
-        return [
-            self.styles.split_into_styled_words(line) if line.strip() else []
-            for line in lines
-        ]
-
-    async def _reverse_stream_lines(self, lines, preserved_msg, no_spacing, delay, preconversation_text=""):
-        for line_idx in range(len(lines)-1, -1, -1):
-            while lines[line_idx]:
-                lines[line_idx].pop()
-                formatted_lines = self.styles.format_styled_lines(lines, self._base_color)
-                full_display = (preconversation_text.rstrip()+"\n\n") if preconversation_text else ""
-                if formatted_lines:
-                    full_display += formatted_lines
-                await self.terminal.update_animated_display(
-                    full_display, preserved_msg, no_spacing
-                )
-                await asyncio.sleep(delay)
 
     async def _handle_punctuation(self, preserved_msg, delay):
         if not preserved_msg:
@@ -157,11 +185,11 @@ class ReverseStreamer:
             char = preserved_msg[-1]
             count = len(preserved_msg) - len(base)
             for i in range(count, 0, -1):
-                await self.terminal.update_animated_display("", f"{base}{char*i}")
+                await self.terminal.update_animated_display("", f"{base}{char * i}")
                 await asyncio.sleep(delay)
         elif preserved_msg.endswith('.'):
             for i in range(3, 0, -1):
-                await self.terminal.update_animated_display("", f"{base}{'.'*i}")
+                await self.terminal.update_animated_display("", f"{base}{'.' * i}")
                 await asyncio.sleep(delay)
 
 class Animations:
