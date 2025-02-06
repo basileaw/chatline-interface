@@ -304,7 +304,8 @@ class Styles:
                 styled_out += styled_word
                 self._word_buffer = ""
 
-            if self._current_line_length > 0:
+            # Always ensure we end with exactly one newline
+            if not styled_out.endswith('\n'):
                 sys.stdout.write("\n")
                 styled_out += "\n"
 
@@ -313,7 +314,8 @@ class Styles:
             self._reset_output_state()
             return "", styled_out
         finally:
-            if self.terminal: self.terminal._hide_cursor()
+            if self.terminal: 
+                self.terminal._hide_cursor()
 
     def _reset_output_state(self):
         self._active_patterns.clear()
