@@ -226,8 +226,14 @@ class ReverseStreamer:
 
         await self._handle_punctuation(preserved_msg, delay)
 
-        # Always ensure one empty line is present after the streamed response.
-        final_text = (preconversation_text.rstrip() if preconversation_text else "") + "\n\n"
+        # Modified final text handling to prevent duplicate newlines
+        if preserved_msg:
+            # Don't add extra newlines if we have a preserved message
+            final_text = (preconversation_text.rstrip() if preconversation_text else "")
+        else:
+            # Keep the double newline only when there's no preserved message
+            final_text = (preconversation_text.rstrip() if preconversation_text else "") + "\n\n"
+            
         await self.terminal.update_animated_display(final_text)
 
     async def _handle_punctuation(self, preserved_msg, delay):
