@@ -1,7 +1,7 @@
 # interface.py
 
-import logging
 import os
+import logging
 from typing import Optional, Dict, Any, Callable
 from .terminal import Terminal
 from .conversation import Conversation, StateManager
@@ -86,6 +86,5 @@ class Interface:
             raise
         finally:
             self.terminal._show_cursor()
-            self.terminal._clear_screen()  
-            self.terminal._write("\n")     
+            self.terminal._clear_screen()
             self.state_manager.clear_history()

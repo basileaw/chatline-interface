@@ -1,12 +1,13 @@
 # styles.py
 
 import re, sys, asyncio
-from dataclasses import dataclass
-from rich.style import Style
-from rich.console import Console
+from io import StringIO
 from rich.panel import Panel
 from rich.align import Align
-from io import StringIO
+from rich.style import Style
+from rich.console import Console
+from dataclasses import dataclass
+
 
 ANSI_REGEX = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 FMT = lambda x: f'\033[{x}m'
