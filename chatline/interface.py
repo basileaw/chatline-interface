@@ -1,49 +1,59 @@
+# interface.py
+
 import os
 import logging
 from typing import Optional, Dict, Any, Callable
-from .terminal import Terminal
+from .display import Display
 from .conversation import Conversation, StateManager
 from .animations import Animations
-from .styles import Styles
 from .stream import EmbeddedStream, RemoteStream
 from .generator import generate_stream
 from .logger import get_logger
 
 class Interface:
+    """
+    Main interface coordinator for the chat application.
+    
+    Initializes and connects all components including display, conversation,
+    animations, and stream handling.
+    """
     def __init__(
         self, 
         endpoint: Optional[str] = None, 
         generator_func: Optional[Callable] = None, 
         logging_enabled: bool = False
     ):
-        # Get a logger that either logs to file or uses a NullHandler.
+        # Get a logger that either logs to file or uses a NullHandler
         self.logger = get_logger(__name__, logging_enabled)
         self._init_components(endpoint or None, generator_func or generate_stream)
 
     def _init_components(self, endpoint: Optional[str], generator_func: Callable) -> None:
         try:
-            # Initialize UI components
-            self.terminal = Terminal(styles=None)
-            self.styles = Styles(terminal=self.terminal)
-            self.terminal.styles = self.styles
-            self.animations = Animations(terminal=self.terminal, styles=self.styles)
+            # Initialize display coordinator
+            self.display = Display()
+            
+            # Initialize animations with display components
+            self.animations = Animations(
+                utilities=self.display.utilities,
+                styles=self.display.styles
+            )
             
             # Initialize state and stream with logger injection
             self.state_manager = StateManager(logger=self.logger)
             self.stream = (RemoteStream(endpoint, logger=self.logger)
-                           if endpoint 
-                           else EmbeddedStream(generator_func, logger=self.logger))
+                         if endpoint 
+                         else EmbeddedStream(generator_func, logger=self.logger))
             
-            # Initialize conversation with the wrapped generator
+            # Initialize conversation with display components
             self.conversation = Conversation(
-                terminal=self.terminal,
+                utilities=self.display.utilities,
+                styles=self.display.styles,
                 generator_func=self._wrap_generator(self.stream.get_generator()),
-                styles=self.styles,
                 animations_manager=self.animations
             )
             
-            # Setup terminal (clear and hide cursor)
-            self.terminal.reset()
+            # Setup display (clear and hide cursor)
+            self.display.reset()
             
         except Exception as e:
             self.logger.error(f"Init error: {str(e)}")
@@ -81,5 +91,5 @@ class Interface:
             self.logger.error(f"Start error: {str(e)}")
             raise
         finally:
-            self.terminal.reset()
+            self.display.reset()
             self.state_manager.clear_history()

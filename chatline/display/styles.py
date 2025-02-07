@@ -1,13 +1,14 @@
-# styles.py
+# display/styles.py
 
-import re, sys, asyncio
+import re
+import sys
+import asyncio
 from io import StringIO
 from rich.panel import Panel
 from rich.align import Align
 from rich.style import Style
 from rich.console import Console
 from dataclasses import dataclass
-
 
 ANSI_REGEX = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 FMT = lambda x: f'\033[{x}m'
@@ -74,9 +75,15 @@ class PanelDisplayStrategy:
     def get_visible_length(self, text):
         return self.styles.get_visible_length(text) + 4
 
-class Styles:
-    def __init__(self, terminal=None):
-        self.terminal = terminal
+class DisplayStyles:
+    """
+    Handles text styling and formatting for terminal display.
+    
+    This class manages ANSI color codes, text patterns, and rich text formatting
+    while coordinating with DisplayUtilities for terminal dimensions and cursor management.
+    """
+    def __init__(self, utilities=None):
+        self.utilities = utilities
         self._init_patterns()
         self._init_state()
 
@@ -109,7 +116,7 @@ class Styles:
         self._word_buffer = ""
         self._buffer_lock = asyncio.Lock()
         self._current_line_length = 0
-        self.term_width = self.terminal.term_width if self.terminal else 80  # Safe fallback
+        self.term_width = self.utilities.term_width if self.utilities else 80  # Safe fallback
         self._rich_console = Console(
             force_terminal=True,
             color_system="truecolor",
@@ -128,16 +135,25 @@ class Styles:
 
     def get_visible_length(self, text):
         text = ANSI_REGEX.sub('', text)
-        for c in BOX_CHARS: text = text.replace(c, '')
+        for c in BOX_CHARS:
+            text = text.replace(c, '')
         return len(text)
 
     def append_single_blank_line(self, text):
         return text.rstrip('\n') + "\n\n" if text.strip() else text
 
-    def get_format(self, name): return FORMATS.get(name, '')
-    def get_color(self, name): return COLORS.get(name, {}).get('ansi', '')
-    def get_rich_style(self, name): return self.rich_styles.get(name, Style())
-    def get_base_color(self, color_name='GREEN'): return COLORS.get(color_name, {}).get('ansi', '')
+    def get_format(self, name):
+        return FORMATS.get(name, '')
+
+    def get_color(self, name):
+        return COLORS.get(name, {}).get('ansi', '')
+
+    def get_rich_style(self, name):
+        return self.rich_styles.get(name, Style())
+
+    def get_base_color(self, color_name='GREEN'):
+        return COLORS.get(color_name, {}).get('ansi', '')
+
     def set_output_color(self, color=None): 
         self._base_color = self.get_color(color) if color else FORMATS['RESET']
 
@@ -145,7 +161,8 @@ class Styles:
         style = [base_color]
         for name in active_patterns:
             pat = self.by_name[name]
-            if pat.color: style[0] = COLORS[pat.color]['ansi']
+            if pat.color:
+                style[0] = COLORS[pat.color]['ansi']
             style.extend(FORMATS[f'{s}_ON'] for s in (pat.styles or []))
         return ''.join(style)
 
@@ -200,13 +217,15 @@ class Styles:
                     curr_style = s
                 c.append(word['styled_text'] + " ")
             formatted = "".join(c).rstrip()
-            if formatted: res.append(formatted)
+            if formatted:
+                res.append(formatted)
             
         extra = self.get_format('RESET') + base_color
         return "\n".join(res) + (extra if curr_style != extra else "")
 
     def _style_chunk(self, text):
-        if not text or any(c in BOX_CHARS for c in text): return text
+        if not text or any(c in BOX_CHARS for c in text):
+            return text
 
         out = []
         if not self._active_patterns:
@@ -238,13 +257,16 @@ class Styles:
         return ''.join(out)
 
     async def write_styled(self, chunk):
-        if not chunk: return "", ""
+        if not chunk:
+            return "", ""
         async with self._buffer_lock:
             return self._process_and_write(chunk)
 
     def _process_and_write(self, chunk):
-        if not chunk: return "", ""
-        if self.terminal: self.terminal._hide_cursor()
+        if not chunk:
+            return "", ""
+        if self.utilities:
+            self.utilities._hide_cursor()
 
         styled_out = ""
         try:
@@ -285,7 +307,8 @@ class Styles:
             sys.stdout.flush()
             return chunk, styled_out
         finally:
-            if self.terminal: self.terminal._hide_cursor()
+            if self.utilities:
+                self.utilities._hide_cursor()
 
     async def flush_styled(self):
         styled_out = ""
@@ -315,8 +338,8 @@ class Styles:
             self._reset_output_state()
             return "", styled_out
         finally:
-            if self.terminal: 
-                self.terminal._hide_cursor()
+            if self.utilities:
+                self.utilities._hide_cursor()
 
     def _reset_output_state(self):
         self._active_patterns.clear()

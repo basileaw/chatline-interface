@@ -1,8 +1,15 @@
+# animations/dot_loader.py
+
 import asyncio
 import json
 import time
 
 class AsyncDotLoader:
+    """
+    Asynchronous loading animation with dots.
+    
+    Displays a loading animation while processing streaming content.
+    """
     def __init__(self, styles, prompt="", no_animation=False):
         self.styles = styles
         self.prompt = prompt.rstrip('.?!')
@@ -12,17 +19,17 @@ class AsyncDotLoader:
         self.animation_complete = asyncio.Event()
         self.animation_task = None
         self.resolved = False
-        self.terminal = None
+        self.utilities = None
         self._stored_messages = []
 
     async def _animate(self):
         try:
             while not self.animation_complete.is_set():
-                await self.terminal.write_loading_state(self.prompt, self.dots, self.dot_char)
+                await self.utilities.write_loading_state(self.prompt, self.dots, self.dot_char)
                 await asyncio.sleep(0.4)
                 if self.resolved and self.dots == 3:
-                    await self.terminal.write_loading_state(self.prompt, 3, self.dot_char)
-                    self.terminal._write('\n\n')
+                    await self.utilities.write_loading_state(self.prompt, 3, self.dot_char)
+                    self.utilities._write('\n\n')
                     break
                 self.dots = min(self.dots+1, 3) if self.resolved else (self.dots+1) % 4
             self.animation_complete.set()

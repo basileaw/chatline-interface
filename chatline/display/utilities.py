@@ -1,13 +1,20 @@
-# terminal.py
+# display/utilities.py
 
-import asyncio, time, sys, shutil
+import asyncio
+import time
+import sys
+import shutil
 from prompt_toolkit import PromptSession
 from prompt_toolkit.validation import Validator, ValidationError
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 
-class Terminal:
-    def __init__(self, styles):
+class DisplayUtilities:
+    """
+    Handles core terminal display operations including screen management,
+    cursor control, and user input handling.
+    """
+    def __init__(self, styles=None):
         self.styles = styles
         self.term_width = shutil.get_terminal_size().columns
         self._is_edit_mode = False
@@ -28,8 +35,11 @@ class Terminal:
 
         self.prompt_session = PromptSession(key_bindings=kb, complete_while_typing=False)
 
-    def _is_terminal(self): return sys.stdout.isatty()
-    async def _yield_to_event_loop(self): await asyncio.sleep(0)
+    def _is_terminal(self):
+        return sys.stdout.isatty()
+
+    async def _yield_to_event_loop(self):
+        await asyncio.sleep(0)
 
     def _manage_cursor(self, show):
         if self._cursor_visible != show and self._is_terminal():
@@ -37,22 +47,27 @@ class Terminal:
             sys.stdout.write("\033[?25h" if show else "\033[?25l")
             sys.stdout.flush()
 
-    def _show_cursor(self): self._manage_cursor(True)
-    def _hide_cursor(self): self._manage_cursor(False)
+    def _show_cursor(self):
+        self._manage_cursor(True)
+
+    def _hide_cursor(self):
+        self._manage_cursor(False)
 
     def reset(self):
-            """Resets the terminal by showing cursor and clearing screen"""
-            self._show_cursor()
-            self._clear_screen()
-
+        """Resets the terminal by showing cursor and clearing screen"""
+        self._show_cursor()
+        self._clear_screen()
 
     def _write(self, text="", style=None, newline=False):
         self._hide_cursor()
         try:
-            if style: sys.stdout.write(self.styles.get_format(style))
+            if style:
+                sys.stdout.write(self.styles.get_format(style))
             sys.stdout.write(text)
-            if style: sys.stdout.write(self.styles.get_format('RESET'))
-            if newline: sys.stdout.write('\n')
+            if style:
+                sys.stdout.write(self.styles.get_format('RESET'))
+            if newline:
+                sys.stdout.write('\n')
             sys.stdout.flush()
         finally:
             self._hide_cursor()
@@ -64,7 +79,8 @@ class Terminal:
 
     def _handle_text(self, text, width=None):
         width = width or self.term_width
-        if any(x in text for x in ('╭','╮','╯','╰')): return text.split('\n')
+        if any(x in text for x in ('╭','╮','╯','╰')):
+            return text.split('\n')
         
         result = []
         for para in text.split('\n'):
@@ -74,7 +90,8 @@ class Terminal:
             line, words = '', para.split()
             for word in words:
                 if len(word) > width:
-                    if line: result.append(line)
+                    if line:
+                        result.append(line)
                     result.extend(word[i:i+width] for i in range(0, len(word), width))
                     line = ''
                 else:
@@ -84,7 +101,8 @@ class Terminal:
                     else:
                         result.append(line)
                         line = word
-            if line: result.append(line)
+            if line:
+                result.append(line)
         return result
 
     async def clear(self):
@@ -92,7 +110,8 @@ class Terminal:
         await self._yield_to_event_loop()
 
     async def write_lines(self, lines, newline=True):
-        for line in lines: self._write(line, newline=newline)
+        for line in lines:
+            self._write(line, newline=newline)
         await self._yield_to_event_loop()
 
     async def write_prompt(self, prompt, style=None):
@@ -104,16 +123,21 @@ class Terminal:
         await self._yield_to_event_loop()
 
     async def update_display(self, content=None, prompt=None, preserve_cursor=False):
-        if not preserve_cursor: self._hide_cursor()
+        if not preserve_cursor:
+            self._hide_cursor()
         await self.clear()
-        if content: await self.write_lines([content], bool(prompt))
-        if prompt: await self.write_prompt(prompt)
-        if not preserve_cursor: self._hide_cursor()
+        if content:
+            await self.write_lines([content], bool(prompt))
+        if prompt:
+            await self.write_prompt(prompt)
+        if not preserve_cursor:
+            self._hide_cursor()
 
     async def update_animated_display(self, content="", preserved_msg="", no_spacing=False):
         self._clear_screen()
         if content:
-            if preserved_msg: self._write(preserved_msg + ("" if no_spacing else "\n\n"))
+            if preserved_msg:
+                self._write(preserved_msg + ("" if no_spacing else "\n\n"))
             self._write(content)
         else:
             self._write(preserved_msg)
@@ -132,7 +156,8 @@ class Terminal:
         lines = self._handle_text(styled_lines)
         for i in range(len(lines)+1):
             self._clear_screen()
-            for ln in lines[i:]: self._write(ln, newline=True)
+            for ln in lines[i:]:
+                self._write(ln, newline=True)
             self._write(self.styles.get_format('RESET')+prompt)
             time.sleep(delay)
 
@@ -142,7 +167,8 @@ class Terminal:
                 if not document.text.strip():
                     raise ValidationError(message='', cursor_position=0)
 
-        if add_newline: self._write("\n")
+        if add_newline:
+            self._write("\n")
         self._is_edit_mode = bool(default_text)
         try:
             self._show_cursor()

@@ -1,10 +1,17 @@
+# animations/reverse_streamer.py
+
 import asyncio
 import re
 
 class ReverseStreamer:
-    def __init__(self, styles, terminal=None, base_color='GREEN'):
+    """
+    Handles reverse streaming animation effects.
+    
+    Provides word-by-word reverse streaming while preserving ANSI escape sequences.
+    """
+    def __init__(self, styles, utilities=None, base_color='GREEN'):
         self.styles = styles
-        self.terminal = terminal
+        self.utilities = utilities
         self._base_color = self.styles.get_base_color(base_color)
 
     @staticmethod
@@ -113,7 +120,7 @@ class ReverseStreamer:
                 full_display = preconversation_text.rstrip() + "\n\n" + new_text
             else:
                 full_display = new_text
-            await self.terminal.update_animated_display(full_display, preserved_msg, no_spacing)
+            await self.utilities.update_animated_display(full_display, preserved_msg, no_spacing)
             await asyncio.sleep(delay)
 
         await self._handle_punctuation(preserved_msg, delay)
@@ -126,7 +133,7 @@ class ReverseStreamer:
             # Keep the double newline only when there's no preserved message
             final_text = (preconversation_text.rstrip() if preconversation_text else "") + "\n\n"
             
-        await self.terminal.update_animated_display(final_text)
+        await self.utilities.update_animated_display(final_text)
 
     async def _handle_punctuation(self, preserved_msg, delay):
         if not preserved_msg:
@@ -137,9 +144,9 @@ class ReverseStreamer:
             char = preserved_msg[-1]
             count = len(preserved_msg) - len(base)
             for i in range(count, 0, -1):
-                await self.terminal.update_animated_display("", f"{base}{char * i}")
+                await self.utilities.update_animated_display("", f"{base}{char * i}")
                 await asyncio.sleep(delay)
         elif preserved_msg.endswith('.'):
             for i in range(3, 0, -1):
-                await self.terminal.update_animated_display("", f"{base}{'.' * i}")
+                await self.utilities.update_animated_display("", f"{base}{'.' * i}")
                 await asyncio.sleep(delay)

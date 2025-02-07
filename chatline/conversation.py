@@ -78,10 +78,20 @@ class Conversation:
             """Begin with a greeting from the machine itself: " "Hey there," " """)
     }
 
-    def __init__(self, terminal, generator_func, styles, animations_manager, system_prompt=None):
-        self.terminal = terminal
-        self.generator = generator_func
+    def __init__(self, utilities, styles, generator_func, animations_manager, system_prompt=None):
+        """
+        Initialize a new conversation instance.
+        
+        Args:
+            utilities: DisplayUtilities instance for terminal operations
+            styles: DisplayStyles instance for text formatting
+            generator_func: Async function that generates responses
+            animations_manager: Animations instance for loading states
+            system_prompt: Optional system prompt to override default
+        """
+        self.utilities = utilities
         self.styles = styles
+        self.generator = generator_func
         self.animations = animations_manager
         self.system_prompt = system_prompt
         self.messages = []
@@ -112,7 +122,7 @@ class Conversation:
         except KeyboardInterrupt:
             print("\nExiting...")
         finally:
-            self.terminal.reset()
+            self.utilities.reset()
 
     async def _run_conversation(self, system_msg=None, intro_msg=None, preface_text=None):
         try:
@@ -121,7 +131,7 @@ class Conversation:
             _, intro_styled, _ = await self.handle_intro(intro_msg or self.default_messages["user"], preface_text)
             
             while True:
-                user_input = await self.terminal.get_user_input()
+                user_input = await self.utilities.get_user_input()
                 if not user_input:
                     continue
                 try:
@@ -137,7 +147,7 @@ class Conversation:
             logging.error(f"Critical error: {str(e)}", exc_info=True)
             raise
         finally:
-            await self.terminal.update_display()
+            await self.utilities.update_display()
 
     async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
         try:
@@ -189,11 +199,11 @@ class Conversation:
         styled_panel = self.styles.append_single_blank_line(self.preconversation_styled)
         
         if styled_panel.strip():
-            await self.terminal.update_display(styled_panel, preserve_cursor=True)
+            await self.utilities.update_display(styled_panel, preserve_cursor=True)
             
         raw, styled = await self._process_message(intro_msg, silent=True)
         full_styled = styled_panel + styled
-        await self.terminal.update_display(full_styled)
+        await self.utilities.update_display(full_styled)
         
         self.is_silent = True
         self.prompt = ""
@@ -206,7 +216,7 @@ class Conversation:
         return raw, full_styled, ""
 
     async def handle_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
-        await self.terminal.handle_scroll(intro_styled, f"> {user_input}", 0.08)
+        await self.utilities.handle_scroll(intro_styled, f"> {user_input}", 0.08)
         raw, styled = await self._process_message(user_input)
         
         self.is_silent = False
@@ -249,13 +259,13 @@ class Conversation:
             return raw, f"{self.preconversation_styled}\n{styled}", ""
         
         if is_retry:
-            await self.terminal.clear()
+            await self.utilities.clear()
             raw, styled = await self._process_message(last_msg)
         else:
-            new_input = await self.terminal.get_user_input(default_text=last_msg, add_newline=False)
+            new_input = await self.utilities.get_user_input(default_text=last_msg, add_newline=False)
             if not new_input:
                 return "", intro_styled, ""
-            await self.terminal.clear()
+            await self.utilities.clear()
             raw, styled = await self._process_message(new_input)
             last_msg = new_input
             
