@@ -40,6 +40,12 @@ class Terminal:
     def _show_cursor(self): self._manage_cursor(True)
     def _hide_cursor(self): self._manage_cursor(False)
 
+    def reset(self):
+            """Resets the terminal by showing cursor and clearing screen"""
+            self._show_cursor()
+            self._clear_screen()
+
+
     def _write(self, text="", style=None, newline=False):
         self._hide_cursor()
         try:

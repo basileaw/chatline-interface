@@ -43,8 +43,7 @@ class Interface:
             )
             
             # Setup terminal (clear and hide cursor)
-            self.terminal._clear_screen()
-            self.terminal._hide_cursor()
+            self.terminal.reset()
             
         except Exception as e:
             self.logger.error(f"Init error: {str(e)}")
@@ -82,6 +81,5 @@ class Interface:
             self.logger.error(f"Start error: {str(e)}")
             raise
         finally:
-            self.terminal._show_cursor()
-            self.terminal._clear_screen()
+            self.terminal.reset()
             self.state_manager.clear_history()
