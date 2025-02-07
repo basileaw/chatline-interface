@@ -7,7 +7,7 @@ from .animations import Animations
 from .styles import Styles
 from .stream import EmbeddedStream, RemoteStream
 from .generator import generate_stream
-from .logger import setup_logger
+from .logger import get_logger
 
 class Interface:
     def __init__(
@@ -16,13 +16,8 @@ class Interface:
         generator_func: Optional[Callable] = None, 
         logging_enabled: bool = False
     ):
-        if logging_enabled:
-            self.logger = setup_logger(__name__)
-        else:
-            # Use a logger with a NullHandler so that no logging output occurs.
-            self.logger = logging.getLogger(__name__)
-            self.logger.addHandler(logging.NullHandler())
-
+        # Get a logger that either logs to file or uses a NullHandler.
+        self.logger = get_logger(__name__, logging_enabled)
         self._init_components(endpoint or None, generator_func or generate_stream)
 
     def _init_components(self, endpoint: Optional[str], generator_func: Callable) -> None:
