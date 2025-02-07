@@ -31,7 +31,7 @@ class Stream:
                 self.logger.error(f"Error logging state: {str(e)}")
 
     def update_state(self, new_state: Dict[str, Any]) -> None:
-        """Update stream state with new state data"""
+        """Update stream state with new state data."""
         try:
             self.conversation_state.update({
                 'messages': new_state.get('messages', self.conversation_state['messages']),
@@ -60,14 +60,16 @@ class EmbeddedStream(Stream):
                 # Update state with incoming messages and state
                 self.conversation_state['messages'] = messages
                 self.conversation_state['turn'] += 1
-                
+
                 if state:
                     self.update_state(state)
-                
+
                 self._log_state("Before generation:")
 
-                # Run the actual generator
+                # Run the actual generator and log each response chunk.
                 async for chunk in self.generator(messages, **kwargs):
+                    if self.logger:
+                        self.logger.debug(f"Embedded response chunk: {chunk.strip()}")
                     yield chunk
 
                 self._log_state("After generation:")
@@ -94,10 +96,10 @@ class RemoteStream(Stream):
             # Update state with incoming messages
             self.conversation_state['messages'] = messages
             self.conversation_state['turn'] += 1
-            
+
             if state:
                 self.update_state(state)
-            
+
             self._log_state("Before request:")
 
             # Prepare request payload
@@ -107,7 +109,7 @@ class RemoteStream(Stream):
                 **kwargs
             }
 
-            # Stream the response
+            # Stream the response from the remote endpoint
             async with self.client.stream(
                 'POST',
                 f"{self.endpoint}/stream",
@@ -117,14 +119,14 @@ class RemoteStream(Stream):
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if line:
+                        if self.logger:
+                            self.logger.debug(f"Remote response chunk: {line.strip()}")
                         yield line
 
                 # After streaming completes, get final state if provided
                 if response.headers.get('X-Conversation-State'):
                     try:
-                        new_state = json.loads(
-                            response.headers['X-Conversation-State']
-                        )
+                        new_state = json.loads(response.headers['X-Conversation-State'])
                         self.update_state(new_state)
                         self._log_state("After response:")
                     except json.JSONDecodeError as e:
@@ -139,19 +141,19 @@ class RemoteStream(Stream):
                 self.logger.error(f"Stream timeout: {str(e)}")
             self._last_error = "Timeout"
             yield f'data: [ERROR] Request timed out\n\n'
-            
+
         except httpx.HTTPStatusError as e:
             if self.logger:
                 self.logger.error(f"HTTP {e.response.status_code}: {str(e)}")
             self._last_error = f"HTTP {e.response.status_code}"
             yield f'data: [ERROR] HTTP {e.response.status_code}\n\n'
-            
+
         except httpx.RequestError as e:
             if self.logger:
                 self.logger.error(f"Connection error: {str(e)}")
             self._last_error = "Connection error"
             yield 'data: [ERROR] Failed to connect\n\n'
-            
+
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Unexpected error: {str(e)}")
