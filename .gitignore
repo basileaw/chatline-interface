@@ -1,3 +1,4 @@
 .archive/
 chatline/logs/*
 .venv/
+logs/*
