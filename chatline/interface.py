@@ -1,6 +1,5 @@
-# interface.py
-
 import os
+import logging
 from typing import Optional, Dict, Any, Callable
 from .terminal import Terminal
 from .conversation import Conversation, StateManager
@@ -11,8 +10,19 @@ from .generator import generate_stream
 from .logger import setup_logger
 
 class Interface:
-    def __init__(self, endpoint: Optional[str] = None, generator_func: Optional[Callable] = None):
-        self.logger = setup_logger(__name__)
+    def __init__(
+        self, 
+        endpoint: Optional[str] = None, 
+        generator_func: Optional[Callable] = None, 
+        logging_enabled: bool = False
+    ):
+        if logging_enabled:
+            self.logger = setup_logger(__name__)
+        else:
+            # Use a logger with a NullHandler so that no logging output occurs.
+            self.logger = logging.getLogger(__name__)
+            self.logger.addHandler(logging.NullHandler())
+
         self._init_components(endpoint or None, generator_func or generate_stream)
 
     def _init_components(self, endpoint: Optional[str], generator_func: Callable) -> None:
