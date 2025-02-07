@@ -1,7 +1,6 @@
 # interface.py
 
 import os
-import logging
 from typing import Optional, Dict, Any, Callable
 from .terminal import Terminal
 from .conversation import Conversation, StateManager
@@ -9,20 +8,12 @@ from .animations import Animations
 from .styles import Styles
 from .stream import EmbeddedStream, RemoteStream
 from .generator import generate_stream
+from .logger import setup_logger
 
 class Interface:
     def __init__(self, endpoint: Optional[str] = None, generator_func: Optional[Callable] = None):
-        self.logger = self._setup_logging()
+        self.logger = setup_logger(__name__)
         self._init_components(endpoint or None, generator_func or generate_stream)
-
-    def _setup_logging(self) -> logging.Logger:
-        os.makedirs(os.path.join(os.path.dirname(__file__), 'logs'), exist_ok=True)
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            filename=os.path.join(os.path.dirname(__file__), 'logs', 'chat_debug.log')
-        )
-        return logging.getLogger(__name__)
 
     def _init_components(self, endpoint: Optional[str], generator_func: Callable) -> None:
         try:
@@ -32,12 +23,13 @@ class Interface:
             self.terminal.styles = self.styles
             self.animations = Animations(terminal=self.terminal, styles=self.styles)
             
-            # Initialize state and stream
+            # Initialize state and stream with logger injection
             self.state_manager = StateManager(logger=self.logger)
-            self.stream = (RemoteStream(endpoint, logger=self.logger) if endpoint 
-                         else EmbeddedStream(generator_func, logger=self.logger))
+            self.stream = (RemoteStream(endpoint, logger=self.logger)
+                           if endpoint 
+                           else EmbeddedStream(generator_func, logger=self.logger))
             
-            # Initialize conversation with wrapped generator
+            # Initialize conversation with the wrapped generator
             self.conversation = Conversation(
                 terminal=self.terminal,
                 generator_func=self._wrap_generator(self.stream.get_generator()),
@@ -45,7 +37,7 @@ class Interface:
                 animations_manager=self.animations
             )
             
-            # Setup terminal
+            # Setup terminal (clear and hide cursor)
             self.terminal._clear_screen()
             self.terminal._hide_cursor()
             
