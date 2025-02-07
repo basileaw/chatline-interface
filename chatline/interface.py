@@ -5,7 +5,6 @@ import logging
 from typing import Optional, Dict, Any, Callable
 from .display import Display
 from .conversation import Conversation, StateManager
-from .animations import Animations
 from .stream import EmbeddedStream, RemoteStream
 from .generator import generate_stream
 from .logger import get_logger
@@ -14,8 +13,8 @@ class Interface:
     """
     Main interface coordinator for the chat application.
     
-    Initializes and connects all components including display, conversation,
-    animations, and stream handling.
+    Initializes and connects all components including display (which now includes
+    utilities, styles, and animations), conversation, and stream handling.
     """
     def __init__(
         self, 
@@ -29,14 +28,8 @@ class Interface:
 
     def _init_components(self, endpoint: Optional[str], generator_func: Callable) -> None:
         try:
-            # Initialize display coordinator
+            # Initialize display coordinator (includes utilities, styles, and animations)
             self.display = Display()
-            
-            # Initialize animations with display components
-            self.animations = Animations(
-                utilities=self.display.utilities,
-                styles=self.display.styles
-            )
             
             # Initialize state and stream with logger injection
             self.state_manager = StateManager(logger=self.logger)
@@ -48,8 +41,8 @@ class Interface:
             self.conversation = Conversation(
                 utilities=self.display.utilities,
                 styles=self.display.styles,
-                generator_func=self._wrap_generator(self.stream.get_generator()),
-                animations_manager=self.animations
+                animations=self.display.animations,
+                generator_func=self._wrap_generator(self.stream.get_generator())
             )
             
             # Setup display (clear and hide cursor)

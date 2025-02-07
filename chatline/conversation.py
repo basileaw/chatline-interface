@@ -78,21 +78,21 @@ class Conversation:
             """Begin with a greeting from the machine itself: " "Hey there," " """)
     }
 
-    def __init__(self, utilities, styles, generator_func, animations_manager, system_prompt=None):
+    def __init__(self, utilities, styles, animations, generator_func, system_prompt=None):
         """
         Initialize a new conversation instance.
         
         Args:
             utilities: DisplayUtilities instance for terminal operations
             styles: DisplayStyles instance for text formatting
+            animations: DisplayAnimations instance for loading and streaming effects
             generator_func: Async function that generates responses
-            animations_manager: Animations instance for loading states
             system_prompt: Optional system prompt to override default
         """
         self.utilities = utilities
         self.styles = styles
+        self.animations = animations
         self.generator = generator_func
-        self.animations = animations_manager
         self.system_prompt = system_prompt
         self.messages = []
         self.state_manager = StateManager(logger=logging.getLogger(__name__))
