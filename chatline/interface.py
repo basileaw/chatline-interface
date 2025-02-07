@@ -1,10 +1,9 @@
 # interface.py
 
-import os
 import logging
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Callable
 from .display import Display
-from .conversation import Conversation, StateManager
+from .conversation import Conversation
 from .stream import EmbeddedStream, RemoteStream
 from .generator import generate_stream
 from .logger import get_logger
@@ -13,8 +12,8 @@ class Interface:
     """
     Main interface coordinator for the chat application.
     
-    Initializes and connects all components including display (which now includes
-    utilities, styles, and animations), conversation, and stream handling.
+    Provides a clean interface for initializing and starting conversations,
+    coordinating between the display, conversation, and stream components.
     """
     def __init__(
         self, 
@@ -22,52 +21,58 @@ class Interface:
         generator_func: Optional[Callable] = None, 
         logging_enabled: bool = False
     ):
-        # Get a logger that either logs to file or uses a NullHandler
+        """
+        Initialize the interface with optional remote endpoint or custom generator.
+        
+        Args:
+            endpoint: Optional URL for remote chat endpoint
+            generator_func: Optional custom generator function
+            logging_enabled: Whether to enable logging to file
+        """
         self.logger = get_logger(__name__, logging_enabled)
-        self._init_components(endpoint or None, generator_func or generate_stream)
+        self._init_components(endpoint, generator_func or generate_stream)
 
     def _init_components(self, endpoint: Optional[str], generator_func: Callable) -> None:
+        """
+        Initialize all required components for the chat interface.
+        
+        Args:
+            endpoint: Optional remote endpoint URL
+            generator_func: Generator function for message streaming
+        """
         try:
-            # Initialize display coordinator (includes utilities, styles, and animations)
+            # Initialize display coordinator
             self.display = Display()
             
-            # Initialize state and stream with logger injection
-            self.state_manager = StateManager(logger=self.logger)
-            self.stream = (RemoteStream(endpoint, logger=self.logger)
+            # Initialize appropriate stream handler
+            self.stream = (RemoteStream(endpoint, logger=self.logger) 
                          if endpoint 
                          else EmbeddedStream(generator_func, logger=self.logger))
             
-            # Initialize conversation with display components
+            # Initialize conversation with display components and stream generator
             self.conversation = Conversation(
                 utilities=self.display.utilities,
                 styles=self.display.styles,
                 animations=self.display.animations,
-                generator_func=self._wrap_generator(self.stream.get_generator())
+                generator_func=self.stream.get_generator()
             )
             
-            # Setup display (clear and hide cursor)
+            # Setup display
             self.display.reset()
             
         except Exception as e:
-            self.logger.error(f"Init error: {str(e)}")
+            self.logger.error(f"Initialization error: {str(e)}")
             raise
 
-    def _wrap_generator(self, generator_func: Callable) -> Callable:
-        async def wrapped_generator(messages: list, **kwargs: Any):
-            try:
-                current_state = self.state_manager.get_current_state()
-                async for chunk in generator_func(
-                    messages, 
-                    state=current_state.to_dict() if current_state else None,
-                    **kwargs
-                ):
-                    yield chunk
-            except Exception as e:
-                self.logger.error(f"Generator error: {str(e)}")
-                yield f"Error during generation: {str(e)}"
-        return wrapped_generator
-
     def preface(self, text: str, color: Optional[str] = None, display_type: str = "panel") -> None:
+        """
+        Add preface text to be displayed before the conversation starts.
+        
+        Args:
+            text: Text content to display
+            color: Optional color for the text
+            display_type: Display style ("text" or "panel")
+        """
         try:
             self.conversation.preface(text, color, display_type)
             self.logger.debug(f"Added preface: {text[:50]}")
@@ -76,13 +81,18 @@ class Interface:
             raise
 
     def start(self, messages: Optional[Dict[str, str]] = None) -> None:
+        """
+        Start the conversation with optional initial messages.
+        
+        Args:
+            messages: Optional dictionary containing system and user messages
+        """
         try:
             self.conversation.start(messages)
         except KeyboardInterrupt:
-            self.logger.info("User interrupted")
+            self.logger.info("User interrupted conversation")
         except Exception as e:
             self.logger.error(f"Start error: {str(e)}")
             raise
         finally:
             self.display.reset()
-            self.state_manager.clear_history()

@@ -36,34 +36,6 @@ class ConversationState:
     def from_dict(cls, data: Dict) -> 'ConversationState':
         return cls(**data)
 
-    def create_snapshot(self) -> Dict:
-        return copy.deepcopy(self.to_dict())
-
-class StateManager:
-    def __init__(self, logger=None):
-        self.current_state = ConversationState()
-        self.state_history: Dict[int, Dict] = {}
-        self.logger = logger or logging.getLogger(__name__)
-        
-    def update_state(self, **kwargs) -> None:
-        for key, value in kwargs.items():
-            if hasattr(self.current_state, key):
-                setattr(self.current_state, key, value)
-        self.state_history[self.current_state.turn_number] = self.current_state.create_snapshot()
-            
-    def restore_state(self, turn_number: int) -> Optional[ConversationState]:
-        if turn_number in self.state_history:
-            self.current_state = ConversationState.from_dict(self.state_history[turn_number])
-            return self.current_state
-        return None
-    
-    def get_current_state(self) -> ConversationState:
-        return self.current_state
-    
-    def clear_history(self) -> None:
-        self.state_history.clear()
-        self.current_state = ConversationState()
-
 class Conversation:
     default_messages = {
         "system": (
@@ -93,9 +65,19 @@ class Conversation:
         self.styles = styles
         self.animations = animations
         self.generator = generator_func
-        self.system_prompt = system_prompt
         self.messages = []
-        self.state_manager = StateManager(logger=logging.getLogger(__name__))
+        self.logger = logging.getLogger(__name__)
+        
+        # Initialize state
+        self.current_state = ConversationState(
+            system_prompt=system_prompt,
+            is_silent=False,
+            prompt_display="",
+            preconversation_styled=""
+        )
+        self.state_history = {}
+        
+        # Display configuration
         self.is_silent = False
         self.prompt = ""
         self.preconversation_text = []
@@ -104,14 +86,36 @@ class Conversation:
             "text": self.styles.create_display_strategy("text"),
             "panel": self.styles.create_display_strategy("panel")
         }
-        self.state_manager.update_state(
-            system_prompt=system_prompt,
-            is_silent=False,
-            prompt_display="",
-            preconversation_styled=""
-        )
+
+    def create_state_snapshot(self) -> Dict:
+        """Create a deep copy of the current state."""
+        return copy.deepcopy(self.current_state.to_dict())
+
+    def update_state(self, **kwargs) -> None:
+        """Update the current state with new values."""
+        for key, value in kwargs.items():
+            if hasattr(self.current_state, key):
+                setattr(self.current_state, key, value)
+        self.state_history[self.current_state.turn_number] = self.create_state_snapshot()
+
+    def restore_state(self, turn_number: int) -> Optional[ConversationState]:
+        """Restore state from a specific turn number."""
+        if turn_number in self.state_history:
+            self.current_state = ConversationState.from_dict(self.state_history[turn_number])
+            return self.current_state
+        return None
+
+    def get_current_state(self) -> ConversationState:
+        """Get the current conversation state."""
+        return self.current_state
+
+    def clear_state_history(self) -> None:
+        """Clear the state history and reset current state."""
+        self.state_history.clear()
+        self.current_state = ConversationState()
 
     def start(self, messages=None):
+        """Start the conversation with optional initial messages."""
         import asyncio
         try:
             asyncio.run(self._run_conversation(
@@ -126,8 +130,7 @@ class Conversation:
 
     async def _run_conversation(self, system_msg=None, intro_msg=None, preface_text=None):
         try:
-            self.system_prompt = system_msg or self.default_messages["system"]
-            self.state_manager.update_state(system_prompt=self.system_prompt)
+            self.current_state.system_prompt = system_msg or self.default_messages["system"]
             _, intro_styled, _ = await self.handle_intro(intro_msg or self.default_messages["user"], preface_text)
             
             while True:
@@ -141,21 +144,20 @@ class Conversation:
                     else:
                         _, intro_styled, _ = await self.handle_message(user_input, intro_styled)
                 except Exception as e:
-                    logging.error(f"Conversation error: {str(e)}", exc_info=True)
+                    self.logger.error(f"Conversation error: {str(e)}", exc_info=True)
                     print(f"\nAn error occurred: {str(e)}")
         except Exception as e:
-            logging.error(f"Critical error: {str(e)}", exc_info=True)
+            self.logger.error(f"Critical error: {str(e)}", exc_info=True)
             raise
         finally:
             await self.utilities.update_display()
 
     async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
         try:
-            current_state = self.state_manager.get_current_state()
-            turn_number = current_state.turn_number + 1
+            turn_number = self.current_state.turn_number + 1
             
             self.messages.append(Message("user", msg, turn_number))
-            self.state_manager.update_state(
+            self.update_state(
                 turn_number=turn_number,
                 last_user_input=msg,
                 messages=await self.get_messages()
@@ -172,16 +174,17 @@ class Conversation:
             
             if raw:
                 self.messages.append(Message("assistant", raw, turn_number))
-                self.state_manager.update_state(messages=await self.get_messages())
+                self.update_state(messages=await self.get_messages())
                 
             return raw, styled
         except Exception as e:
-            logging.error(f"Message processing error: {str(e)}", exc_info=True)
+            self.logger.error(f"Message processing error: {str(e)}", exc_info=True)
             return "", ""
 
     async def get_messages(self) -> List[Dict[str, str]]:
+        """Get the current message history including system prompt if present."""
         base_messages = [{"role": m.role, "content": m.content} for m in self.messages]
-        return ([{"role": "system", "content": self.system_prompt}] + base_messages) if self.system_prompt else base_messages
+        return ([{"role": "system", "content": self.current_state.system_prompt}] + base_messages) if self.current_state.system_prompt else base_messages
 
     async def _process_preface(self, text_list) -> str:
         if not text_list:
@@ -207,7 +210,7 @@ class Conversation:
         
         self.is_silent = True
         self.prompt = ""
-        self.state_manager.update_state(
+        self.update_state(
             is_silent=True,
             prompt_display="",
             preconversation_styled=self.preconversation_styled
@@ -224,7 +227,7 @@ class Conversation:
         self.prompt = f"> {user_input.rstrip('?.!')}{end_char * 3}"
         self.preconversation_styled = ""
         
-        self.state_manager.update_state(
+        self.update_state(
             is_silent=False,
             prompt_display=self.prompt,
             preconversation_styled=""
@@ -233,7 +236,7 @@ class Conversation:
         return raw, styled, self.prompt
 
     async def handle_edit_or_retry(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
-        current_turn = self.state_manager.get_current_state().turn_number
+        current_turn = self.current_state.turn_number
         
         rev_streamer = self.animations.create_reverse_streamer()
         await rev_streamer.reverse_stream(
@@ -248,11 +251,11 @@ class Conversation:
         
         if len(self.messages) >= 2 and self.messages[-2].role == "user":
             self.messages = self.messages[:-2]
-            self.state_manager.restore_state(current_turn - 1)
+            self.restore_state(current_turn - 1)
         
         if self.is_silent:
             raw, styled = await self._process_message(last_msg, silent=True)
-            self.state_manager.update_state(
+            self.update_state(
                 is_silent=True,
                 preconversation_styled=self.preconversation_styled
             )
@@ -271,9 +274,10 @@ class Conversation:
             
         end_char = last_msg[-1] if last_msg.endswith(('?', '!')) else '.'
         self.prompt = f"> {last_msg.rstrip('?.!')}{end_char * 3}"
-        self.state_manager.update_state(prompt_display=self.prompt)
+        self.update_state(prompt_display=self.prompt)
         return raw, styled, self.prompt
 
     def preface(self, text: str, color: Optional[str] = None, display_type: str = "panel") -> None:
+        """Add preface content to the conversation."""
         self.preconversation_text.append(PrefaceContent(text, color, display_type))
-        self.state_manager.update_state(preconversation_styled=self.preconversation_styled)
+        self.update_state(preconversation_styled=self.preconversation_styled)

@@ -2,113 +2,131 @@
 
 import httpx
 import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, AsyncGenerator, Callable
 
 class Stream:
+    """Base class for handling message streaming."""
+    
     def __init__(self, logger=None):
+        """
+        Initialize stream with optional logger.
+        
+        Args:
+            logger: Optional logger instance
+        """
         self.logger = logger
-        self.conversation_state = {
-            'messages': [],
-            'stream_type': None,
-            'turn': 0,
-            'state_version': '2.0'  # Added to track state format
-        }
         self._last_error: Optional[str] = None
 
-    def get_generator(self):
+    def get_generator(self) -> Callable:
+        """Get the message generator function."""
         raise NotImplementedError
 
-    def _log_state(self, prefix: str = "") -> None:
-        if self.logger:
-            try:
-                state_copy = {**self.conversation_state}
-                # Truncate messages for logging
-                if state_copy.get('messages'):
-                    state_copy['messages'] = f"[{len(state_copy['messages'])} messages]"
-                self.logger.debug(f"{prefix} Conversation State: {json.dumps(state_copy, indent=2)}")
-            except Exception as e:
-                self.logger.error(f"Error logging state: {str(e)}")
-
-    def update_state(self, new_state: Dict[str, Any]) -> None:
-        """Update stream state with new state data."""
+    async def _wrap_generator(self, generator_func: Callable, messages: list, state: Optional[Dict] = None, **kwargs) -> AsyncGenerator[str, None]:
+        """
+        Wrap the generator function to handle state and errors.
+        
+        Args:
+            generator_func: The base generator function
+            messages: List of conversation messages
+            state: Optional conversation state
+            **kwargs: Additional generator arguments
+            
+        Yields:
+            Message chunks from the generator
+        """
         try:
-            self.conversation_state.update({
-                'messages': new_state.get('messages', self.conversation_state['messages']),
-                'turn': new_state.get('turn_number', self.conversation_state['turn']),
-                'last_update': new_state.get('timestamp'),
-            })
-            self._log_state("State updated:")
-        except Exception as e:
             if self.logger:
-                self.logger.error(f"Error updating state: {str(e)}")
+                self.logger.debug(f"Starting generator with {len(messages)} messages")
+                if state:
+                    self.logger.debug(f"Current conversation state: turn={state.get('turn_number', 0)}")
+
+            async for chunk in generator_func(messages, **kwargs):
+                if self.logger:
+                    self.logger.debug(f"Generated chunk: {chunk[:50]}...")
+                yield chunk
+
+        except Exception as e:
+            error_msg = f"Generator error: {str(e)}"
+            if self.logger:
+                self.logger.error(error_msg)
             self._last_error = str(e)
+            yield f"Error during generation: {str(e)}"
 
 class EmbeddedStream(Stream):
+    """Handler for local embedded message streams."""
+    
     def __init__(self, generator=None, logger=None):
+        """
+        Initialize embedded stream with generator function.
+        
+        Args:
+            generator: Function that generates message responses
+            logger: Optional logger instance
+        """
         super().__init__(logger=logger)
         if not generator:
             raise ValueError("Generator function must be provided")
         self.generator = generator
-        self.conversation_state['stream_type'] = 'embedded'
         if self.logger:
             self.logger.debug("Initialized embedded stream with generator")
 
-    def get_generator(self):
-        async def wrapped_generator(messages, state=None, **kwargs):
+    def get_generator(self) -> Callable:
+        """Get wrapped generator function for embedded stream."""
+        async def generator_wrapper(messages: list, state: Optional[Dict] = None, **kwargs):
             try:
-                # Update state with incoming messages and state
-                self.conversation_state['messages'] = messages
-                self.conversation_state['turn'] += 1
+                if state and self.logger:
+                    self.logger.debug(f"Processing embedded stream with state: turn={state.get('turn_number', 0)}")
 
-                if state:
-                    self.update_state(state)
-
-                self._log_state("Before generation:")
-
-                # Run the actual generator and log each response chunk.
-                async for chunk in self.generator(messages, **kwargs):
-                    if self.logger:
-                        self.logger.debug(f"Embedded response chunk: {chunk.strip()}")
+                async for chunk in self._wrap_generator(self.generator, messages, state, **kwargs):
                     yield chunk
-
-                self._log_state("After generation:")
 
             except Exception as e:
                 if self.logger:
-                    self.logger.error(f"Generator error: {str(e)}")
+                    self.logger.error(f"Embedded stream error: {str(e)}")
                 self._last_error = str(e)
-                yield f"Error during generation: {str(e)}"
+                yield f"Error in embedded stream: {str(e)}"
 
-        return wrapped_generator
+        return generator_wrapper
 
 class RemoteStream(Stream):
-    def __init__(self, endpoint, logger=None):
+    """Handler for remote message streams."""
+    
+    def __init__(self, endpoint: str, logger=None):
+        """
+        Initialize remote stream with endpoint URL.
+        
+        Args:
+            endpoint: Remote service endpoint URL
+            logger: Optional logger instance
+        """
         super().__init__(logger=logger)
         self.endpoint = endpoint.rstrip('/')
         self.client = httpx.AsyncClient(timeout=30.0)
-        self.conversation_state['stream_type'] = 'remote'
         if self.logger:
-            self.logger.debug("Initialized remote stream: %s", self.endpoint)
+            self.logger.debug(f"Initialized remote stream: {self.endpoint}")
 
-    async def stream_from_endpoint(self, messages, state=None, **kwargs):
+    async def _stream_from_endpoint(self, messages: list, state: Optional[Dict] = None, **kwargs) -> AsyncGenerator[str, None]:
+        """
+        Stream messages from remote endpoint.
+        
+        Args:
+            messages: List of conversation messages
+            state: Optional conversation state
+            **kwargs: Additional request parameters
+            
+        Yields:
+            Message chunks from the remote endpoint
+        """
         try:
-            # Update state with incoming messages
-            self.conversation_state['messages'] = messages
-            self.conversation_state['turn'] += 1
+            if self.logger:
+                self.logger.debug(f"Starting remote stream request with {len(messages)} messages")
 
-            if state:
-                self.update_state(state)
-
-            self._log_state("Before request:")
-
-            # Prepare request payload
             payload = {
                 'messages': messages,
-                'conversation_state': self.conversation_state,
+                'state': state,
                 **kwargs
             }
 
-            # Stream the response from the remote endpoint
             async with self.client.stream(
                 'POST',
                 f"{self.endpoint}/stream",
@@ -116,55 +134,63 @@ class RemoteStream(Stream):
                 timeout=30.0
             ) as response:
                 response.raise_for_status()
+                
                 async for line in response.aiter_lines():
                     if line:
                         if self.logger:
-                            self.logger.debug(f"Remote response chunk: {line.strip()}")
+                            self.logger.debug(f"Remote response chunk: {line[:50]}...")
                         yield line
 
-                # After streaming completes, get final state if provided
                 if response.headers.get('X-Conversation-State'):
                     try:
                         new_state = json.loads(response.headers['X-Conversation-State'])
-                        self.update_state(new_state)
-                        self._log_state("After response:")
+                        if self.logger:
+                            self.logger.debug(f"Updated state from response: turn={new_state.get('turn_number', 0)}")
                     except json.JSONDecodeError as e:
                         if self.logger:
-                            self.logger.error(f"Failed to decode conversation state from response: {str(e)}")
+                            self.logger.error(f"Failed to decode state from response: {str(e)}")
                         self._last_error = "State decode error"
 
-                yield 'data: [DONE]\n\n'
-
         except httpx.TimeoutError as e:
+            error_msg = "Request timed out"
             if self.logger:
                 self.logger.error(f"Stream timeout: {str(e)}")
             self._last_error = "Timeout"
-            yield f'data: [ERROR] Request timed out\n\n'
+            yield f"Error: {error_msg}"
 
         except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP {e.response.status_code}"
             if self.logger:
-                self.logger.error(f"HTTP {e.response.status_code}: {str(e)}")
-            self._last_error = f"HTTP {e.response.status_code}"
-            yield f'data: [ERROR] HTTP {e.response.status_code}\n\n'
+                self.logger.error(f"{error_msg}: {str(e)}")
+            self._last_error = error_msg
+            yield f"Error: {error_msg}"
 
         except httpx.RequestError as e:
+            error_msg = "Failed to connect"
             if self.logger:
                 self.logger.error(f"Connection error: {str(e)}")
             self._last_error = "Connection error"
-            yield 'data: [ERROR] Failed to connect\n\n'
+            yield f"Error: {error_msg}"
 
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Unexpected error: {str(e)}")
             self._last_error = str(e)
-            yield f'data: [ERROR] {str(e)}\n\n'
+            yield f"Error: {str(e)}"
 
-    def get_generator(self):
-        return self.stream_from_endpoint
+    def get_generator(self) -> Callable:
+        """Get wrapped generator function for remote stream."""
+        async def generator_wrapper(messages: list, state: Optional[Dict] = None, **kwargs):
+            async for chunk in self._wrap_generator(self._stream_from_endpoint, messages, state, **kwargs):
+                yield chunk
+
+        return generator_wrapper
 
     async def __aenter__(self):
+        """Async context manager entry."""
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit with client cleanup."""
         if self.client:
             await self.client.aclose()
