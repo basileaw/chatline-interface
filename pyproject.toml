@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chatline"  # Changed to match our directory name
+version = "0.1.0"
+description = "A chat interface implementation"
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["chatline"]
