@@ -3,6 +3,7 @@
 import httpx
 import json
 from typing import Optional, Dict, Any, AsyncGenerator, Callable
+from .generator import generate_stream
 
 class Stream:
     """Base class for handling message streaming."""
@@ -16,6 +17,22 @@ class Stream:
         """
         self.logger = logger
         self._last_error: Optional[str] = None
+
+    @classmethod
+    def create(cls, endpoint: Optional[str] = None, logger=None) -> 'Stream':
+        """
+        Factory method to create the appropriate type of stream.
+        
+        Args:
+            endpoint: Optional URL for remote endpoint
+            logger: Optional logger instance
+            
+        Returns:
+            Either a RemoteStream or EmbeddedStream
+        """
+        if endpoint:
+            return RemoteStream(endpoint, logger=logger)
+        return EmbeddedStream(logger=logger)
 
     def get_generator(self) -> Callable:
         """Get the message generator function."""
@@ -55,20 +72,17 @@ class Stream:
 class EmbeddedStream(Stream):
     """Handler for local embedded message streams."""
     
-    def __init__(self, generator=None, logger=None):
+    def __init__(self, logger=None):
         """
-        Initialize embedded stream with generator function.
+        Initialize embedded stream.
         
         Args:
-            generator: Function that generates message responses
             logger: Optional logger instance
         """
         super().__init__(logger=logger)
-        if not generator:
-            raise ValueError("Generator function must be provided")
-        self.generator = generator
+        self.generator = generate_stream
         if self.logger:
-            self.logger.debug("Initialized embedded stream with generator")
+            self.logger.debug("Initialized embedded stream with default generator")
 
     def get_generator(self) -> Callable:
         """Get wrapped generator function for embedded stream."""

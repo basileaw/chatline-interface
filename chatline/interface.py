@@ -1,10 +1,10 @@
 # interface.py
 
-from typing import Optional, Dict, Callable
+import logging
+from typing import Optional, Dict
 from .display import Display
 from .conversation import Conversation
-from .stream import EmbeddedStream, RemoteStream
-from .generator import generate_stream
+from .stream import Stream
 from .logger import get_logger
 
 class Interface:
@@ -17,38 +17,34 @@ class Interface:
     def __init__(
         self, 
         endpoint: Optional[str] = None, 
-        generator_func: Optional[Callable] = None, 
         logging_enabled: bool = False
     ):
         """
-        Initialize the interface with optional remote endpoint or custom generator.
+        Initialize the interface.
         
         Args:
-            endpoint: Optional URL for remote chat endpoint
-            generator_func: Optional custom generator function
+            endpoint: Optional URL for remote endpoint. If not provided,
+                     runs with embedded message generation.
             logging_enabled: Whether to enable logging to file
         """
         self.logger = get_logger(__name__, logging_enabled)
-        self._init_components(endpoint, generator_func or generate_stream)
+        self._init_components(endpoint)
 
-    def _init_components(self, endpoint: Optional[str], generator_func: Callable) -> None:
+    def _init_components(self, endpoint: Optional[str]) -> None:
         """
         Initialize all required components for the chat interface.
         
         Args:
             endpoint: Optional remote endpoint URL
-            generator_func: Generator function for message streaming
         """
         try:
             # Initialize display coordinator
             self.display = Display()
             
-            # Initialize appropriate stream handler
-            self.stream = (RemoteStream(endpoint, logger=self.logger) 
-                         if endpoint 
-                         else EmbeddedStream(generator_func, logger=self.logger))
+            # Initialize stream (type handled internally by Stream class)
+            self.stream = Stream.create(endpoint, logger=self.logger)
             
-            # Initialize conversation with display components and stream generator
+            # Initialize conversation with display components
             self.conversation = Conversation(
                 utilities=self.display.utilities,
                 styles=self.display.styles,
@@ -79,12 +75,12 @@ class Interface:
             self.logger.error(f"Preface error: {str(e)}")
             raise
 
-    def start(self, messages: Optional[Dict[str, str]] = None) -> None:
+    def start(self, messages: Dict[str, str]) -> None:
         """
-        Start the conversation with optional initial messages.
+        Start the conversation with the provided messages.
         
         Args:
-            messages: Optional dictionary containing system and user messages
+            messages: Dictionary containing 'system' and 'user' messages
         """
         try:
             self.conversation.start(messages)
