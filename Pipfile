@@ -4,16 +4,13 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-boto3 = "*"
-rich = "*"
-prompt-toolkit = "*"
-httpx = "*"
-chatline = {file = ".", editable = true}
+chatline = {path = ".", editable = true}  # Install chatline from the local repo
 
 [dev-packages]
 fastapi = "*"
 uvicorn = "*"
-hatchling = "*"  
+pytest = "*"  # Example dev tool for testing
+setuptools = "*"
 
 [requires]
 python_version = "3.12"
