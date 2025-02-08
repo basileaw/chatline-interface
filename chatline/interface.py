@@ -1,6 +1,5 @@
 # interface.py
 
-import logging
 from typing import Optional, Dict, Callable
 from .display import Display
 from .conversation import Conversation

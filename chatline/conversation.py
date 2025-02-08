@@ -37,29 +37,15 @@ class ConversationState:
         return cls(**data)
 
 class Conversation:
-    default_messages = {
-        "system": (
-            'Write in present tense. Write in third person. Use the following text styles:\n'
-            '- "quotes" for dialogue\n'
-            '- [Brackets...] for actions\n'
-            '- underscores for emphasis\n'
-            '- asterisks for bold text'),
-        "user": (
-            """Write the line: "[The machine powers on and hums...]\n\n"""
-            """Then, start a new, 25-word paragraph."""
-            """Begin with a greeting from the machine itself: " "Hey there," " """)
-    }
-
-    def __init__(self, utilities, styles, animations, generator_func, system_prompt=None):
+    def __init__(self, utilities, styles, animations, generator_func):
         """
-        Initialize a new conversation instance.
+        Initialize a conversation instance.
         
         Args:
-            utilities: DisplayUtilities instance for terminal operations
-            styles: DisplayStyles instance for text formatting
-            animations: DisplayAnimations instance for loading and streaming effects
+            utilities: DisplayUtilities for terminal operations
+            styles: DisplayStyles for text formatting
+            animations: DisplayAnimations for visual effects
             generator_func: Async function that generates responses
-            system_prompt: Optional system prompt to override default
         """
         self.utilities = utilities
         self.styles = styles
@@ -69,12 +55,7 @@ class Conversation:
         self.logger = logging.getLogger(__name__)
         
         # Initialize state
-        self.current_state = ConversationState(
-            system_prompt=system_prompt,
-            is_silent=False,
-            prompt_display="",
-            preconversation_styled=""
-        )
+        self.current_state = ConversationState()
         self.state_history = {}
         
         # Display configuration
@@ -114,38 +95,52 @@ class Conversation:
         self.state_history.clear()
         self.current_state = ConversationState()
 
-    def start(self, messages=None):
-        """Start the conversation with optional initial messages."""
+    def start(self, messages: Dict[str, str]) -> None:
+        """
+        Start the conversation with required messages.
+        
+        Args:
+            messages: Dictionary containing 'system' and 'user' messages
+        """
+        if not messages or 'system' not in messages or 'user' not in messages:
+            raise ValueError("Both system and user messages are required")
+            
         import asyncio
         try:
-            asyncio.run(self._run_conversation(
-                messages["system"] if messages else self.default_messages["system"],
-                messages["user"] if messages else self.default_messages["user"],
-                self.preconversation_text
-            ))
+            asyncio.run(self._run_conversation(messages['system'], messages['user']))
         except KeyboardInterrupt:
             print("\nExiting...")
         finally:
             self.utilities.reset()
 
-    async def _run_conversation(self, system_msg=None, intro_msg=None, preface_text=None):
+    async def _run_conversation(self, system_msg: str, intro_msg: str):
+        """
+        Run the conversation loop with initial messages.
+        
+        Args:
+            system_msg: System prompt for conversation context
+            intro_msg: Initial user message
+        """
         try:
-            self.current_state.system_prompt = system_msg or self.default_messages["system"]
-            _, intro_styled, _ = await self.handle_intro(intro_msg or self.default_messages["user"], preface_text)
+            self.current_state.system_prompt = system_msg
+            _, intro_styled, _ = await self.handle_intro(intro_msg)
             
             while True:
                 user_input = await self.utilities.get_user_input()
                 if not user_input:
                     continue
-                try:
-                    cmd = user_input.lower().strip()
-                    if cmd in ["edit", "retry"]:
-                        _, intro_styled, _ = await self.handle_edit_or_retry(intro_styled, is_retry=cmd=="retry")
-                    else:
-                        _, intro_styled, _ = await self.handle_message(user_input, intro_styled)
-                except Exception as e:
-                    self.logger.error(f"Conversation error: {str(e)}", exc_info=True)
-                    print(f"\nAn error occurred: {str(e)}")
+                    
+                cmd = user_input.lower().strip()
+                if cmd in ["edit", "retry"]:
+                    _, intro_styled, _ = await self.handle_edit_or_retry(
+                        intro_styled, 
+                        is_retry=cmd=="retry"
+                    )
+                else:
+                    _, intro_styled, _ = await self.handle_message(
+                        user_input, 
+                        intro_styled
+                    )
         except Exception as e:
             self.logger.error(f"Critical error: {str(e)}", exc_info=True)
             raise
@@ -184,7 +179,8 @@ class Conversation:
     async def get_messages(self) -> List[Dict[str, str]]:
         """Get the current message history including system prompt if present."""
         base_messages = [{"role": m.role, "content": m.content} for m in self.messages]
-        return ([{"role": "system", "content": self.current_state.system_prompt}] + base_messages) if self.current_state.system_prompt else base_messages
+        return ([{"role": "system", "content": self.current_state.system_prompt}] + base_messages
+                if self.current_state.system_prompt else base_messages)
 
     async def _process_preface(self, text_list) -> str:
         if not text_list:
@@ -197,8 +193,8 @@ class Conversation:
         _, styled = await self.styles.write_styled(strategy.format(content))
         return styled
 
-    async def handle_intro(self, intro_msg: str, preface_text: Optional[List] = None) -> Tuple[str, str, str]:
-        self.preconversation_styled = await self._process_preface(preface_text)
+    async def handle_intro(self, intro_msg: str) -> Tuple[str, str, str]:
+        self.preconversation_styled = await self._process_preface(self.preconversation_text)
         styled_panel = self.styles.append_single_blank_line(self.preconversation_styled)
         
         if styled_panel.strip():
