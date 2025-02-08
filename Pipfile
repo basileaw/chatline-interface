@@ -4,7 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-chatline = {path = ".", editable = true}  # Install chatline from the local repo
+chatline = {path = ".", editable = true}
 
 [dev-packages]
 fastapi = "*"

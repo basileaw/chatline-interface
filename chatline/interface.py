@@ -46,9 +46,7 @@ class Interface:
             
             # Initialize conversation with display components
             self.conversation = Conversation(
-                utilities=self.display.utilities,
-                styles=self.display.styles,
-                animations=self.display.animations,
+                display=self.display,
                 generator_func=self.stream.get_generator()
             )
             

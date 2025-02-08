@@ -37,19 +37,19 @@ class ConversationState:
         return cls(**data)
 
 class Conversation:
-    def __init__(self, utilities, styles, animations, generator_func):
+    def __init__(self, display, generator_func):
         """
         Initialize a conversation instance.
         
         Args:
-            utilities: DisplayUtilities for terminal operations
-            styles: DisplayStyles for text formatting
-            animations: DisplayAnimations for visual effects
+            display: Display instance for managing terminal display operations
             generator_func: Async function that generates responses
         """
-        self.utilities = utilities
-        self.styles = styles
-        self.animations = animations
+        self.display = display
+        # Access display components through the display instance
+        self.utilities = display.utilities
+        self.styles = display.styles
+        self.animations = display.animations
         self.generator = generator_func
         self.messages = []
         self.logger = logging.getLogger(__name__)
