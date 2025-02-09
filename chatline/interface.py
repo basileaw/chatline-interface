@@ -1,7 +1,7 @@
 # interface.py
 
 import logging
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from .display import Display
 from .conversation import Conversation
 from .stream import Stream
@@ -12,7 +12,8 @@ class Interface:
     Main interface coordinator for the chat application.
     
     Provides a clean interface for initializing and starting conversations,
-    coordinating between the display, conversation, and stream components.
+    coordinating between the display, conversation, and stream components
+    while managing system-level concerns like logging.
     """
     def __init__(
         self, 
@@ -34,11 +35,14 @@ class Interface:
         """
         Initialize all required components for the chat interface.
         
+        This method handles the proper initialization order and error handling
+        for all major system components.
+        
         Args:
             endpoint: Optional remote endpoint URL
         """
         try:
-            # Initialize display coordinator
+            # Initialize display system
             self.display = Display()
             
             # Initialize stream (type handled internally by Stream class)
@@ -50,14 +54,19 @@ class Interface:
                 generator_func=self.stream.get_generator()
             )
             
-            # Setup display by calling utilities directly
-            self.display.utilities.reset()
+            # Ensure clean initial state
+            self.display.reset()
             
         except Exception as e:
             self.logger.error(f"Initialization error: {str(e)}")
             raise
 
-    def preface(self, text: str, color: Optional[str] = None, display_type: str = "panel") -> None:
+    def preface(
+        self,
+        text: str,
+        color: Optional[str] = None,
+        display_type: str = "panel"
+    ) -> None:
         """
         Add preface text to be displayed before the conversation starts.
         
@@ -65,6 +74,9 @@ class Interface:
             text: Text content to display
             color: Optional color for the text
             display_type: Display style ("text" or "panel")
+            
+        Raises:
+            Exception: If there's an error adding the preface
         """
         try:
             self.conversation.preface(text, color, display_type)
@@ -77,8 +89,15 @@ class Interface:
         """
         Start the conversation with the provided messages.
         
+        This method handles the main conversation loop, including proper
+        cleanup on exit or error.
+        
         Args:
             messages: Dictionary containing 'system' and 'user' messages
+            
+        Raises:
+            KeyboardInterrupt: If user interrupts the conversation
+            Exception: For other errors during conversation
         """
         try:
             self.conversation.start(messages)
@@ -88,4 +107,5 @@ class Interface:
             self.logger.error(f"Start error: {str(e)}")
             raise
         finally:
-            self.display.utilities.reset()
+            # Always ensure we reset the display state
+            self.display.reset()

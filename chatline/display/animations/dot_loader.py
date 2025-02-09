@@ -1,4 +1,4 @@
-# animations/dot_loader.py
+# display/animations/dot_loader.py
 
 import asyncio
 import json
@@ -19,17 +19,18 @@ class AsyncDotLoader:
         self.animation_complete = asyncio.Event()
         self.animation_task = None
         self.resolved = False
-        self.utilities = None
+        self.utilities = None  # Will be set by DisplayAnimations
         self._stored_messages = []
 
     async def _animate(self):
+        """Run the dot animation."""
         try:
             while not self.animation_complete.is_set():
                 await self.utilities.write_loading_state(self.prompt, self.dots, self.dot_char)
                 await asyncio.sleep(0.4)
                 if self.resolved and self.dots == 3:
                     await self.utilities.write_loading_state(self.prompt, 3, self.dot_char)
-                    self.utilities._write('\n\n')
+                    self.utilities.terminal.write('\n\n')
                     break
                 self.dots = min(self.dots+1, 3) if self.resolved else (self.dots+1) % 4
             self.animation_complete.set()
@@ -38,6 +39,7 @@ class AsyncDotLoader:
             raise e
 
     async def _handle_message_chunk(self, chunk, first_chunk):
+        """Process a single message chunk."""
         raw = styled = ""
         if not (c := chunk.strip()).startswith("data: ") or c == "data: [DONE]":
             return raw, styled
@@ -63,6 +65,7 @@ class AsyncDotLoader:
         return raw, styled
 
     async def _process_stored_messages(self):
+        """Process any stored messages in order."""
         raw = styled = ""
         if self._stored_messages:
             self._stored_messages.sort(key=lambda x: x[1])
@@ -76,6 +79,15 @@ class AsyncDotLoader:
         return raw, styled
 
     async def run_with_loading(self, stream):
+        """
+        Run the loading animation while processing the stream.
+        
+        Args:
+            stream: Iterator or async iterator of message chunks
+            
+        Returns:
+            Tuple of (raw_output, styled_output)
+        """
         if not self.styles:
             raise ValueError("styles must be provided")
 
