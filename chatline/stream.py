@@ -12,16 +12,27 @@ class Stream:
         self.logger = logger
         self._last_error: Optional[str] = None
 
-    @classmethod
+    @classmethod 
     def create(cls, endpoint: Optional[str] = None, logger=None) -> 'Stream':
         if endpoint:
             return RemoteStream(endpoint, logger=logger)
         return EmbeddedStream(logger=logger)
 
     def get_generator(self) -> Callable:
+        """Abstract method to get the generator function"""
         raise NotImplementedError
 
+class EmbeddedStream(Stream):
+    """Handler for local embedded message streams."""
+    
+    def __init__(self, logger=None):
+        super().__init__(logger=logger)
+        self.generator = generate_stream
+        if self.logger:
+            self.logger.debug("Initialized embedded stream with default generator")
+
     async def _wrap_generator(self, generator_func: Callable, messages: list, state: Optional[Dict] = None, **kwargs) -> AsyncGenerator[str, None]:
+        """Helper method to wrap generator with error handling and logging"""
         try:
             if self.logger:
                 self.logger.debug(f"Starting generator with {len(messages)} messages")
@@ -39,15 +50,6 @@ class Stream:
                 self.logger.error(error_msg)
             self._last_error = str(e)
             yield f"Error during generation: {str(e)}"
-
-class EmbeddedStream(Stream):
-    """Handler for local embedded message streams."""
-    
-    def __init__(self, logger=None):
-        super().__init__(logger=logger)
-        self.generator = generate_stream
-        if self.logger:
-            self.logger.debug("Initialized embedded stream with default generator")
 
     def get_generator(self) -> Callable:
         async def generator_wrapper(messages: list, state: Optional[Dict] = None, **kwargs):
@@ -140,9 +142,8 @@ class RemoteStream(Stream):
 
     def get_generator(self) -> Callable:
         async def generator_wrapper(messages: list, state: Optional[Dict] = None, **kwargs):
-            async for chunk in self._wrap_generator(self._stream_from_endpoint, messages, state, **kwargs):
+            async for chunk in self._stream_from_endpoint(messages, state, **kwargs):
                 yield chunk
-
         return generator_wrapper
 
     async def __aenter__(self):
