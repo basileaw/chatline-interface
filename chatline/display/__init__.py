@@ -26,9 +26,5 @@ class Display:
             styles=self.styles
         )
 
-    def reset(self):
-        """Reset the display state by showing cursor and clearing screen."""
-        self.utilities.reset()
-
 # Export components for direct access
 __all__ = ['Display', 'DisplayUtilities', 'DisplayStyles', 'DisplayAnimations']

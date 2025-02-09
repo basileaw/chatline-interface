@@ -50,8 +50,8 @@ class Interface:
                 generator_func=self.stream.get_generator()
             )
             
-            # Setup display
-            self.display.reset()
+            # Setup display by calling utilities directly
+            self.display.utilities.reset()
             
         except Exception as e:
             self.logger.error(f"Initialization error: {str(e)}")
@@ -88,4 +88,4 @@ class Interface:
             self.logger.error(f"Start error: {str(e)}")
             raise
         finally:
-            self.display.reset()
+            self.display.utilities.reset()
