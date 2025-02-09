@@ -1,46 +1,41 @@
-import os
-import sys
-import json
+# server.py
+
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 import uvicorn
-
-# Ensure the project root is in the Python module search path.
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
+import json
 from chatline.generator import generate_stream
 
 app = FastAPI()
 
-@app.post("/chat/stream")
+@app.post("/chat")
 async def stream_chat(request: Request):
-    """
-    Handle chat streaming requests.
-    """
+    # Parse the request body and handle potential None cases
     body = await request.json()
     messages = body.get('messages', [])
-    conversation_state = body.get('conversation_state', {
+    
+    # Get the state from the request, defaulting to an empty state if not present
+    state = {
         'messages': messages,
         'stream_type': 'remote',
-        'turn': 0
-    })
-
-    generation_params = {
-        'max_gen_len': body.get('max_gen_len', 1024),
-        'temperature': body.get('temperature', 0.9)
+        'turn_number': 0
     }
-
-    conversation_state['turn'] += 1
+    
+    # If we received state information, update our default state
+    if 'conversation_state' in body and body['conversation_state']:
+        received_state = body['conversation_state']
+        state['turn_number'] = received_state.get('turn_number', 0)
+    
+    # Increment the turn number
+    state['turn_number'] += 1
 
     headers = {
-        'X-Conversation-State': json.dumps(conversation_state),
-        'Content-Type': 'text/event-stream'
+        'Content-Type': 'text/event-stream',
+        'X-Conversation-State': json.dumps(state)
     }
 
     return StreamingResponse(
-        generate_stream(messages, **generation_params),
+        generate_stream(messages),
         headers=headers,
         media_type="text/event-stream"
     )
