@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+import math
 
 class ReverseStreamer:
     """
@@ -85,11 +86,14 @@ class ReverseStreamer:
             groups.append((current_type, current_group))
         return groups
 
-    async def reverse_stream(self, styled_text, preserved_msg="", delay=0.08, preconversation_text=""):
+    async def reverse_stream(self, styled_text, preserved_msg="", delay=0.08, preconversation_text="", acceleration_factor=1.15):
         """
-        Reverse-stream animation performed word-by-word.
+        Reverse-stream animation performed word-by-word with acceleration.
         ANSI escape sequences are preserved intact by first tokenizing the text and then grouping
         visible characters into word groups.
+        
+        Args:
+            acceleration_factor (float): Factor to increase chunks removed each iteration (default 1.15)
         """
         if preconversation_text and styled_text.startswith(preconversation_text):
             conversation_text = styled_text[len(preconversation_text):].lstrip()
@@ -102,24 +106,36 @@ class ReverseStreamer:
         groups = self.group_tokens_by_word(tokens)
 
         no_spacing = not preserved_msg
+        chunks_to_remove = 1.0  # Start with removing one chunk
 
-        # Remove one word group (and any trailing space group) at a time.
+        # Remove word groups (and trailing space groups) at an accelerating rate
         while any(group_type == 'word' for group_type, _ in groups):
-            # First, if the last group is a whitespace group, remove it.
-            while groups and groups[-1][0] == 'space':
-                groups.pop()
-            if groups:
-                # Remove the last word group.
-                groups.pop()
-            # Reassemble the remaining tokens.
+            # Calculate how many chunks to remove this iteration
+            chunks_this_round = round(chunks_to_remove)
+            
+            # Remove chunks for this iteration
+            for _ in range(min(chunks_this_round, len(groups))):
+                # First, if the last group is a whitespace group, remove it
+                while groups and groups[-1][0] == 'space':
+                    groups.pop()
+                if groups:
+                    # Remove the last word group
+                    groups.pop()
+
+            # Accelerate for next iteration
+            chunks_to_remove *= acceleration_factor
+
+            # Reassemble the remaining tokens
             remaining_tokens = []
             for _, grp in groups:
                 remaining_tokens.extend(grp)
             new_text = self.reassemble_tokens(remaining_tokens)
+            
             if preconversation_text:
                 full_display = preconversation_text.rstrip() + "\n\n" + new_text
             else:
                 full_display = new_text
+                
             await self.utilities.update_animated_display(full_display, preserved_msg, no_spacing)
             await asyncio.sleep(delay)
 
