@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 import uvicorn
 import json
-from chatline.generator import generate_stream
+from chatline.stream.generator import generate_stream
 
 app = FastAPI()
 

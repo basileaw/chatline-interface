@@ -1,84 +1,31 @@
-# stream.py
+# remote.py 
 
 import httpx
 import json
 from typing import Optional, Dict, Any, AsyncGenerator, Callable
-from .generator import generate_stream
 
-class Stream:
-    """Base class for handling message streaming."""
-    
-    def __init__(self, logger=None):
-        self.logger = logger
-        self._last_error: Optional[str] = None
-
-    @classmethod 
-    def create(cls, endpoint: Optional[str] = None, logger=None) -> 'Stream':
-        if endpoint:
-            return RemoteStream(endpoint, logger=logger)
-        return EmbeddedStream(logger=logger)
-
-    def get_generator(self) -> Callable:
-        """Abstract method to get the generator function"""
-        raise NotImplementedError
-
-class EmbeddedStream(Stream):
-    """Handler for local embedded message streams."""
-    
-    def __init__(self, logger=None):
-        super().__init__(logger=logger)
-        self.generator = generate_stream
-        if self.logger:
-            self.logger.debug("Initialized embedded stream with default generator")
-
-    async def _wrap_generator(self, generator_func: Callable, messages: list, state: Optional[Dict] = None, **kwargs) -> AsyncGenerator[str, None]:
-        """Helper method to wrap generator with error handling and logging"""
-        try:
-            if self.logger:
-                self.logger.debug(f"Starting generator with {len(messages)} messages")
-                if state:
-                    self.logger.debug(f"Current conversation state: turn={state.get('turn_number', 0)}")
-
-            async for chunk in generator_func(messages, **kwargs):
-                if self.logger:
-                    self.logger.debug(f"Generated chunk: {chunk[:50]}...")
-                yield chunk
-
-        except Exception as e:
-            error_msg = f"Generator error: {str(e)}"
-            if self.logger:
-                self.logger.error(error_msg)
-            self._last_error = str(e)
-            yield f"Error during generation: {str(e)}"
-
-    def get_generator(self) -> Callable:
-        async def generator_wrapper(messages: list, state: Optional[Dict] = None, **kwargs):
-            try:
-                if state and self.logger:
-                    self.logger.debug(f"Processing embedded stream with state: turn={state.get('turn_number', 0)}")
-
-                async for chunk in self._wrap_generator(self.generator, messages, state, **kwargs):
-                    yield chunk
-
-            except Exception as e:
-                if self.logger:
-                    self.logger.error(f"Embedded stream error: {str(e)}")
-                self._last_error = str(e)
-                yield f"Error in embedded stream: {str(e)}"
-
-        return generator_wrapper
-
-class RemoteStream(Stream):
+class RemoteStream:
     """Handler for remote message streams."""
     
     def __init__(self, endpoint: str, logger=None):
-        super().__init__(logger=logger)
+        self.logger = logger
+        self._last_error: Optional[str] = None
         self.endpoint = endpoint.rstrip('/')
         self.client = httpx.AsyncClient(timeout=30.0)
         if self.logger:
             self.logger.debug(f"Initialized remote stream: {self.endpoint}")
 
     async def _stream_from_endpoint(self, messages: list, state: Optional[Dict] = None, **kwargs) -> AsyncGenerator[str, None]:
+        """Core method to handle streaming from remote endpoint.
+        
+        Args:
+            messages: List of messages to process
+            state: Optional conversation state
+            **kwargs: Additional arguments passed to the remote endpoint
+            
+        Yields:
+            str: Message chunks from remote endpoint or error messages
+        """
         try:
             if self.logger:
                 self.logger.debug(f"Starting remote stream request with {len(messages)} messages")
@@ -141,14 +88,21 @@ class RemoteStream(Stream):
             yield f"Error: {str(e)}"
 
     def get_generator(self) -> Callable:
+        """Returns a generator function for remote stream processing.
+        
+        Returns:
+            Callable: Async generator function that yields message chunks from remote endpoint
+        """
         async def generator_wrapper(messages: list, state: Optional[Dict] = None, **kwargs):
             async for chunk in self._stream_from_endpoint(messages, state, **kwargs):
                 yield chunk
         return generator_wrapper
 
     async def __aenter__(self):
+        """Async context manager entry."""
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit - ensures proper client cleanup."""
         if self.client:
             await self.client.aclose()
