@@ -1,6 +1,5 @@
 # interface.py
 
-import logging
 from typing import Optional, Dict, Any
 from .display import Display
 from .conversation import Conversation
@@ -51,7 +50,7 @@ class Interface:
             # Initialize conversation with display components
             self.conversation = Conversation(
                 display=self.display,
-                generator_func=self.stream.get_generator()
+                stream=self.stream
             )
             
             # Ensure clean initial state

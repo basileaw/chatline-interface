@@ -4,20 +4,18 @@ import logging
 from typing import List, Tuple
 import asyncio
 
-# Note: This module does not import the history or messages modules.
-# Their instances are injected by the Conversation coordinator.
-
 class ConversationActions:
     """
     Handles the actions and flow of the conversation.
     """
-    def __init__(self, display, generator_func, history, messages):
+    def __init__(self, display, stream, history, messages):
         self.display = display
         self.terminal = display.terminal      # Terminal operations
         self.io = display.io                  # Display I/O
         self.styles = display.styles          # Text styling
         self.animations = display.animations  # Animated effects
-        self.generator = generator_func
+        self.stream = stream
+        self.generator = stream.get_generator()  # Get the generator from stream
 
         self.history = history
         self.messages = messages

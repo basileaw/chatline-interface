@@ -12,11 +12,11 @@ class Conversation:
     
     Exposes only the public methods 'start' and 'preface'.
     """
-    def __init__(self, display, generator_func):
+    def __init__(self, display, stream):
         self.display = display
         self._history = ConversationHistory()
         self._messages = ConversationMessages()
-        self._actions = ConversationActions(display, generator_func, self._history, self._messages)
+        self._actions = ConversationActions(display, stream, self._history, self._messages)
         self._logger = logging.getLogger(__name__)
 
     def preface(self, text: str, color: str = None, display_type: str = "panel") -> None:
