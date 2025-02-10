@@ -1,133 +1,17 @@
-# conversation.py
+# conversation/actions.py
 
 import logging
-import copy
+from typing import List, Tuple
 import asyncio
-from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Tuple
-from datetime import datetime
 
-# -------------------------------
-# Data Classes (unchanged)
-# -------------------------------
-
-@dataclass
-class Message:
-    """Represents a single message in the conversation."""
-    role: str
-    content: str
-    turn_number: int = 0
-
-@dataclass
-class PrefaceContent:
-    """Configuration for preface text display."""
-    text: str
-    color: Optional[str] = None
-    display_type: str = "text"
-
-@dataclass
-class ConversationState:
-    """
-    Maintains the current state of the conversation.
-    """
-    messages: List[Dict[str, str]] = field(default_factory=list)
-    turn_number: int = 0
-    system_prompt: Optional[str] = None
-    last_user_input: Optional[str] = None
-    is_silent: bool = False
-    prompt_display: str = ""
-    preconversation_styled: str = ""
-    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
-    
-    def to_dict(self) -> Dict:
-        """Convert state to dictionary for storage."""
-        return {k: v for k, v in self.__dict__.items()}
-    
-    @classmethod
-    def from_dict(cls, data: Dict) -> 'ConversationState':
-        """Create state instance from dictionary."""
-        return cls(**data)
-
-# -------------------------------
-# History Class
-# -------------------------------
-
-class ConversationHistory:
-    """
-    Manages conversation state and state history.
-    """
-    def __init__(self):
-        self.current_state = ConversationState()
-        self.state_history: Dict[int, Dict] = {}
-
-    def create_state_snapshot(self) -> Dict:
-        """Create a deep copy of the current state."""
-        return copy.deepcopy(self.current_state.to_dict())
-
-    def update_state(self, **kwargs) -> None:
-        """
-        Update the current state with new values and store a snapshot.
-        """
-        for key, value in kwargs.items():
-            if hasattr(self.current_state, key):
-                setattr(self.current_state, key, value)
-        self.state_history[self.current_state.turn_number] = self.create_state_snapshot()
-
-    def restore_state(self, turn_number: int) -> Optional[ConversationState]:
-        """
-        Restore state from a specific turn number.
-        """
-        if turn_number in self.state_history:
-            self.current_state = ConversationState.from_dict(self.state_history[turn_number])
-            return self.current_state
-        return None
-
-    def clear_state_history(self) -> None:
-        """Clear the state history and reset the current state."""
-        self.state_history.clear()
-        self.current_state = ConversationState()
-
-# -------------------------------
-# Messages Class
-# -------------------------------
-
-class ConversationMessages:
-    """
-    Manages conversation messages.
-    """
-    def __init__(self):
-        self.messages: List[Message] = []
-
-    def add_message(self, role: str, content: str, turn_number: int) -> None:
-        """Append a new message to the history."""
-        self.messages.append(Message(role, content, turn_number))
-
-    async def get_messages(self, system_prompt: Optional[str] = None) -> List[Dict[str, str]]:
-        """
-        Get the message history as a list of dictionaries.
-        If a system prompt is provided, prepend it.
-        """
-        base_messages = [{"role": m.role, "content": m.content} for m in self.messages]
-        if system_prompt:
-            return [{"role": "system", "content": system_prompt}] + base_messages
-        return base_messages
-
-    def remove_last_n_messages(self, n: int) -> None:
-        """Remove the last n messages."""
-        if n <= len(self.messages):
-            self.messages = self.messages[:-n]
-        else:
-            self.messages = []
-
-# -------------------------------
-# Actions Class
-# -------------------------------
+# Note: This module does not import the history or messages modules.
+# Their instances are injected by the Conversation coordinator.
 
 class ConversationActions:
     """
     Handles the actions and flow of the conversation.
     """
-    def __init__(self, display, generator_func, history: ConversationHistory, messages: ConversationMessages):
+    def __init__(self, display, generator_func, history, messages):
         self.display = display
         self.terminal = display.terminal      # Terminal operations
         self.io = display.io                  # Display I/O
@@ -142,7 +26,7 @@ class ConversationActions:
         # Conversation-specific variables
         self.is_silent = False
         self.prompt = ""
-        self.preconversation_text: List[PrefaceContent] = []
+        self.preconversation_text: List = []  # List to hold preface content
         self.preconversation_styled = ""
         self._display_strategies = {
             "text": self.styles.create_display_strategy("text"),
@@ -156,7 +40,7 @@ class ConversationActions:
         try:
             turn_number = self.history.current_state.turn_number + 1
 
-            # Add user message and update state
+            # Add user message and update state.
             self.messages.add_message("user", msg, turn_number)
             state_msgs = await self.messages.get_messages(self.history.current_state.system_prompt)
             self.history.update_state(
@@ -184,8 +68,10 @@ class ConversationActions:
             self.logger.error(f"Message processing error: {str(e)}", exc_info=True)
             return "", ""
 
-    async def _process_preface(self, text_list: List[PrefaceContent]) -> str:
-        """Process list of preface content into styled text."""
+    async def _process_preface(self, text_list: List) -> str:
+        """
+        Process a list of preface content items into styled text.
+        """
         if not text_list:
             return ""
         styled_parts = []
@@ -194,8 +80,11 @@ class ConversationActions:
             styled_parts.append(formatted)
         return ''.join(styled_parts)
 
-    async def _format_preface_content(self, content: PrefaceContent) -> str:
-        """Format a single preface content item."""
+    async def _format_preface_content(self, content) -> str:
+        """
+        Format a single preface content item.
+        The content is expected to have 'text', 'color', and 'display_type' attributes.
+        """
         self.styles.set_output_color(content.color)
         strategy = self._display_strategies[content.display_type]
         _, styled = await self.styles.write_styled(strategy.format(content))
@@ -203,7 +92,7 @@ class ConversationActions:
 
     async def handle_intro(self, intro_msg: str) -> Tuple[str, str, str]:
         """
-        Handle the initial message of the conversation.
+        Handle the initial conversation message.
         """
         self.preconversation_styled = await self._process_preface(self.preconversation_text)
         styled_panel = self.styles.append_single_blank_line(self.preconversation_styled)
@@ -227,7 +116,7 @@ class ConversationActions:
 
     async def handle_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
         """
-        Handle a regular user message.
+        Process a normal user message.
         """
         await self.io.handle_scroll(intro_styled, f"> {user_input}", 0.08)
         raw, styled = await self._process_message(user_input)
@@ -253,18 +142,16 @@ class ConversationActions:
 
         rev_streamer = self.animations.create_reverse_streamer()
         await rev_streamer.reverse_stream(
-            intro_styled, 
+            intro_styled,
             "" if self.is_silent else self.prompt,
             preconversation_text=self.preconversation_styled
         )
 
-        # Locate the last user message
         last_msg = next((m.content for m in reversed(self.messages.messages) if m.role == "user"), None)
         if not last_msg:
             return "", intro_styled, ""
 
         if len(self.messages.messages) >= 2 and self.messages.messages[-2].role == "user":
-            # Remove last two messages (user and assistant) and restore state
             self.messages.remove_last_n_messages(2)
             self.history.restore_state(current_turn - 1)
 
@@ -294,7 +181,7 @@ class ConversationActions:
 
     async def run_conversation(self, system_msg: str, intro_msg: str):
         """
-        Run the conversation loop with the initial messages.
+        Run the conversation loop starting with the given system and intro messages.
         """
         try:
             self.history.current_state.system_prompt = system_msg
@@ -308,7 +195,7 @@ class ConversationActions:
                 cmd = user_input.lower().strip()
                 if cmd in ["edit", "retry"]:
                     _, intro_styled, _ = await self.handle_edit_or_retry(
-                        intro_styled, 
+                        intro_styled,
                         is_retry=cmd == "retry"
                     )
                 else:
@@ -319,46 +206,16 @@ class ConversationActions:
         finally:
             await self.io.update_display()
 
-    def add_preface(self, text: str, color: Optional[str] = None, display_type: str = "panel") -> None:
+    def add_preface(self, text: str, color: str = None, display_type: str = "panel") -> None:
         """
         Add preface content to the conversation.
+        To avoid cross-imports, a simple local PrefaceContent class is used.
         """
+        class PrefaceContent:
+            def __init__(self, text, color, display_type):
+                self.text = text
+                self.color = color
+                self.display_type = display_type
+
         self.preconversation_text.append(PrefaceContent(text, color, display_type))
         self.history.update_state(preconversation_styled=self.preconversation_styled)
-
-# -------------------------------
-# Coordinator / Wrapper Class
-# -------------------------------
-
-class Conversation:
-    """
-    Coordinator class exposing only 'start' and 'preface'.
-    All other functionality is handled internally.
-    """
-    def __init__(self, display, generator_func):
-        self.display = display
-        self._history = ConversationHistory()
-        self._messages = ConversationMessages()
-        self._actions = ConversationActions(display, generator_func, self._history, self._messages)
-        self._logger = logging.getLogger(__name__)
-
-    def preface(self, text: str, color: Optional[str] = None, display_type: str = "panel") -> None:
-        """
-        Add preface content to the conversation.
-        """
-        self._actions.add_preface(text, color, display_type)
-
-    def start(self, messages: Dict[str, str]) -> None:
-        """
-        Start the conversation with the provided messages.
-        
-        Expects a dictionary with 'system' and 'user' keys.
-        """
-        if not messages or 'system' not in messages or 'user' not in messages:
-            raise ValueError("Both system and user messages are required")
-        try:
-            asyncio.run(self._actions.run_conversation(messages['system'], messages['user']))
-        except KeyboardInterrupt:
-            print("\nExiting...")
-        finally:
-            self.display.terminal.reset()
