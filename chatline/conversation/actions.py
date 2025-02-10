@@ -1,27 +1,25 @@
 # conversation/actions.py
 
-import logging
 from typing import List, Tuple
 import asyncio
 
 class ConversationActions:
-    """Handles the actions and flow of the conversation."""
+    """Manages conversation flow and actions."""
     def __init__(self, display, stream, history, messages, logger):
         self.display = display
-        self.terminal = display.terminal  # Terminal operations
-        self.io = display.io  # Display I/O
-        self.styles = display.styles  # Text styling
-        self.animations = display.animations  # Animated effects
+        self.terminal = display.terminal
+        self.io = display.io
+        self.styles = display.styles
+        self.animations = display.animations
         self.stream = stream
-        self.generator = stream.get_generator()  # Get the generator from stream
+        self.generator = stream.get_generator()
         self.history = history
         self.messages = messages
-        self.logger = logger  # Use passed logger instead of creating new one
-        
-        # Conversation-specific variables
+        self.logger = logger
+
         self.is_silent = False
         self.prompt = ""
-        self.preconversation_text: List = []  # List to hold preface content
+        self.preconversation_text: List = []
         self.preconversation_styled = ""
         self._display_strategies = {
             "text": self.styles.create_display_strategy("text"),
@@ -29,20 +27,12 @@ class ConversationActions:
         }
 
     async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
-        """
-        Process a user message and generate a response.
-        """
+        """Process a user message, update state, and generate a response."""
         try:
             turn_number = self.history.current_state.turn_number + 1
-
-            # Add user message and update state.
             self.messages.add_message("user", msg, turn_number)
             state_msgs = await self.messages.get_messages(self.history.current_state.system_prompt)
-            self.history.update_state(
-                turn_number=turn_number,
-                last_user_input=msg,
-                messages=state_msgs
-            )
+            self.history.update_state(turn_number=turn_number, last_user_input=msg, messages=state_msgs)
 
             self.styles.set_output_color('GREEN')
             loader = self.animations.create_dot_loader(
@@ -60,35 +50,25 @@ class ConversationActions:
 
             return raw, styled
         except Exception as e:
-            self.logger.error(f"Message processing error: {str(e)}", exc_info=True)
+            self.logger.error(f"Message processing error: {e}", exc_info=True)
             return "", ""
 
     async def _process_preface(self, text_list: List) -> str:
-        """
-        Process a list of preface content items into styled text.
-        """
+        """Format a list of preface items into styled text."""
         if not text_list:
             return ""
-        styled_parts = []
-        for content in text_list:
-            formatted = await self._format_preface_content(content)
-            styled_parts.append(formatted)
+        styled_parts = [await self._format_preface_content(content) for content in text_list]
         return ''.join(styled_parts)
 
     async def _format_preface_content(self, content) -> str:
-        """
-        Format a single preface content item.
-        The content is expected to have 'text', 'color', and 'display_type' attributes.
-        """
+        """Format a single preface item with its color and style."""
         self.styles.set_output_color(content.color)
         strategy = self._display_strategies[content.display_type]
         _, styled = await self.styles.write_styled(strategy.format(content))
         return styled
 
     async def handle_intro(self, intro_msg: str) -> Tuple[str, str, str]:
-        """
-        Handle the initial conversation message.
-        """
+        """Handle the initial conversation message."""
         self.preconversation_styled = await self._process_preface(self.preconversation_text)
         styled_panel = self.styles.append_single_blank_line(self.preconversation_styled)
 
@@ -110,9 +90,7 @@ class ConversationActions:
         return raw, full_styled, ""
 
     async def handle_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
-        """
-        Process a normal user message.
-        """
+        """Process a normal user message."""
         await self.io.handle_scroll(intro_styled, f"> {user_input}", 0.08)
         raw, styled = await self._process_message(user_input)
 
@@ -120,19 +98,12 @@ class ConversationActions:
         end_char = user_input[-1] if user_input.endswith(('?', '!')) else '.'
         self.prompt = f"> {user_input.rstrip('?.!')}{end_char * 3}"
         self.preconversation_styled = ""
-
-        self.history.update_state(
-            is_silent=False,
-            prompt_display=self.prompt,
-            preconversation_styled=""
-        )
+        self.history.update_state(is_silent=False, prompt_display=self.prompt, preconversation_styled="")
 
         return raw, styled, self.prompt
 
     async def handle_edit_or_retry(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
-        """
-        Handle edit or retry commands.
-        """
+        """Handle edit or retry commands."""
         current_turn = self.history.current_state.turn_number
 
         rev_streamer = self.animations.create_reverse_streamer()
@@ -152,10 +123,7 @@ class ConversationActions:
 
         if self.is_silent:
             raw, styled = await self._process_message(last_msg, silent=True)
-            self.history.update_state(
-                is_silent=True,
-                preconversation_styled=self.preconversation_styled
-            )
+            self.history.update_state(is_silent=True, preconversation_styled=self.preconversation_styled)
             return raw, f"{self.preconversation_styled}\n{styled}", ""
 
         if is_retry:
@@ -175,9 +143,7 @@ class ConversationActions:
         return raw, styled, self.prompt
 
     async def run_conversation(self, system_msg: str, intro_msg: str):
-        """
-        Run the conversation loop starting with the given system and intro messages.
-        """
+        """Run the conversation loop."""
         try:
             self.history.current_state.system_prompt = system_msg
             _, intro_styled, _ = await self.handle_intro(intro_msg)
@@ -196,15 +162,13 @@ class ConversationActions:
                 else:
                     _, intro_styled, _ = await self.handle_message(user_input, intro_styled)
         except Exception as e:
-            self.logger.error(f"Critical error: {str(e)}", exc_info=True)
+            self.logger.error(f"Critical error: {e}", exc_info=True)
             raise
         finally:
             await self.io.update_display()
 
     def start_conversation(self, messages: dict) -> None:
-        """
-        Starts and manages the conversation loop with error handling and logging.
-        """
+        """Start the conversation loop with error handling."""
         try:
             asyncio.run(self.run_conversation(
                 messages.get('system', ''),
@@ -214,16 +178,14 @@ class ConversationActions:
             self.logger.info("User interrupted")
             self.display.terminal.reset()
         except Exception as e:
-            self.logger.error(f"Critical error in conversation: {str(e)}", exc_info=True)
+            self.logger.error(f"Critical error in conversation: {e}", exc_info=True)
             self.display.terminal.reset()
             raise
         finally:
             self.display.terminal.reset()
     
     def add_preface(self, text: str, color: str = None, display_type: str = "panel") -> None:
-        """
-        Add preface content to the conversation with logging and error handling.
-        """
+        """Add preface content to the conversation."""
         try:
             class PrefaceContent:
                 def __init__(self, text, color, display_type):
