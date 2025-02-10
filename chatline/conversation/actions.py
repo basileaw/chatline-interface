@@ -5,22 +5,19 @@ from typing import List, Tuple
 import asyncio
 
 class ConversationActions:
-    """
-    Handles the actions and flow of the conversation.
-    """
-    def __init__(self, display, stream, history, messages):
+    """Handles the actions and flow of the conversation."""
+    def __init__(self, display, stream, history, messages, logger):
         self.display = display
-        self.terminal = display.terminal      # Terminal operations
-        self.io = display.io                  # Display I/O
-        self.styles = display.styles          # Text styling
+        self.terminal = display.terminal  # Terminal operations
+        self.io = display.io  # Display I/O
+        self.styles = display.styles  # Text styling
         self.animations = display.animations  # Animated effects
         self.stream = stream
         self.generator = stream.get_generator()  # Get the generator from stream
-
         self.history = history
         self.messages = messages
-        self.logger = logging.getLogger(__name__)
-
+        self.logger = logger  # Use passed logger instead of creating new one
+        
         # Conversation-specific variables
         self.is_silent = False
         self.prompt = ""
@@ -204,16 +201,39 @@ class ConversationActions:
         finally:
             await self.io.update_display()
 
+    def start_conversation(self, messages: dict) -> None:
+        """
+        Starts and manages the conversation loop with error handling and logging.
+        """
+        try:
+            asyncio.run(self.run_conversation(
+                messages.get('system', ''),
+                messages.get('user', '')
+            ))
+        except KeyboardInterrupt:
+            self.logger.info("User interrupted")
+            self.display.terminal.reset()
+        except Exception as e:
+            self.logger.error(f"Critical error in conversation: {str(e)}", exc_info=True)
+            self.display.terminal.reset()
+            raise
+        finally:
+            self.display.terminal.reset()
+    
     def add_preface(self, text: str, color: str = None, display_type: str = "panel") -> None:
         """
-        Add preface content to the conversation.
-        To avoid cross-imports, a simple local PrefaceContent class is used.
+        Add preface content to the conversation with logging and error handling.
         """
-        class PrefaceContent:
-            def __init__(self, text, color, display_type):
-                self.text = text
-                self.color = color
-                self.display_type = display_type
-
-        self.preconversation_text.append(PrefaceContent(text, color, display_type))
-        self.history.update_state(preconversation_styled=self.preconversation_styled)
+        try:
+            class PrefaceContent:
+                def __init__(self, text, color, display_type):
+                    self.text = text
+                    self.color = color
+                    self.display_type = display_type
+            
+            self.preconversation_text.append(PrefaceContent(text, color, display_type))
+            self.history.update_state(preconversation_styled=self.preconversation_styled)
+            self.logger.debug(f"Added preface: {text[:50]}")
+        except Exception as e:
+            self.logger.error(f"Preface error: {e}")
+            raise
