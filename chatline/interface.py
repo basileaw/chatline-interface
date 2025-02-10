@@ -55,7 +55,7 @@ class Interface:
             )
             
             # Ensure clean initial state
-            self.display.reset()
+            self.display.terminal.reset()
             
         except Exception as e:
             self.logger.error(f"Initialization error: {str(e)}")
@@ -108,4 +108,4 @@ class Interface:
             raise
         finally:
             # Always ensure we reset the display state
-            self.display.reset()
+            self.display.terminal.reset()

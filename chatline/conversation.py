@@ -145,7 +145,7 @@ class Conversation:
         except KeyboardInterrupt:
             print("\nExiting...")
         finally:
-            self.display.reset()
+            self.display.terminal.reset()
 
     async def _run_conversation(self, system_msg: str, intro_msg: str):
         """

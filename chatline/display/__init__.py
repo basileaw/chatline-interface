@@ -33,9 +33,5 @@ class Display:
             styles=self.styles
         )
 
-    def reset(self):
-        """Reset the display state."""
-        self.terminal.reset()
-
 # Export components for direct access
 __all__ = ['Display', 'DisplayTerminal', 'DisplayStyles', 'DisplayIO', 'DisplayAnimations']
