@@ -1,19 +1,19 @@
-# display/styles/application.py
+# styles/application.py
 
 import re
 import sys
 import asyncio
 from io import StringIO
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 from rich.panel import Panel
 from rich.align import Align
 from rich.style import Style
 from rich.console import Console
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
 @dataclass
 class DisplayContent:
-    """Content for display with optional styling."""
+    """Display content with optional styling."""
     text: str
     color: Optional[str] = None
 
@@ -21,7 +21,7 @@ class DisplayStrategy:
     """Base class for display strategies."""
     def format(self, content: DisplayContent) -> str:
         pass
-    
+
     def get_visible_length(self, text: str) -> int:
         pass
 
@@ -29,23 +29,19 @@ class TextDisplayStrategy(DisplayStrategy):
     """Simple text display with newline."""
     def __init__(self, application):
         self.application = application
-        
+
     def format(self, content: DisplayContent) -> str:
         return content.text + "\n"
-        
+
     def get_visible_length(self, text: str) -> int:
         return self.application.get_visible_length(text)
 
 class PanelDisplayStrategy(DisplayStrategy):
-    """Rich panel display with centered content."""
+    """Centered Rich panel display."""
     def __init__(self, application):
         self.application = application
-        self.console = Console(
-            force_terminal=True,
-            color_system="truecolor",
-            record=True
-        )
-        
+        self.console = Console(force_terminal=True, color_system="truecolor", record=True)
+
     def format(self, content: DisplayContent) -> str:
         with self.console.capture() as capture:
             self.console.print(
@@ -60,42 +56,33 @@ class PanelDisplayStrategy(DisplayStrategy):
                 )
             )
         return capture.get()
-        
+
     def get_visible_length(self, text: str) -> int:
         return self.application.get_visible_length(text) + 4
 
 class StyleApplication:
     """
-    Handles the application of styles to text content.
-    
-    This class contains all the logic for applying styles defined in StyleDefinitions,
-    managing display strategies, and handling terminal output.
+    Applies styles to text content, managing style definitions,
+    display strategies, and terminal output.
     """
     def __init__(self, terminal, definitions):
-        """
-        Initialize the style application system.
-        
-        Args:
-            terminal: Terminal interface for display operations
-            definitions: StyleDefinitions instance containing style configuration
-        """
+        """Initialize with terminal and style definitions."""
         self.terminal = terminal
         self.definitions = definitions
         self._init_state()
         self._init_rich_console()
-        
+
     def _init_state(self) -> None:
-        """Initialize internal state for style application."""
+        """Initialize internal style state."""
         self._base_color = self.definitions.formats['RESET']
         self._active_patterns = []
         self._word_buffer = ""
         self._buffer_lock = asyncio.Lock()
         self._current_line_length = 0
-        self.term_width = (self.terminal.term_width 
-                          if self.terminal else 80)  # Safe fallback
-        
+        self.term_width = self.terminal.term_width if self.terminal else 80
+
     def _init_rich_console(self) -> None:
-        """Initialize Rich console for advanced formatting."""
+        """Initialize Rich console for formatting."""
         self._rich_console = Console(
             force_terminal=True,
             color_system="truecolor",
@@ -108,7 +95,7 @@ class StyleApplication:
         }
 
     def create_display_strategy(self, strategy_type: str) -> DisplayStrategy:
-        """Create a display strategy instance."""
+        """Return a display strategy instance."""
         strategies = {
             "text": TextDisplayStrategy(self),
             "panel": PanelDisplayStrategy(self)
@@ -118,57 +105,53 @@ class StyleApplication:
         return strategies[strategy_type]
 
     def get_visible_length(self, text: str) -> int:
-        """Get visible length of text without ANSI codes and box chars."""
+        """Return visible length of text without ANSI codes or box chars."""
         text = re.sub(r'\x1B\[[0-?]*[ -/]*[@-~]', '', text)
         for c in self.definitions.box_chars:
             text = text.replace(c, '')
         return len(text)
 
     def append_single_blank_line(self, text: str) -> str:
-        """Ensure text ends with exactly one blank line."""
+        """Ensure text ends with one blank line."""
         return text.rstrip('\n') + "\n\n" if text.strip() else text
 
     def get_format(self, name: str) -> str:
-        """Get format code by name."""
+        """Return format code by name."""
         return self.definitions.formats.get(name, '')
 
     def get_color(self, name: str) -> str:
-        """Get ANSI color code by name."""
+        """Return ANSI color code by name."""
         return self.definitions.colors.get(name, {}).get('ansi', '')
 
     def get_rich_style(self, name: str) -> Style:
-        """Get Rich style by name."""
+        """Return Rich style by name."""
         return self.rich_styles.get(name, Style())
 
     def get_base_color(self, color_name: str = 'GREEN') -> str:
-        """Get base ANSI color code."""
+        """Return base ANSI color code."""
         return self.definitions.colors.get(color_name, {}).get('ansi', '')
 
     def set_output_color(self, color: Optional[str] = None) -> None:
         """Set the base output color."""
-        self._base_color = (self.get_color(color) 
-                           if color else self.definitions.formats['RESET'])
+        self._base_color = self.get_color(color) if color else self.definitions.formats['RESET']
 
     def get_style(self, active_patterns: List[str], base_color: str) -> str:
-        """Get combined style string for active patterns."""
+        """Return combined style string for active patterns."""
         style = [base_color]
         for name in active_patterns:
             pat = self.definitions.patterns[name]
             if pat.color:
                 style[0] = self.definitions.colors[pat.color]['ansi']
-            style.extend(self.definitions.formats[f'{s}_ON'] 
-                        for s in (pat.styles or []))
+            style.extend(self.definitions.formats[f'{s}_ON'] for s in (pat.styles or []))
         return ''.join(style)
 
     def split_into_styled_words(self, text: str) -> List[Dict]:
-        """Split text into words with style information."""
+        """Split text into words with style info."""
         words = []
         curr = {'word': [], 'styled': [], 'patterns': []}
-        
         for char in text:
             if char in {p.start for p in self.definitions.patterns.values()}:
-                pat = next(p for p in self.definitions.patterns.values() 
-                          if p.start == char)
+                pat = next(p for p in self.definitions.patterns.values() if p.start == char)
                 curr['patterns'].append(pat.name)
                 if not pat.remove_delimiters:
                     curr['word'].append(char)
@@ -191,7 +174,6 @@ class StyleApplication:
             else:
                 curr['word'].append(char)
                 curr['styled'].append(char)
-                
         if curr['word']:
             words.append({
                 'raw_text': ''.join(curr['word']),
@@ -204,7 +186,6 @@ class StyleApplication:
         """Format lines of styled words."""
         res = []
         curr_style = self.get_format('RESET') + base_color
-        
         for line in lines:
             c = [curr_style]
             for word in line:
@@ -216,25 +197,23 @@ class StyleApplication:
             formatted = "".join(c).rstrip()
             if formatted:
                 res.append(formatted)
-            
         extra = self.get_format('RESET') + base_color
         return "\n".join(res) + (extra if curr_style != extra else "")
 
     def _style_chunk(self, text: str) -> str:
-        """Apply styling to a chunk of text."""
+        """Apply styling to a text chunk."""
         if not text or any(c in self.definitions.box_chars for c in text):
             return text
 
         out = []
         if not self._active_patterns:
             out.append(f"{self.definitions.formats['ITALIC_OFF']}"
-                      f"{self.definitions.formats['BOLD_OFF']}"
-                      f"{self._base_color}")
+                       f"{self.definitions.formats['BOLD_OFF']}"
+                       f"{self._base_color}")
 
         for i, char in enumerate(text):
-            if i == 0 or text[i-1].isspace():
+            if i == 0 or text[i - 1].isspace():
                 out.append(self.get_style(self._active_patterns, self._base_color))
-
             if (self._active_patterns and 
                 char in {p.end for p in self.definitions.patterns.values()} and
                 char == self.definitions.patterns[self._active_patterns[-1]].end):
@@ -244,34 +223,29 @@ class StyleApplication:
                 self._active_patterns.pop()
                 out.append(self.get_style(self._active_patterns, self._base_color))
                 continue
-
             if char in {p.start for p in self.definitions.patterns.values()}:
-                new_pat = next(p for p in self.definitions.patterns.values() 
-                             if p.start == char)
+                new_pat = next(p for p in self.definitions.patterns.values() if p.start == char)
                 self._active_patterns.append(new_pat.name)
                 out.append(self.get_style(self._active_patterns, self._base_color))
                 if not new_pat.remove_delimiters:
                     out.append(char)
                 continue
-
             out.append(char)
-
         return ''.join(out)
 
     async def write_styled(self, chunk: str) -> Tuple[str, str]:
-        """Write styled text to output."""
+        """Write styled text and return (raw, styled) output."""
         if not chunk:
             return "", ""
         async with self._buffer_lock:
             return self._process_and_write(chunk)
 
     def _process_and_write(self, chunk: str) -> Tuple[str, str]:
-        """Process and write text with proper styling."""
+        """Process and write text with styling."""
         if not chunk:
             return "", ""
         if self.terminal:
             self.terminal.hide_cursor()
-
         styled_out = ""
         try:
             if any(c in self.definitions.box_chars for c in chunk):
@@ -282,18 +256,15 @@ class StyleApplication:
                     if char.isspace():
                         if self._word_buffer:
                             word_length = self.get_visible_length(self._word_buffer)
-                            
                             if self._current_line_length + word_length >= self.term_width:
                                 sys.stdout.write('\n')
                                 styled_out += '\n'
                                 self._current_line_length = 0
-                            
                             styled_word = self._style_chunk(self._word_buffer)
                             sys.stdout.write(styled_word)
                             styled_out += styled_word
                             self._current_line_length += word_length
                             self._word_buffer = ""
-                        
                         sys.stdout.write(char)
                         styled_out += char
                         if char == '\n':
@@ -302,7 +273,6 @@ class StyleApplication:
                             self._current_line_length += 1
                     else:
                         self._word_buffer += char
-                        
             sys.stdout.flush()
             return chunk, styled_out
         finally:
@@ -310,26 +280,22 @@ class StyleApplication:
                 self.terminal.hide_cursor()
 
     async def flush_styled(self) -> Tuple[str, str]:
-        """Flush any remaining styled content."""
+        """Flush any remaining styled text."""
         styled_out = ""
         try:
             if self._word_buffer:
                 word_length = self.get_visible_length(self._word_buffer)
-                
                 if self._current_line_length + word_length >= self.term_width:
                     sys.stdout.write('\n')
                     styled_out += '\n'
                     self._current_line_length = 0
-                
                 styled_word = self._style_chunk(self._word_buffer)
                 sys.stdout.write(styled_word)
                 styled_out += styled_word
                 self._word_buffer = ""
-
             if not styled_out.endswith('\n'):
                 sys.stdout.write("\n")
                 styled_out += "\n"
-
             sys.stdout.write(self.definitions.formats['RESET'])
             sys.stdout.flush()
             self._reset_output_state()
