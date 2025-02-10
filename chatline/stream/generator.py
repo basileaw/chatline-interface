@@ -1,41 +1,30 @@
 # generator.py
 
-import boto3
-import json
-import time
-import asyncio
+import boto3, json, time, asyncio
 from botocore.config import Config
 from botocore.exceptions import ProfileNotFound
+from typing import Any, AsyncGenerator
 
-def _get_clients():
+def _get_clients() -> tuple[Any, Any]:
     """Initialize Bedrock clients with appropriate configuration."""
-    runtime_config = Config(
-        region_name='us-west-2',  # Always use us-west-2 for Bedrock
-        read_timeout=300,
-        connect_timeout=300,
-        retries={'max_attempts': 0}
-    )
-    
+    cfg = Config(region_name='us-west-2', read_timeout=300, connect_timeout=300, retries={'max_attempts': 0})
     try:
-        # Try to use the bedrock profile first
         session = boto3.Session(profile_name='bedrock')
     except ProfileNotFound:
-        # Fall back to default credentials (IAM role or default profile)
         session = boto3.Session()
-        
-    return (
-        session.client('bedrock', config=runtime_config),
-        session.client('bedrock-runtime', config=runtime_config)
-    )
+    return session.client('bedrock', config=cfg), session.client('bedrock-runtime', config=cfg)
 
 bedrock, runtime = _get_clients()
 MODEL_ID = "anthropic.claude-3-5-haiku-20241022-v1:0"
 
-async def generate_stream(messages, max_gen_len=1024, temperature=0.9):
+async def generate_stream(
+    messages: list[dict[str, str]],
+    max_gen_len: int = 1024,
+    temperature: float = 0.9
+) -> AsyncGenerator[str, None]:
     """Generate streaming responses from Bedrock."""
-    # Preserved from original; note that in async code, you might prefer asyncio.sleep(0)
+    # Using time.sleep(0) to yield control (as in the original)
     time.sleep(0)
-    
     response = runtime.converse_stream(
         modelId=MODEL_ID,
         messages=[
@@ -46,45 +35,33 @@ async def generate_stream(messages, max_gen_len=1024, temperature=0.9):
             {"text": m["content"]}
             for m in messages if m["role"] == "system"
         ],
-        inferenceConfig={
-            "maxTokens": max_gen_len,
-            "temperature": temperature
-        }
+        inferenceConfig={"maxTokens": max_gen_len, "temperature": temperature}
     )
-    
     for event in response.get('stream', []):
         text = event.get('contentBlockDelta', {}).get('delta', {}).get('text', '')
         if text:
-            chunk = {
-                "choices": [{
-                    "delta": {"content": text}
-                }]
-            }
-            yield f'data: {json.dumps(chunk)}\n\n'
+            chunk = {"choices": [{"delta": {"content": text}}]}
+            yield f"data: {json.dumps(chunk)}\n\n"
             await asyncio.sleep(0)
-    
-    yield 'data: [DONE]\n\n'
+    yield "data: [DONE]\n\n"
 
 if __name__ == "__main__":
-    async def test_generator():
+    async def test_generator() -> None:
         messages = [
             {"role": "user", "content": "Tell me a joke about computers."},
             {"role": "system", "content": "Be helpful and humorous."}
         ]
-        
         print("\nRaw chunks:")
         async for chunk in generate_stream(messages):
             print(f"\nChunk: {chunk}")
             try:
-                if chunk.startswith('data: '):
-                    data = json.loads(chunk.replace('data: ', '').strip())
-                    if data != '[DONE]':
-                        print("Parsed content:", data['choices'][0]['delta']['content'], end='', flush=True)
+                if chunk.startswith("data: "):
+                    data = json.loads(chunk.replace("data: ", "").strip())
+                    if data != "[DONE]":
+                        print("Parsed content:", data["choices"][0]["delta"]["content"], end="", flush=True)
             except json.JSONDecodeError:
                 continue
 
-    # Run test if streaming is supported
-    if bedrock.get_foundation_model(modelIdentifier=MODEL_ID)\
-            .get('modelDetails', {})\
-            .get('responseStreamingSupported'):
+    if bedrock.get_foundation_model(modelIdentifier=MODEL_ID).get("modelDetails", {}).get("responseStreamingSupported"):
         asyncio.run(test_generator())
+

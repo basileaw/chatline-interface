@@ -4,7 +4,6 @@ from typing import Optional, Callable
 from .embedded import EmbeddedStream
 from .remote import RemoteStream
 
-
 class Stream:
     """Base class for handling message streaming."""
     
@@ -21,4 +20,4 @@ class Stream:
     def get_generator(self) -> Callable:
         raise NotImplementedError
 
-__all__ = ['Stream', 'EmbeddedStream', 'RemoteStream']
+__all__ = ['Stream']
