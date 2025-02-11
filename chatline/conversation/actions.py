@@ -25,11 +25,6 @@ class ConversationActions:
             "panel": self.styles.create_display_strategy("panel")
         }
 
-    def _format_prompt(self, text: str) -> str:
-        """Format a prompt based on user input."""
-        end_char = text[-1] if text.endswith(('?', '!')) else '.'
-        return f"> {text.rstrip('?.!')}{end_char * 3}"
-
     async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
         """Process a user message and generate a response."""
         try:
@@ -83,7 +78,7 @@ class ConversationActions:
         await self.io.handle_scroll(intro_styled, f"> {user_input}", 0.08)
         raw, styled = await self._process_message(user_input)
         self.is_silent = False
-        self.prompt = self._format_prompt(user_input)
+        self.prompt = self.io.format_prompt(user_input)
         self.preface.clear()
         self.history.update_state(is_silent=False,
                                 prompt_display=self.prompt,
@@ -125,7 +120,7 @@ class ConversationActions:
             raw, styled = await self._process_message(new_input)
             last_msg = new_input
 
-        self.prompt = self._format_prompt(last_msg)
+        self.prompt = self.io.format_prompt(last_msg)
         self.history.update_state(prompt_display=self.prompt)
         return raw, styled, self.prompt
 

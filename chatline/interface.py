@@ -27,7 +27,7 @@ class Interface:
 
     def preface(self, text: str, color: Optional[str] = None, display_type: str = "panel") -> None:
         """Display preface text before starting the conversation."""
-        self.conv.actions.add_preface(text, color, display_type)
+        self.conv.preface.add_content(text, color, display_type)
 
     def start(self, messages: Dict[str, str]) -> None:
         """Start the conversation with the provided messages."""

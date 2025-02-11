@@ -12,6 +12,11 @@ class DisplayIO:
         self.terminal = terminal
         self.styles = styles
 
+    def format_prompt(self, text: str) -> str:
+        """Format a prompt based on user input."""
+        end_char = text[-1] if text.endswith(('?', '!')) else '.'
+        return f"> {text.rstrip('?.!')}{end_char * 3}"
+
     def _handle_text(self, text: str, width: Optional[int] = None) -> List[str]:
         """Process text for display with word wrapping and box-drawing handling."""
         width = width or self.terminal.term_width

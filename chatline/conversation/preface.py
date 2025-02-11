@@ -21,6 +21,11 @@ class ConversationPreface:
         content = PrefaceContent(text, color, display_type)
         self.content_items.append(content)
     
+    def clear(self) -> None:
+        """Clear all preface content."""
+        self.content_items.clear()
+        self.styled_content = ""
+    
     async def format_content(self, styles) -> str:
         """Format all preface content using provided style strategies."""
         if not self.content_items:
