@@ -15,7 +15,7 @@ class DisplayStrategyProtocol(Protocol):
 
 class StyleEngine:
     """
-    Applies styles to text content, managing style definitions,
+    Applies style to text content, managing style definitions,
     display strategies, and terminal output.
     """
     def __init__(self, terminal, definitions, strategies: Dict[str, Type[DisplayStrategyProtocol]]):
@@ -39,7 +39,7 @@ class StyleEngine:
             file=StringIO(),
             highlight=False
         )
-        self.rich_styles = {
+        self.rich_style = {
             name: Style(color=cfg['rich'])
             for name, cfg in self.definitions.colors.items()
         }
@@ -71,7 +71,7 @@ class StyleEngine:
 
     def get_rich_style(self, name: str) -> Style:
         """Return Rich style by name."""
-        return self.rich_styles.get(name, Style())
+        return self.rich_style.get(name, Style())
 
     def get_base_color(self, color_name: str = 'GREEN') -> str:
         """Return base ANSI color code."""
@@ -88,7 +88,7 @@ class StyleEngine:
             pat = self.definitions.patterns[name]
             if pat.color:
                 style[0] = self.definitions.colors[pat.color]['ansi']
-            style.extend(self.definitions.formats[f'{s}_ON'] for s in (pat.styles or []))
+            style.extend(self.definitions.formats[f'{s}_ON'] for s in (pat.style or []))
         return ''.join(style)
 
     def split_into_styled_words(self, text: str) -> List[Dict]:

@@ -6,8 +6,8 @@ import time
 
 class AsyncDotLoader:
     """Async dot-loading animation during streaming."""
-    def __init__(self, styles, prompt="", no_animation=False):
-        self.styles = styles
+    def __init__(self, style, prompt="", no_animation=False):
+        self.style = style
         self.prompt = prompt.rstrip('.?!')
         self.no_anim = no_animation
         self.dot_char = '.' if prompt.endswith('.') or not prompt.endswith(('?','!')) else prompt[-1]
@@ -50,7 +50,7 @@ class AsyncDotLoader:
                     self._stored_messages.append((txt, time.time()))
                 else:
                     r, s = await self._process_stored_messages()
-                    r2, s2 = await self.styles.write_styled(txt)
+                    r2, s2 = await self.style.write_styled(txt)
                     raw = r + r2
                     styled = s + s2
                 await asyncio.sleep(0.01)
@@ -66,7 +66,7 @@ class AsyncDotLoader:
             for i, (text, ts) in enumerate(self._stored_messages):
                 if i:
                     await asyncio.sleep(ts - self._stored_messages[i - 1][1])
-                r, s = await self.styles.write_styled(text)
+                r, s = await self.style.write_styled(text)
                 raw += r
                 styled += s
             self._stored_messages.clear()
@@ -81,8 +81,8 @@ class AsyncDotLoader:
         Returns:
             Tuple of (raw_output, styled_output)
         """
-        if not self.styles:
-            raise ValueError("styles must be provided")
+        if not self.style:
+            raise ValueError("style must be provided")
         raw = styled = ""
         first_chunk = True
         if not self.no_anim:
@@ -109,7 +109,7 @@ class AsyncDotLoader:
             r, s = await self._process_stored_messages()
             raw += r
             styled += s
-            r, s = await self.styles.flush_styled()
+            r, s = await self.style.flush_styled()
             raw += r
             styled += s
             return raw, styled

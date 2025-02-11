@@ -7,15 +7,15 @@ from typing import List, Optional
 class Scroller:
     """Handles text scrolling animations with customizable timing and display options."""
     
-    def __init__(self, styles, utilities=None):
+    def __init__(self, style, utilities=None):
         """
         Initialize the scroller with style and utility dependencies.
         
         Args:
-            styles: DisplayStyles instance for text styling
+            style: Displaystyle instance for text styling
             utilities: DisplayIO instance for terminal operations
         """
-        self.styles = styles
+        self.style = style
         self.utilities = utilities
         
     def _handle_text(self, text: str, width: Optional[int] = None) -> List[str]:
@@ -48,7 +48,7 @@ class Scroller:
                     line = ''
                 else:
                     test = f"{line}{' ' if line else ''}{word}"
-                    if self.styles.get_visible_length(test) <= width:
+                    if self.style.get_visible_length(test) <= width:
                         line = test
                     else:
                         result.append(line)
@@ -87,5 +87,5 @@ class Scroller:
             self.utilities.terminal.clear_screen()
             for ln in lines[i:]:
                 self.utilities.terminal.write(ln, newline=True)
-            self.utilities.terminal.write(self.styles.get_format('RESET') + prompt)
+            self.utilities.terminal.write(self.style.get_format('RESET') + prompt)
             await asyncio.sleep(delay)

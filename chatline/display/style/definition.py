@@ -1,4 +1,4 @@
-# styles/definition.py
+# style/definition.py
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional
@@ -31,7 +31,7 @@ class Pattern:
     start: str
     end: str
     color: Optional[str] = None
-    styles: Optional[List[str]] = None
+    style: Optional[List[str]] = None
     remove_delimiters: bool = False
 
 @dataclass
@@ -47,12 +47,12 @@ class StyleDefinitions:
         """Return the default text styling patterns."""
         base_patterns = {
             'quotes': {'start': '"', 'end': '"', 'color': 'PINK'},
-            'brackets': {'start': '[', 'end': ']', 'color': 'GRAY', 'styles': ['ITALIC'], 'remove_delimiters': True},
-            'emphasis': {'start': '_', 'end': '_', 'color': None, 'styles': ['ITALIC'], 'remove_delimiters': True},
-            'strong': {'start': '*', 'end': '*', 'color': None, 'styles': ['BOLD'], 'remove_delimiters': True}
+            'brackets': {'start': '[', 'end': ']', 'color': 'GRAY', 'style': ['ITALIC'], 'remove_delimiters': True},
+            'emphasis': {'start': '_', 'end': '_', 'color': None, 'style': ['ITALIC'], 'remove_delimiters': True},
+            'strong': {'start': '*', 'end': '*', 'color': None, 'style': ['BOLD'], 'remove_delimiters': True}
         }
-        # Update the first pattern to have no styles and keep delimiters.
-        base_patterns.update({k: {**v, 'styles': [], 'remove_delimiters': False}
+        # Update the first pattern to have no style and keep delimiters.
+        base_patterns.update({k: {**v, 'style': [], 'remove_delimiters': False}
                               for k, v in list(base_patterns.items())[:1]})
         patterns = {}
         used_delimiters = set()

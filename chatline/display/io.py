@@ -7,10 +7,10 @@ from typing import List, Optional
 class DisplayIO:
     """Handles terminal I/O, text processing, and display updates."""
     
-    def __init__(self, terminal, styles):
-        """Initialize with terminal and styles."""
+    def __init__(self, terminal, style):
+        """Initialize with terminal and style."""
         self.terminal = terminal
-        self.styles = styles
+        self.style = style
 
     def format_prompt(self, text: str) -> str:
         """Format a prompt based on user input."""
@@ -38,7 +38,7 @@ class DisplayIO:
                     line = ''
                 else:
                     test = f"{line}{' ' if line else ''}{word}"
-                    if self.styles.get_visible_length(test) <= width:
+                    if self.style.get_visible_length(test) <= width:
                         line = test
                     else:
                         result.append(line)
@@ -61,10 +61,10 @@ class DisplayIO:
     async def write_prompt(self, prompt: str, style: Optional[str] = None) -> None:
         """Write a prompt with optional style."""
         if style:
-            self.terminal.write(self.styles.get_format(style))
+            self.terminal.write(self.style.get_format(style))
         self.terminal.write(prompt)
         if style:
-            self.terminal.write(self.styles.get_format('RESET'))
+            self.terminal.write(self.style.get_format('RESET'))
         await self._yield()
 
     async def write_loading_state(self, prompt: str, dots: int, dot_char: str = '.') -> None:
@@ -104,7 +104,7 @@ class DisplayIO:
         else:
             self.terminal.write(preserved_msg)
         self.terminal.write("", newline=False)
-        self.terminal.write(self.styles.get_format('RESET'))
+        self.terminal.write(self.style.get_format('RESET'))
         await self._yield()
 
     async def _yield(self) -> None:

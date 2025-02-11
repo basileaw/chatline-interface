@@ -6,10 +6,10 @@ import math
 
 class ReverseStreamer:
     """Performs reverse streaming animation word-by-word, preserving ANSI sequences."""
-    def __init__(self, styles, utilities=None, base_color='GREEN'):
-        self.styles = styles
+    def __init__(self, style, utilities=None, base_color='GREEN'):
+        self.style = style
         self.utilities = utilities
-        self._base_color = self.styles.get_base_color(base_color)
+        self._base_color = self.style.get_base_color(base_color)
 
     @staticmethod
     def tokenize_text(text):

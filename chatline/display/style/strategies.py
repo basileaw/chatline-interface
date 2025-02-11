@@ -1,4 +1,4 @@
-# styles/strategies.py
+# style/strategies.py
 
 from rich.panel import Panel
 from rich.align import Align

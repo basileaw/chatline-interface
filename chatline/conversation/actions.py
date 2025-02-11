@@ -9,7 +9,7 @@ class ConversationActions:
         self.display = display
         self.terminal = display.terminal  # Terminal operations
         self.io = display.io              # Display I/O
-        self.styles = display.styles      # Text styling
+        self.style = display.style      # Text styling
         self.animations = display.animations  # Animated effects
         self.stream = stream
         self.generator = stream.get_generator()  # Get the generator from stream
@@ -21,8 +21,8 @@ class ConversationActions:
         self.is_silent = False
         self.prompt = ""
         self._display_strategies = {
-            "text": self.styles.create_display_strategy("text"),
-            "panel": self.styles.create_display_strategy("panel")
+            "text": self.style.create_display_strategy("text"),
+            "panel": self.style.create_display_strategy("panel")
         }
 
     async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
@@ -36,7 +36,7 @@ class ConversationActions:
                                     last_user_input=msg,
                                     messages=state_msgs)
 
-            self.styles.set_output_color('GREEN')
+            self.style.set_output_color('GREEN')
             loader = self.animations.create_dot_loader(
                 prompt="" if silent else f"> {msg}",
                 no_animation=silent
@@ -56,8 +56,8 @@ class ConversationActions:
 
     async def introduce_conversation(self, intro_msg: str) -> Tuple[str, str, str]:
         """Introduce the conversation with preface content and initial message."""
-        styled_panel = await self.preface.format_content(self.styles)
-        styled_panel = self.styles.append_single_blank_line(styled_panel)
+        styled_panel = await self.preface.format_content(self.style)
+        styled_panel = self.style.append_single_blank_line(styled_panel)
 
         if styled_panel.strip():
             await self.io.update_display(styled_panel, preserve_cursor=True)

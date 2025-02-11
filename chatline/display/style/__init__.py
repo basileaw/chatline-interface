@@ -1,10 +1,10 @@
-# styles/__init__.py
+# style/__init__.py
 
 from .definition import DEFAULT_DEFINITIONS
 from .strategies import DisplayStrategy, TextDisplayStrategy, PanelDisplayStrategy
 from .engine import StyleEngine
 
-class DisplayStyles:
+class Displaystyle:
     """Wraps style definitions and application for terminal display."""
     def __init__(self, terminal=None):
         """Initialize with a terminal interface."""
