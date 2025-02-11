@@ -1,22 +1,45 @@
-# animations/reverse_streamer.py
+# display/animations/reverse_streamer.py
 
 import asyncio
 import re
 import math
+from typing import List, Dict, Tuple, Union
 
 class ReverseStreamer:
-    """Performs reverse streaming animation word-by-word, preserving ANSI sequences."""
-    def __init__(self, style, utilities=None, base_color='GREEN'):
+    """
+    Performs reverse streaming animation word-by-word, preserving ANSI sequences.
+    
+    This animation removes text word by word from the end, with configurable
+    acceleration and preserved messages.
+    """
+    def __init__(self, style, terminal, base_color='GREEN'):
+        """
+        Initialize the reverse streamer.
+        
+        Args:
+            style: StyleEngine instance for text styling
+            terminal: DisplayTerminal instance for output
+            base_color: Base color for the animation
+        """
         self.style = style
-        self.utilities = utilities
+        self.terminal = terminal
         self._base_color = self.style.get_base_color(base_color)
 
     @staticmethod
-    def tokenize_text(text):
-        """Tokenize text into tokens of type 'ansi' or 'char'."""
+    def tokenize_text(text: str) -> List[Dict[str, str]]:
+        """
+        Tokenize text into ANSI and character tokens.
+        
+        Args:
+            text: Input text to tokenize
+            
+        Returns:
+            List of tokens, each with 'type' ('ansi' or 'char') and 'value'
+        """
         ANSI_REGEX = re.compile(r'(\x1B\[[0-?]*[ -/]*[@-~])')
         tokens = []
         parts = re.split(ANSI_REGEX, text)
+        
         for part in parts:
             if not part:
                 continue
@@ -28,19 +51,25 @@ class ReverseStreamer:
         return tokens
 
     @staticmethod
-    def reassemble_tokens(tokens):
-        """Reassemble tokens back into a string."""
+    def reassemble_tokens(tokens: List[Dict[str, str]]) -> str:
+        """Convert tokens back into text."""
         return ''.join(token['value'] for token in tokens)
 
     @staticmethod
-    def group_tokens_by_word(tokens):
+    def group_tokens_by_word(tokens: List[Dict[str, str]]) -> List[Tuple[str, List[Dict[str, str]]]]:
         """
-        Group tokens into tuples of (group_type, tokens), where group_type is 'word' or 'space'.
-        ANSI tokens are merged into the current group.
+        Group tokens into word and space groups, preserving ANSI sequences.
+        
+        Args:
+            tokens: List of tokens to group
+            
+        Returns:
+            List of tuples (group_type, tokens) where group_type is 'word' or 'space'
         """
         groups = []
         current_group = []
         current_type = None  # 'word' or 'space'
+        
         for token in tokens:
             if token['type'] == 'ansi':
                 if current_group:
@@ -69,27 +98,55 @@ class ReverseStreamer:
                     else:
                         current_group = [token]
                         current_type = 'word'
+                        
         if current_group:
             groups.append((current_type, current_group))
+            
         return groups
+
+    async def update_display(
+        self,
+        content: str,
+        preserved_msg: str = "",
+        no_spacing: bool = False
+    ) -> None:
+        """
+        Update the display with animated content.
+        
+        Args:
+            content: Main content to display
+            preserved_msg: Message to preserve during animation
+            no_spacing: Whether to remove extra spacing
+        """
+        self.terminal.clear_screen()
+        if content:
+            if preserved_msg:
+                self.terminal.write(preserved_msg + ("" if no_spacing else "\n\n"))
+            self.terminal.write(content)
+        else:
+            self.terminal.write(preserved_msg)
+            
+        self.terminal.write("", newline=False)
+        self.terminal.write(self.style.get_format('RESET'))
+        await self._yield()
 
     async def reverse_stream(
         self,
-        styled_text,
-        preserved_msg="",
-        delay=0.08,
-        preconversation_text="",
-        acceleration_factor=1.15
-    ):
+        styled_text: str,
+        preserved_msg: str = "",
+        delay: float = 0.08,
+        preconversation_text: str = "",
+        acceleration_factor: float = 1.15
+    ) -> None:
         """
         Perform reverse-stream animation word-by-word with acceleration.
         
         Args:
-            styled_text (str): Text to animate.
-            preserved_msg (str): Message to preserve during animation.
-            delay (float): Delay between animation updates.
-            preconversation_text (str): Text displayed before the animated content.
-            acceleration_factor (float): Factor to increase chunks removed each round.
+            styled_text: Text to animate
+            preserved_msg: Message to preserve during animation
+            delay: Delay between animation updates
+            preconversation_text: Text displayed before the animated content
+            acceleration_factor: Factor to increase chunks removed each round
         """
         if preconversation_text and styled_text.startswith(preconversation_text):
             conversation_text = styled_text[len(preconversation_text):].lstrip()
@@ -114,9 +171,10 @@ class ReverseStreamer:
             for _, grp in groups:
                 remaining_tokens.extend(grp)
             new_text = self.reassemble_tokens(remaining_tokens)
+            
             full_display = (preconversation_text.rstrip() + "\n\n" + new_text
-                            if preconversation_text else new_text)
-            await self.utilities.update_animated_display(full_display, preserved_msg, no_spacing)
+                          if preconversation_text else new_text)
+            await self.update_display(full_display, preserved_msg, no_spacing)
             await asyncio.sleep(delay)
 
         await self._handle_punctuation(preserved_msg, delay)
@@ -125,10 +183,16 @@ class ReverseStreamer:
             final_text = preconversation_text.rstrip() if preconversation_text else ""
         else:
             final_text = (preconversation_text.rstrip() if preconversation_text else "") + "\n\n"
-        await self.utilities.update_animated_display(final_text)
+        await self.update_display(final_text)
 
-    async def _handle_punctuation(self, preserved_msg, delay):
-        """Animate punctuation in the preserved message."""
+    async def _handle_punctuation(self, preserved_msg: str, delay: float) -> None:
+        """
+        Animate punctuation in the preserved message.
+        
+        Args:
+            preserved_msg: Message containing punctuation to animate
+            delay: Delay between animation frames
+        """
         if not preserved_msg:
             return
 
@@ -137,9 +201,13 @@ class ReverseStreamer:
             char = preserved_msg[-1]
             count = len(preserved_msg) - len(base)
             for i in range(count, 0, -1):
-                await self.utilities.update_animated_display("", f"{base}{char * i}")
+                await self.update_display("", f"{base}{char * i}")
                 await asyncio.sleep(delay)
         elif preserved_msg.endswith('.'):
             for i in range(3, 0, -1):
-                await self.utilities.update_animated_display("", f"{base}{'.' * i}")
+                await self.update_display("", f"{base}{'.' * i}")
                 await asyncio.sleep(delay)
+
+    async def _yield(self) -> None:
+        """Yield briefly to the event loop."""
+        await asyncio.sleep(0)

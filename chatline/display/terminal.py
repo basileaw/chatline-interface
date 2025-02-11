@@ -16,13 +16,18 @@ class TerminalSize:
     lines: int
 
 class DisplayTerminal:
-    """Terminal ops: screen management, cursor control, and input."""
+    """
+    Base terminal operations layer handling screen management, cursor control, and raw I/O.
+    
+    This class serves as the foundation for the display hierarchy, providing low-level
+    terminal operations that higher layers (StyleEngine, DisplayAnimations) can build upon.
+    """
     def __init__(self):
         """Initialize terminal management."""
         self._cursor_visible = True
         self._is_edit_mode = False
         self._setup_key_bindings()
-        
+
     def _setup_key_bindings(self) -> None:
         """Set up keyboard shortcuts (Ctrl-E: edit, Ctrl-R: retry)."""
         kb = KeyBindings()
@@ -42,12 +47,17 @@ class DisplayTerminal:
         self.prompt_session = PromptSession(key_bindings=kb, complete_while_typing=False)
 
     @property
-    def term_width(self) -> int:
+    def width(self) -> int:
         """Return current terminal width."""
         return self.get_size().columns
 
+    @property
+    def height(self) -> int:
+        """Return current terminal height."""
+        return self.get_size().lines
+
     def get_size(self) -> TerminalSize:
-        """Return terminal size."""
+        """Return terminal dimensions."""
         size = shutil.get_terminal_size()
         return TerminalSize(columns=size.columns, lines=size.lines)
 
@@ -71,7 +81,7 @@ class DisplayTerminal:
         self._manage_cursor(False)
 
     def reset(self) -> None:
-        """Reset terminal (show cursor and clear screen)."""
+        """Reset terminal state (show cursor and clear screen)."""
         self.show_cursor()
         self.clear_screen()
 
@@ -82,25 +92,51 @@ class DisplayTerminal:
             sys.stdout.flush()
 
     def write(self, text: str = "", newline: bool = False) -> None:
-        """Write text to the terminal."""
-        self.hide_cursor()
+        """
+        Write raw text to the terminal.
+        
+        Args:
+            text: Text to write
+            newline: Whether to append a newline
+        """
         try:
             sys.stdout.write(text)
             if newline:
                 sys.stdout.write('\n')
             sys.stdout.flush()
-        finally:
-            self.hide_cursor()
+        except IOError:
+            # Handle pipe errors (e.g., when output is piped to another process)
+            pass
 
-    async def get_user_input(self, default_text: str = "", add_newline: bool = True) -> str:
-        """Prompt user for input."""
+    def write_line(self, text: str = "") -> None:
+        """Write text with a newline."""
+        self.write(text, newline=True)
+
+    async def get_user_input(
+        self, 
+        default_text: str = "", 
+        add_newline: bool = True,
+        hide_cursor: bool = True
+    ) -> str:
+        """
+        Prompt user for input with optional default text.
+        
+        Args:
+            default_text: Pre-filled text in the input field
+            add_newline: Whether to add a newline before prompt
+            hide_cursor: Whether to hide cursor after input
+            
+        Returns:
+            User input string
+        """
         class NonEmptyValidator(Validator):
             def validate(self, document):
                 if not document.text.strip():
                     raise ValidationError(message='', cursor_position=0)
 
         if add_newline:
-            self.write("\n")
+            self.write_line()
+            
         self._is_edit_mode = bool(default_text)
         try:
             self.show_cursor()
@@ -113,8 +149,18 @@ class DisplayTerminal:
             return result.strip()
         finally:
             self._is_edit_mode = False
-            self.hide_cursor()
+            if hide_cursor:
+                self.hide_cursor()
 
     async def yield_to_event_loop(self) -> None:
         """Yield briefly to the event loop."""
         await asyncio.sleep(0)
+
+    def __enter__(self):
+        """Context manager entry - ensures cursor is hidden."""
+        self.hide_cursor()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - ensures cursor is shown."""
+        self.show_cursor()
