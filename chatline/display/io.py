@@ -5,7 +5,7 @@ import asyncio
 from typing import List, Optional
 
 class DisplayIO:
-    """Handles terminal I/O, text processing, and scrolling."""
+    """Handles terminal I/O, text processing, and display updates."""
     
     def __init__(self, terminal, styles):
         """Initialize with terminal and styles."""
@@ -106,25 +106,6 @@ class DisplayIO:
         self.terminal.write("", newline=False)
         self.terminal.write(self.styles.get_format('RESET'))
         await self._yield()
-
-    async def scroll_up(self, text: str, prompt: str, delay: float = 0.5) -> None:
-        """Scroll text upward with animation."""
-        lines = self._handle_text(text)
-        for i in range(len(lines) + 1):
-            await self.clear()
-            await self.write_lines(lines[i:])
-            await self.write_prompt(prompt, 'RESET')
-            await asyncio.sleep(delay)
-
-    async def handle_scroll(self, styled_lines: str, prompt: str, delay: float = 0.5) -> None:
-        """Scroll pre-styled text with a prompt."""
-        lines = self._handle_text(styled_lines)
-        for i in range(len(lines) + 1):
-            self.terminal.clear_screen()
-            for ln in lines[i:]:
-                self.terminal.write(ln, newline=True)
-            self.terminal.write(self.styles.get_format('RESET') + prompt)
-            time.sleep(delay)
 
     async def _yield(self) -> None:
         """Yield control to the event loop."""

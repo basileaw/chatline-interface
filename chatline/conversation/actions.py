@@ -75,7 +75,8 @@ class ConversationActions:
 
     async def process_user_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
         """Process a normal user message and generate a response."""
-        await self.io.handle_scroll(intro_styled, f"> {user_input}", 0.08)
+        scroller = self.animations.create_scroller()
+        await scroller.scroll_styled(intro_styled, f"> {user_input}", 0.08)
         raw, styled = await self._process_message(user_input)
         self.is_silent = False
         self.prompt = self.io.format_prompt(user_input)

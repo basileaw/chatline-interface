@@ -2,6 +2,7 @@
 
 from .dot_loader import AsyncDotLoader
 from .reverse_streamer import ReverseStreamer
+from .scroller import Scroller
 
 class DisplayAnimations:
     """Coordinates terminal animation components."""
@@ -19,3 +20,7 @@ class DisplayAnimations:
     def create_reverse_streamer(self, base_color='GREEN'):
         """Create and return a reverse streaming animation effect."""
         return ReverseStreamer(self.styles, self.io, base_color)
+    
+    def create_scroller(self):
+        """Create and return a text scrolling animation handler."""
+        return Scroller(self.styles, self.io)
