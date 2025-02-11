@@ -5,7 +5,7 @@ import asyncio
 
 class ConversationActions:
     """Manages conversation flow and actions."""
-    def __init__(self, display, stream, history, messages, logger):
+    def __init__(self, display, stream, history, messages, preface, logger):
         self.display = display
         self.terminal = display.terminal  # Terminal operations
         self.io = display.io              # Display I/O
@@ -15,12 +15,11 @@ class ConversationActions:
         self.generator = stream.get_generator()  # Get the generator from stream
         self.history = history
         self.messages = messages
-        self.logger = logger  # Use passed logger
+        self.preface = preface
+        self.logger = logger
 
         self.is_silent = False
         self.prompt = ""
-        self.preconversation_text: List = []  # Holds preface content
-        self.preconversation_styled = ""
         self._display_strategies = {
             "text": self.styles.create_display_strategy("text"),
             "panel": self.styles.create_display_strategy("panel")
@@ -39,8 +38,8 @@ class ConversationActions:
             sys_prompt = self.history.current_state.system_prompt
             state_msgs = await self.messages.get_messages(sys_prompt)
             self.history.update_state(turn_number=turn_number,
-                                      last_user_input=msg,
-                                      messages=state_msgs)
+                                    last_user_input=msg,
+                                    messages=state_msgs)
 
             self.styles.set_output_color('GREEN')
             loader = self.animations.create_dot_loader(
@@ -60,24 +59,10 @@ class ConversationActions:
             self.logger.error(f"Message processing error: {e}", exc_info=True)
             return "", ""
 
-    async def _process_preface(self, text_list: List) -> str:
-        """Format a list of preface items into styled text."""
-        if not text_list:
-            return ""
-        styled_parts = [await self._format_preface_content(content) for content in text_list]
-        return ''.join(styled_parts)
-
-    async def _format_preface_content(self, content) -> str:
-        """Format a single preface item."""
-        self.styles.set_output_color(content.color)
-        strategy = self._display_strategies[content.display_type]
-        _, styled = await self.styles.write_styled(strategy.format(content))
-        return styled
-
     async def introduce_conversation(self, intro_msg: str) -> Tuple[str, str, str]:
         """Introduce the conversation with preface content and initial message."""
-        self.preconversation_styled = await self._process_preface(self.preconversation_text)
-        styled_panel = self.styles.append_single_blank_line(self.preconversation_styled)
+        styled_panel = await self.preface.format_content(self.styles)
+        styled_panel = self.styles.append_single_blank_line(styled_panel)
 
         if styled_panel.strip():
             await self.io.update_display(styled_panel, preserve_cursor=True)
@@ -89,8 +74,8 @@ class ConversationActions:
         self.is_silent = True
         self.prompt = ""
         self.history.update_state(is_silent=True,
-                                  prompt_display="",
-                                  preconversation_styled=self.preconversation_styled)
+                                prompt_display="",
+                                preconversation_styled=styled_panel)
         return raw, full_styled, ""
 
     async def process_user_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
@@ -99,10 +84,10 @@ class ConversationActions:
         raw, styled = await self._process_message(user_input)
         self.is_silent = False
         self.prompt = self._format_prompt(user_input)
-        self.preconversation_styled = ""
+        self.preface.clear()
         self.history.update_state(is_silent=False,
-                                  prompt_display=self.prompt,
-                                  preconversation_styled="")
+                                prompt_display=self.prompt,
+                                preconversation_styled="")
         return raw, styled, self.prompt
 
     async def backtrack_conversation(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
@@ -112,7 +97,7 @@ class ConversationActions:
         await rev_streamer.reverse_stream(
             intro_styled,
             "" if self.is_silent else self.prompt,
-            preconversation_text=self.preconversation_styled
+            preconversation_text=self.preface.styled_content
         )
 
         last_msg = next((m.content for m in reversed(self.messages.messages) if m.role == "user"), None)
@@ -126,8 +111,8 @@ class ConversationActions:
         if self.is_silent:
             raw, styled = await self._process_message(last_msg, silent=True)
             self.history.update_state(is_silent=True,
-                                      preconversation_styled=self.preconversation_styled)
-            return raw, f"{self.preconversation_styled}\n{styled}", ""
+                                    preconversation_styled=self.preface.styled_content)
+            return raw, f"{self.preface.styled_content}\n{styled}", ""
 
         if is_retry:
             await self.io.clear()
@@ -180,19 +165,3 @@ class ConversationActions:
             raise
         finally:
             self.display.terminal.reset()
-
-    def add_preface(self, text: str, color: str = None, display_type: str = "panel") -> None:
-        """Add preface content to the conversation."""
-        try:
-            class PrefaceContent:
-                def __init__(self, text, color, display_type):
-                    self.text = text
-                    self.color = color
-                    self.display_type = display_type
-
-            self.preconversation_text.append(PrefaceContent(text, color, display_type))
-            self.history.update_state(preconversation_styled=self.preconversation_styled)
-            self.logger.debug(f"Added preface: {text[:50]}")
-        except Exception as e:
-            self.logger.error(f"Preface error: {e}")
-            raise
