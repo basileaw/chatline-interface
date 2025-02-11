@@ -7,45 +7,52 @@ class ConversationActions:
     """Manages conversation flow and actions."""
     def __init__(self, display, stream, history, messages, logger):
         self.display = display
-        self.terminal = display.terminal
-        self.io = display.io
-        self.styles = display.styles
-        self.animations = display.animations
+        self.terminal = display.terminal  # Terminal operations
+        self.io = display.io              # Display I/O
+        self.styles = display.styles      # Text styling
+        self.animations = display.animations  # Animated effects
         self.stream = stream
-        self.generator = stream.get_generator()
+        self.generator = stream.get_generator()  # Get the generator from stream
         self.history = history
         self.messages = messages
-        self.logger = logger
+        self.logger = logger  # Use passed logger
 
         self.is_silent = False
         self.prompt = ""
-        self.preconversation_text: List = []
+        self.preconversation_text: List = []  # Holds preface content
         self.preconversation_styled = ""
         self._display_strategies = {
             "text": self.styles.create_display_strategy("text"),
             "panel": self.styles.create_display_strategy("panel")
         }
 
+    def _format_prompt(self, text: str) -> str:
+        """Format a prompt based on user input."""
+        end_char = text[-1] if text.endswith(('?', '!')) else '.'
+        return f"> {text.rstrip('?.!')}{end_char * 3}"
+
     async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
-        """Process a user message, update state, and generate a response."""
+        """Process a user message and generate a response."""
         try:
             turn_number = self.history.current_state.turn_number + 1
             self.messages.add_message("user", msg, turn_number)
-            state_msgs = await self.messages.get_messages(self.history.current_state.system_prompt)
-            self.history.update_state(turn_number=turn_number, last_user_input=msg, messages=state_msgs)
+            sys_prompt = self.history.current_state.system_prompt
+            state_msgs = await self.messages.get_messages(sys_prompt)
+            self.history.update_state(turn_number=turn_number,
+                                      last_user_input=msg,
+                                      messages=state_msgs)
 
             self.styles.set_output_color('GREEN')
             loader = self.animations.create_dot_loader(
                 prompt="" if silent else f"> {msg}",
                 no_animation=silent
             )
-
-            msgs = await self.messages.get_messages(self.history.current_state.system_prompt)
+            msgs = await self.messages.get_messages(sys_prompt)
             raw, styled = await loader.run_with_loading(self.generator(msgs))
 
             if raw:
                 self.messages.add_message("assistant", raw, turn_number)
-                state_msgs = await self.messages.get_messages(self.history.current_state.system_prompt)
+                state_msgs = await self.messages.get_messages(sys_prompt)
                 self.history.update_state(messages=state_msgs)
 
             return raw, styled
@@ -61,14 +68,14 @@ class ConversationActions:
         return ''.join(styled_parts)
 
     async def _format_preface_content(self, content) -> str:
-        """Format a single preface item with its color and style."""
+        """Format a single preface item."""
         self.styles.set_output_color(content.color)
         strategy = self._display_strategies[content.display_type]
         _, styled = await self.styles.write_styled(strategy.format(content))
         return styled
 
-    async def handle_intro(self, intro_msg: str) -> Tuple[str, str, str]:
-        """Handle the initial conversation message."""
+    async def introduce_conversation(self, intro_msg: str) -> Tuple[str, str, str]:
+        """Introduce the conversation with preface content and initial message."""
         self.preconversation_styled = await self._process_preface(self.preconversation_text)
         styled_panel = self.styles.append_single_blank_line(self.preconversation_styled)
 
@@ -81,31 +88,26 @@ class ConversationActions:
 
         self.is_silent = True
         self.prompt = ""
-        self.history.update_state(
-            is_silent=True,
-            prompt_display="",
-            preconversation_styled=self.preconversation_styled
-        )
-
+        self.history.update_state(is_silent=True,
+                                  prompt_display="",
+                                  preconversation_styled=self.preconversation_styled)
         return raw, full_styled, ""
 
-    async def handle_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
-        """Process a normal user message."""
+    async def process_user_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
+        """Process a normal user message and generate a response."""
         await self.io.handle_scroll(intro_styled, f"> {user_input}", 0.08)
         raw, styled = await self._process_message(user_input)
-
         self.is_silent = False
-        end_char = user_input[-1] if user_input.endswith(('?', '!')) else '.'
-        self.prompt = f"> {user_input.rstrip('?.!')}{end_char * 3}"
+        self.prompt = self._format_prompt(user_input)
         self.preconversation_styled = ""
-        self.history.update_state(is_silent=False, prompt_display=self.prompt, preconversation_styled="")
-
+        self.history.update_state(is_silent=False,
+                                  prompt_display=self.prompt,
+                                  preconversation_styled="")
         return raw, styled, self.prompt
 
-    async def handle_edit_or_retry(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
-        """Handle edit or retry commands."""
+    async def backtrack_conversation(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
+        """Return to and modify the previous conversation exchange."""
         current_turn = self.history.current_state.turn_number
-
         rev_streamer = self.animations.create_reverse_streamer()
         await rev_streamer.reverse_stream(
             intro_styled,
@@ -123,7 +125,8 @@ class ConversationActions:
 
         if self.is_silent:
             raw, styled = await self._process_message(last_msg, silent=True)
-            self.history.update_state(is_silent=True, preconversation_styled=self.preconversation_styled)
+            self.history.update_state(is_silent=True,
+                                      preconversation_styled=self.preconversation_styled)
             return raw, f"{self.preconversation_styled}\n{styled}", ""
 
         if is_retry:
@@ -137,30 +140,24 @@ class ConversationActions:
             raw, styled = await self._process_message(new_input)
             last_msg = new_input
 
-        end_char = last_msg[-1] if last_msg.endswith(('?', '!')) else '.'
-        self.prompt = f"> {last_msg.rstrip('?.!')}{end_char * 3}"
+        self.prompt = self._format_prompt(last_msg)
         self.history.update_state(prompt_display=self.prompt)
         return raw, styled, self.prompt
 
-    async def run_conversation(self, system_msg: str, intro_msg: str):
-        """Run the conversation loop."""
+    async def _async_conversation_loop(self, system_msg: str, intro_msg: str):
+        """Asynchronous conversation loop."""
         try:
             self.history.current_state.system_prompt = system_msg
-            _, intro_styled, _ = await self.handle_intro(intro_msg)
-
+            _, intro_styled, _ = await self.introduce_conversation(intro_msg)
             while True:
                 user_input = await self.terminal.get_user_input()
                 if not user_input:
                     continue
-
                 cmd = user_input.lower().strip()
                 if cmd in ["edit", "retry"]:
-                    _, intro_styled, _ = await self.handle_edit_or_retry(
-                        intro_styled,
-                        is_retry=cmd == "retry"
-                    )
+                    _, intro_styled, _ = await self.backtrack_conversation(intro_styled, is_retry=(cmd == "retry"))
                 else:
-                    _, intro_styled, _ = await self.handle_message(user_input, intro_styled)
+                    _, intro_styled, _ = await self.process_user_message(user_input, intro_styled)
         except Exception as e:
             self.logger.error(f"Critical error: {e}", exc_info=True)
             raise
@@ -168,9 +165,9 @@ class ConversationActions:
             await self.io.update_display()
 
     def start_conversation(self, messages: dict) -> None:
-        """Start the conversation loop with error handling."""
+        """Public entry: start the conversation loop with error handling."""
         try:
-            asyncio.run(self.run_conversation(
+            asyncio.run(self._async_conversation_loop(
                 messages.get('system', ''),
                 messages.get('user', '')
             ))
@@ -183,7 +180,7 @@ class ConversationActions:
             raise
         finally:
             self.display.terminal.reset()
-    
+
     def add_preface(self, text: str, color: str = None, display_type: str = "panel") -> None:
         """Add preface content to the conversation."""
         try:
@@ -192,7 +189,7 @@ class ConversationActions:
                     self.text = text
                     self.color = color
                     self.display_type = display_type
-            
+
             self.preconversation_text.append(PrefaceContent(text, color, display_type))
             self.history.update_state(preconversation_styled=self.preconversation_styled)
             self.logger.debug(f"Added preface: {text[:50]}")
