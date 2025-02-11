@@ -1,88 +1,38 @@
-# styles/application.py
+# style/application.py
 
 import re
 import sys
 import asyncio
 from io import StringIO
-from rich.panel import Panel
-from rich.align import Align
 from rich.style import Style
 from rich.console import Console
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Type, Protocol, Union
 
-@dataclass
-class DisplayContent:
-    """Display content with optional styling."""
-    text: str
-    color: Optional[str] = None
+class DisplayStrategyProtocol(Protocol):
+    """Protocol defining the interface for display strategies."""
+    def format(self, content: Union[Dict, object]) -> str: ...
+    def get_visible_length(self, text: str) -> int: ...
 
-class DisplayStrategy:
-    """Base class for display strategies."""
-    def format(self, content: DisplayContent) -> str:
-        pass
-
-    def get_visible_length(self, text: str) -> int:
-        pass
-
-class TextDisplayStrategy(DisplayStrategy):
-    """Simple text display with newline."""
-    def __init__(self, application):
-        self.application = application
-
-    def format(self, content: DisplayContent) -> str:
-        return content.text + "\n"
-
-    def get_visible_length(self, text: str) -> int:
-        return self.application.get_visible_length(text)
-
-class PanelDisplayStrategy(DisplayStrategy):
-    """Centered Rich panel display."""
-    def __init__(self, application):
-        self.application = application
-        self.console = Console(force_terminal=True, color_system="truecolor", record=True)
-
-    def format(self, content: DisplayContent) -> str:
-        with self.console.capture() as capture:
-            self.console.print(
-                Panel(
-                    Align.center(content.text.rstrip()),
-                    title="Baze Inc.",
-                    title_align="right",
-                    border_style="dim yellow",
-                    style=content.color or "on grey23",
-                    padding=(1, 2),
-                    expand=True
-                )
-            )
-        return capture.get()
-
-    def get_visible_length(self, text: str) -> int:
-        return self.application.get_visible_length(text) + 4
-
-class StyleApplication:
+class StyleEngine:
     """
     Applies styles to text content, managing style definitions,
     display strategies, and terminal output.
     """
-    def __init__(self, terminal, definitions):
+    def __init__(self, terminal, definitions, strategies: Dict[str, Type[DisplayStrategyProtocol]]):
         """Initialize with terminal and style definitions."""
         self.terminal = terminal
         self.definitions = definitions
-        self._init_state()
-        self._init_rich_console()
-
-    def _init_state(self) -> None:
-        """Initialize internal style state."""
+        self.strategies = strategies
+        
+        # Initialize internal style state
         self._base_color = self.definitions.formats['RESET']
         self._active_patterns = []
         self._word_buffer = ""
         self._buffer_lock = asyncio.Lock()
         self._current_line_length = 0
         self.term_width = self.terminal.term_width if self.terminal else 80
-
-    def _init_rich_console(self) -> None:
-        """Initialize Rich console for formatting."""
+        
+        # Initialize Rich console
         self._rich_console = Console(
             force_terminal=True,
             color_system="truecolor",
@@ -94,15 +44,11 @@ class StyleApplication:
             for name, cfg in self.definitions.colors.items()
         }
 
-    def create_display_strategy(self, strategy_type: str) -> DisplayStrategy:
+    def create_display_strategy(self, strategy_type: str) -> DisplayStrategyProtocol:
         """Return a display strategy instance."""
-        strategies = {
-            "text": TextDisplayStrategy(self),
-            "panel": PanelDisplayStrategy(self)
-        }
-        if strategy_type not in strategies:
+        if strategy_type not in self.strategies:
             raise ValueError(f"Unknown strategy type: {strategy_type}")
-        return strategies[strategy_type]
+        return self.strategies[strategy_type](self)
 
     def get_visible_length(self, text: str) -> int:
         """Return visible length of text without ANSI codes or box chars."""
