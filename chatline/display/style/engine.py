@@ -1,4 +1,4 @@
-# style/application.py
+# style/engine.py
 
 import re
 import sys
@@ -6,23 +6,24 @@ import asyncio
 from io import StringIO
 from rich.style import Style
 from rich.console import Console
-from typing import Dict, List, Optional, Tuple, Type, Protocol, Union
+from typing import Dict, List, Optional, Tuple, Protocol, Union
 
-class DisplayStrategyProtocol(Protocol):
-    """Protocol defining the interface for display strategies."""
-    def format(self, content: Union[Dict, object]) -> str: ...
+class StyleProtocol(Protocol):
+    """Protocol defining the interface for style strategy."""
+    def format(self, content: Union[Dict, object], style: str) -> str: ...
     def get_visible_length(self, text: str) -> int: ...
+    def set_application(self, application): ...
 
 class StyleEngine:
     """
-    Applies style to text content, managing style definitions,
-    display strategies, and terminal output.
+    Applies style to text content, managing style definitions and terminal output.
     """
-    def __init__(self, terminal, definitions, strategies: Dict[str, Type[DisplayStrategyProtocol]]):
-        """Initialize with terminal and style definitions."""
+    def __init__(self, terminal, definitions, strategy: StyleProtocol):
+        """Initialize with terminal, style definitions, and display strategy."""
         self.terminal = terminal
         self.definitions = definitions
-        self.strategies = strategies
+        self.strategy = strategy
+        self.strategy.set_application(self)
         
         # Initialize internal style state
         self._base_color = self.definitions.formats['RESET']
@@ -43,12 +44,6 @@ class StyleEngine:
             name: Style(color=cfg['rich'])
             for name, cfg in self.definitions.colors.items()
         }
-
-    def create_display_strategy(self, strategy_type: str) -> DisplayStrategyProtocol:
-        """Return a display strategy instance."""
-        if strategy_type not in self.strategies:
-            raise ValueError(f"Unknown strategy type: {strategy_type}")
-        return self.strategies[strategy_type](self)
 
     def get_visible_length(self, text: str) -> int:
         """Return visible length of text without ANSI codes or box chars."""

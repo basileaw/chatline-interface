@@ -20,10 +20,6 @@ class ConversationActions:
 
         self.is_silent = False
         self.prompt = ""
-        self._display_strategies = {
-            "text": self.style.create_display_strategy("text"),
-            "panel": self.style.create_display_strategy("panel")
-        }
 
     async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
         """Process a user message and generate a response."""

@@ -1,4 +1,4 @@
-# style/definition.py
+# style/definitions.py
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional

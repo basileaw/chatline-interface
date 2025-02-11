@@ -5,34 +5,35 @@ from rich.align import Align
 from rich.console import Console
 from typing import Dict, Union
 
-class DisplayStrategy:
-    """Base class for display strategies."""
-    def format(self, content: Union[Dict, object]) -> str:
-        pass
+class StyleStrategy:
+    """Handles all display formatting strategies."""
+    def __init__(self):
+        self.application = None
+        self.console = Console(force_terminal=True, color_system="truecolor", record=True)
 
-    def get_visible_length(self, text: str) -> int:
-        pass
-
-class TextDisplayStrategy(DisplayStrategy):
-    """Simple text display with newline."""
-    def __init__(self, application):
+    def set_application(self, application):
+        """Set the application reference after initialization."""
         self.application = application
 
-    def format(self, content: Union[Dict, object]) -> str:
+    def format(self, content: Union[Dict, object], style: str = "text") -> str:
+        """Format content according to specified style."""
+        if style == "panel":
+            return self._format_panel(content)
+        return self._format_text(content)
+
+    def get_visible_length(self, text: str) -> int:
+        """Return visible length of text."""
+        if not self.application:
+            return len(text)
+        return self.application.get_visible_length(text)
+
+    def _format_text(self, content: Union[Dict, object]) -> str:
+        """Format as simple text with newline."""
         text = content["text"] if isinstance(content, dict) else content.text
         return text + "\n"
 
-    def get_visible_length(self, text: str) -> int:
-        return self.application.get_visible_length(text)
-
-class PanelDisplayStrategy(DisplayStrategy):
-    """Centered Rich panel display."""
-    def __init__(self, application):
-        self.application = application
-        self.console = Console(force_terminal=True, color_system="truecolor", record=True)
-
-    def format(self, content: Union[Dict, object]) -> str:
-        # Handle both dict and object-style content
+    def _format_panel(self, content: Union[Dict, object]) -> str:
+        """Format as centered Rich panel."""
         text = content["text"] if isinstance(content, dict) else content.text
         color = (content.get("color") if isinstance(content, dict) 
                 else getattr(content, "color", None)) or "on grey23"
@@ -50,6 +51,3 @@ class PanelDisplayStrategy(DisplayStrategy):
                 )
             )
         return capture.get()
-
-    def get_visible_length(self, text: str) -> int:
-        return self.application.get_visible_length(text) + 4

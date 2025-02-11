@@ -27,15 +27,14 @@ class ConversationPreface:
         self.styled_content = ""
     
     async def format_content(self, style) -> str:
-        """Format all preface content using provided style strategies."""
+        """Format all preface content using provided style engine."""
         if not self.content_items:
             return ""
             
         styled_parts = []
         for content in self.content_items:
-            strategy = style.create_display_strategy(content.display_type)
             style.set_output_color(content.color)
-            _, styled = await style.write_styled(strategy.format(content))
+            _, styled = await style.write_styled(style.strategy.format(content, content.display_type))
             styled_parts.append(styled)
             
         self.styled_content = ''.join(styled_parts)
