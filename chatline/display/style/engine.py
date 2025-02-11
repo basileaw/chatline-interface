@@ -7,9 +7,10 @@ from io import StringIO
 from rich.style import Style
 from rich.console import Console
 from typing import Dict, List, Optional, Tuple, Protocol, Union
+from .definitions import StyleDefinitions
 
 class StyleProtocol(Protocol):
-    """Protocol defining the interface for style strategy."""
+    """Protocol defining the interface for style strategies."""
     def format(self, content: Union[Dict, object], style: str) -> str: ...
     def get_visible_length(self, text: str) -> int: ...
     def set_application(self, application): ...
@@ -18,15 +19,15 @@ class StyleEngine:
     """
     Applies style to text content, managing style definitions and terminal output.
     """
-    def __init__(self, terminal, definitions, strategy: StyleProtocol):
-        """Initialize with terminal, style definitions, and display strategy."""
+    def __init__(self, terminal, definitions: StyleDefinitions, strategies: StyleProtocol):
+        """Initialize with terminal, style definitions, and display strategies."""
         self.terminal = terminal
         self.definitions = definitions
-        self.strategy = strategy
-        self.strategy.set_application(self)
+        self.strategies = strategies
+        self.strategies.set_application(self)
         
         # Initialize internal style state
-        self._base_color = self.definitions.formats['RESET']
+        self._base_color = self.definitions.get_format('RESET')
         self._active_patterns = []
         self._word_buffer = ""
         self._buffer_lock = asyncio.Lock()
@@ -58,11 +59,11 @@ class StyleEngine:
 
     def get_format(self, name: str) -> str:
         """Return format code by name."""
-        return self.definitions.formats.get(name, '')
+        return self.definitions.get_format(name)
 
     def get_color(self, name: str) -> str:
         """Return ANSI color code by name."""
-        return self.definitions.colors.get(name, {}).get('ansi', '')
+        return self.definitions.get_color(name).get('ansi', '')
 
     def get_rich_style(self, name: str) -> Style:
         """Return Rich style by name."""
@@ -70,40 +71,46 @@ class StyleEngine:
 
     def get_base_color(self, color_name: str = 'GREEN') -> str:
         """Return base ANSI color code."""
-        return self.definitions.colors.get(color_name, {}).get('ansi', '')
+        return self.definitions.get_color(color_name).get('ansi', '')
 
     def set_output_color(self, color: Optional[str] = None) -> None:
         """Set the base output color."""
-        self._base_color = self.get_color(color) if color else self.definitions.formats['RESET']
+        self._base_color = self.get_color(color) if color else self.definitions.get_format('RESET')
 
     def get_style(self, active_patterns: List[str], base_color: str) -> str:
         """Return combined style string for active patterns."""
         style = [base_color]
         for name in active_patterns:
-            pat = self.definitions.patterns[name]
-            if pat.color:
-                style[0] = self.definitions.colors[pat.color]['ansi']
-            style.extend(self.definitions.formats[f'{s}_ON'] for s in (pat.style or []))
+            pattern = self.definitions.get_pattern(name)
+            if pattern and pattern.color:
+                style[0] = self.definitions.get_color(pattern.color)['ansi']
+            if pattern and pattern.style:
+                style.extend(self.definitions.get_format(f'{s}_ON') for s in pattern.style)
         return ''.join(style)
 
     def split_into_styled_words(self, text: str) -> List[Dict]:
         """Split text into words with style info."""
         words = []
         curr = {'word': [], 'styled': [], 'patterns': []}
+        
         for char in text:
-            if char in {p.start for p in self.definitions.patterns.values()}:
-                pat = next(p for p in self.definitions.patterns.values() if p.start == char)
-                curr['patterns'].append(pat.name)
-                if not pat.remove_delimiters:
+            pattern_start = next((p for p in self.definitions.patterns.values() 
+                                if p.start == char), None)
+            if pattern_start:
+                curr['patterns'].append(pattern_start.name)
+                if not pattern_start.remove_delimiters:
                     curr['word'].append(char)
                     curr['styled'].append(char)
-            elif curr['patterns'] and char in {p.end for p in self.definitions.patterns.values()}:
-                pat = self.definitions.patterns[curr['patterns'][-1]]
-                if char == pat.end:
-                    if not pat.remove_delimiters:
+            elif curr['patterns']:
+                active_pattern = self.definitions.get_pattern(curr['patterns'][-1])
+                if char == active_pattern.end:
+                    if not active_pattern.remove_delimiters:
                         curr['word'].append(char)
                         curr['styled'].append(char)
                     curr['patterns'].pop()
+                else:
+                    curr['word'].append(char)
+                    curr['styled'].append(char)
             elif char.isspace():
                 if curr['word']:
                     words.append({
@@ -115,6 +122,7 @@ class StyleEngine:
             else:
                 curr['word'].append(char)
                 curr['styled'].append(char)
+                
         if curr['word']:
             words.append({
                 'raw_text': ''.join(curr['word']),
@@ -127,6 +135,7 @@ class StyleEngine:
         """Format lines of styled words."""
         res = []
         curr_style = self.get_format('RESET') + base_color
+        
         for line in lines:
             c = [curr_style]
             for word in line:
@@ -138,6 +147,7 @@ class StyleEngine:
             formatted = "".join(c).rstrip()
             if formatted:
                 res.append(formatted)
+                
         extra = self.get_format('RESET') + base_color
         return "\n".join(res) + (extra if curr_style != extra else "")
 
@@ -148,29 +158,32 @@ class StyleEngine:
 
         out = []
         if not self._active_patterns:
-            out.append(f"{self.definitions.formats['ITALIC_OFF']}"
-                       f"{self.definitions.formats['BOLD_OFF']}"
-                       f"{self._base_color}")
+            out.append(f"{self.definitions.get_format('ITALIC_OFF')}"
+                      f"{self.definitions.get_format('BOLD_OFF')}"
+                      f"{self._base_color}")
 
         for i, char in enumerate(text):
             if i == 0 or text[i - 1].isspace():
                 out.append(self.get_style(self._active_patterns, self._base_color))
-            if (self._active_patterns and 
-                char in {p.end for p in self.definitions.patterns.values()} and
-                char == self.definitions.patterns[self._active_patterns[-1]].end):
-                pat = self.definitions.patterns[self._active_patterns[-1]]
-                if not pat.remove_delimiters:
+                
+            active_pattern = (self.definitions.get_pattern(self._active_patterns[-1]) 
+                            if self._active_patterns else None)
+            if active_pattern and char == active_pattern.end:
+                if not active_pattern.remove_delimiters:
                     out.append(self.get_style(self._active_patterns, self._base_color) + char)
                 self._active_patterns.pop()
                 out.append(self.get_style(self._active_patterns, self._base_color))
                 continue
-            if char in {p.start for p in self.definitions.patterns.values()}:
-                new_pat = next(p for p in self.definitions.patterns.values() if p.start == char)
-                self._active_patterns.append(new_pat.name)
+                
+            new_pattern = next((p for p in self.definitions.patterns.values() 
+                              if p.start == char), None)
+            if new_pattern:
+                self._active_patterns.append(new_pattern.name)
                 out.append(self.get_style(self._active_patterns, self._base_color))
-                if not new_pat.remove_delimiters:
+                if not new_pattern.remove_delimiters:
                     out.append(char)
                 continue
+                
             out.append(char)
         return ''.join(out)
 
@@ -237,7 +250,7 @@ class StyleEngine:
             if not styled_out.endswith('\n'):
                 sys.stdout.write("\n")
                 styled_out += "\n"
-            sys.stdout.write(self.definitions.formats['RESET'])
+            sys.stdout.write(self.definitions.get_format('RESET'))
             sys.stdout.flush()
             self._reset_output_state()
             return "", styled_out

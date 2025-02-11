@@ -1,7 +1,7 @@
 # style/__init__.py
 
-from .definitions import DEFAULT_DEFINITIONS
-from .strategies import StyleStrategy
+from .definitions import StyleDefinitions
+from .strategies import StyleStrategies
 from .engine import StyleEngine
 
 class Displaystyle:
@@ -10,8 +10,8 @@ class Displaystyle:
         """Initialize with a terminal interface."""
         self.application = StyleEngine(
             terminal=terminal,
-            definitions=DEFAULT_DEFINITIONS,
-            strategy=StyleStrategy()
+            definitions=StyleDefinitions(),
+            strategies=StyleStrategies()
         )
         
     def __getattr__(self, name):

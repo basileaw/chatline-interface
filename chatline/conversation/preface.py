@@ -34,7 +34,7 @@ class ConversationPreface:
         styled_parts = []
         for content in self.content_items:
             style.set_output_color(content.color)
-            _, styled = await style.write_styled(style.strategy.format(content, content.display_type))
+            _, styled = await style.write_styled(style.strategies.format(content, content.display_type))
             styled_parts.append(styled)
             
         self.styled_content = ''.join(styled_parts)

@@ -5,7 +5,7 @@ from rich.align import Align
 from rich.console import Console
 from typing import Dict, Union
 
-class StyleStrategy:
+class StyleStrategies:
     """Handles all display formatting strategies."""
     def __init__(self):
         self.application = None
