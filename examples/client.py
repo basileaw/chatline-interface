@@ -31,7 +31,7 @@ def main():
 
     # Initialize and start the chat interface
     chat = Interface(endpoint=args.endpoint, logging_enabled=args.enable_logging)
-    chat.preface("Welcome to ChatLine", color="WHITE")
+    chat.preface("Welcome to ChatLine", title="Baze, Inc.", border_color="dim yellow")  # Now works with title
     chat.start(MESSAGES)
 
 if __name__ == "__main__":

@@ -9,6 +9,8 @@ class PrefaceContent:
     text: str
     color: str = None
     display_type: str = "panel"
+    title: str = None
+    border_color: str = None
 
 class ConversationPreface:
     """Manages preface content and styling for conversations."""
@@ -16,9 +18,10 @@ class ConversationPreface:
         self.content_items: List[PrefaceContent] = []
         self.styled_content: str = ""
     
-    def add_content(self, text: str, color: str = None, display_type: str = "panel") -> None:
+    def add_content(self, text: str, color: str = None, display_type: str = "panel", 
+                title: str = None, border_color: str = None) -> None:
         """Add new preface content."""
-        content = PrefaceContent(text, color, display_type)
+        content = PrefaceContent(text, color, display_type, title, border_color)
         self.content_items.append(content)
     
     def clear(self) -> None:

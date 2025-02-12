@@ -32,14 +32,19 @@ class StyleStrategies:
         """Return content formatted as a centered Rich panel."""
         text = content["text"] if isinstance(content, dict) else content.text
         color = (content.get("color") if isinstance(content, dict)
-                 else getattr(content, "color", None)) or "on grey23"
+                else getattr(content, "color", None)) or "white"
+        title = (content.get("title") if isinstance(content, dict)
+                else getattr(content, "title", None))
+        border_color = (content.get("border_color") if isinstance(content, dict)
+                    else getattr(content, "border_color", None)) or "white"
+        
         with self.console.capture() as capture:
             self.console.print(
                 Panel(
                     Align.center(text.rstrip()),
-                    title="Baze Inc.",
+                    title=title,
                     title_align="right",
-                    border_style="dim yellow",
+                    border_style=border_color,  # Use the dynamic border_color
                     style=color,
                     padding=(1, 2),
                     expand=True,

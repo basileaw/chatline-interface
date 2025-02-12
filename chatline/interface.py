@@ -25,9 +25,18 @@ class Interface:
             self.logger.error(f"Init error: {e}")
             raise
 
-    def preface(self, text: str, color: Optional[str] = None, display_type: str = "panel") -> None:
-        """Display preface text before starting the conversation."""
-        self.conv.preface.add_content(text, color, display_type)
+    def preface(self, text: str, color: Optional[str] = None, display_type: str = "panel", 
+            title: Optional[str] = None, border_color: Optional[str] = None) -> None:
+        """Display preface text before starting the conversation.
+        
+        Args:
+            text: The text to display in the preface
+            color: Optional color for the text (default: white)
+            display_type: The type of display (default: "panel")
+            title: Optional title for the panel
+            border_color: Optional color for the panel border (default: white)
+        """
+        self.conv.preface.add_content(text, color, display_type, title, border_color)
 
     def start(self, messages: Dict[str, str]) -> None:
         """Start the conversation with the provided messages."""
