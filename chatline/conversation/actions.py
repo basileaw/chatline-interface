@@ -16,7 +16,6 @@ class ConversationActions:
         self.messages = messages
         self.preface = preface
         self.logger = logger
-
         self.is_silent = False
         self.prompt = ""
 
