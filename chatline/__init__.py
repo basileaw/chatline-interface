@@ -1,6 +1,6 @@
 # __init__.py
 
-import os, logging
+import sys, logging
 from typing import Dict, Optional
 from functools import partial
 from .display import Display
@@ -8,37 +8,47 @@ from .stream import Stream
 from .conversation import Conversation
 
 class Logger:
-    def __init__(self, name: str, logging_enabled: bool = False):
+    def __init__(self, name: str, logging_enabled: bool = False, log_file: Optional[str] = None):
         self._logger = logging.getLogger(name)
+        self._logger.propagate = False
+        
         if logging_enabled:
-            project_root = os.path.dirname(os.path.dirname(__file__))
-            os.makedirs(os.path.join(project_root, 'logs'), exist_ok=True)
-            logging.basicConfig(
-                level=logging.DEBUG,
-                format='%(asctime)s - %(levelname)s - %(message)s',
-                filename=os.path.join(project_root, 'logs', 'chat_debug.log')
-            )
+            # Determine output destination
+            if log_file == '-':
+                handler = logging.StreamHandler(sys.stdout)
+            elif log_file:
+                handler = logging.FileHandler(log_file)
+            else:
+                handler = logging.StreamHandler(sys.stderr)
+            
+            handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            
+            self._logger.addHandler(handler)
+            self._logger.setLevel(logging.DEBUG)
         else:
             self._logger.addHandler(logging.NullHandler())
-            
+
         # Dynamically create logging methods
         for level in ['debug', 'info', 'warning', 'error']:
             setattr(self, level, partial(self._log, level))
-            
+
     def _log(self, level: str, msg: str, exc_info: Optional[bool] = None) -> None:
         getattr(self._logger, level)(msg, exc_info=exc_info)
 
 class Interface:
-    """Manages display, conversation, streaming, and logging."""
-    
-    def __init__(self, endpoint: Optional[str] = None, logging_enabled: bool = False):
+    def __init__(self, endpoint: Optional[str] = None, 
+                 logging_enabled: bool = False,
+                 log_file: Optional[str] = None):
         """Initialize components with an optional endpoint and logging."""
-        self._init_components(endpoint, logging_enabled)
-
-    def _init_components(self, endpoint: Optional[str], logging_enabled: bool) -> None:
-        """Set up Logger, Display, Stream, and Conversation."""
+        self._init_components(endpoint, logging_enabled, log_file)
+    
+    def _init_components(self, endpoint: Optional[str], 
+                        logging_enabled: bool,
+                        log_file: Optional[str]) -> None:
         try:
-            self.logger = Logger(__name__, logging_enabled)  # Init logger
+            self.logger = Logger(__name__, logging_enabled, log_file)
             self.display = Display()  # Init display
             self.stream = Stream.create(endpoint, logger=self.logger)
             self.conv = Conversation(display=self.display, stream=self.stream, logger=self.logger)

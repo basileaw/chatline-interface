@@ -1,5 +1,5 @@
 .archive/
 chatline/logs/*
 .venv/
-logs/*
+logs/
 *.egg-info/

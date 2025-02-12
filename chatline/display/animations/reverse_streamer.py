@@ -2,8 +2,7 @@
 
 import asyncio
 import re
-import math
-from typing import List, Dict, Tuple, Union
+from typing import List, Dict, Tuple
 
 class ReverseStreamer:
     """Reverse-stream word-by-word animation preserving ANSI sequences."""

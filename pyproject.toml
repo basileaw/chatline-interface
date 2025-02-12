@@ -3,7 +3,7 @@ name = "chatline"
 version = "0.1.0"
 authors = ["Baze <basileaw@gmail.com>"]
 description = "A chat interface implementation"
-packages = [{include = "chatline"}]
+packages = [{ include = "chatline" }]
 
 [build-system]
 requires = ["poetry-core"]
@@ -19,3 +19,8 @@ prompt-toolkit = "*"
 [tool.poetry.group.dev.dependencies]
 fastapi = "*"
 uvicorn = "*"
+poethepoet = "^0.32.2"
+
+[tool.poe.tasks]
+client = "python examples/client.py"
+client-log = "python examples/client.py --enable-logging --log-file logs/chatline_debug.log"
