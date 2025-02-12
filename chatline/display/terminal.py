@@ -16,20 +16,15 @@ class TerminalSize:
     lines: int
 
 class DisplayTerminal:
-    """
-    Base terminal operations layer handling screen management, cursor control, and raw I/O.
-    
-    This class serves as the foundation for the display hierarchy, providing low-level
-    terminal operations that higher layers can build upon.
-    """
+    """Low-level terminal operations and I/O."""
     def __init__(self):
-        """Initialize terminal management."""
+        """Initialize terminal state and key bindings."""
         self._cursor_visible = True
         self._is_edit_mode = False
         self._setup_key_bindings()
 
     def _setup_key_bindings(self) -> None:
-        """Set up keyboard shortcuts (Ctrl-E: edit, Ctrl-R: retry)."""
+        """Setup key shortcuts: Ctrl-E for edit, Ctrl-R for retry."""
         kb = KeyBindings()
 
         @kb.add('c-e')
@@ -48,16 +43,16 @@ class DisplayTerminal:
 
     @property
     def width(self) -> int:
-        """Return current terminal width."""
+        """Return terminal width."""
         return self.get_size().columns
 
     @property
     def height(self) -> int:
-        """Return current terminal height."""
+        """Return terminal height."""
         return self.get_size().lines
 
     def get_size(self) -> TerminalSize:
-        """Return terminal dimensions."""
+        """Get terminal dimensions."""
         size = shutil.get_terminal_size()
         return TerminalSize(columns=size.columns, lines=size.lines)
 
@@ -66,22 +61,22 @@ class DisplayTerminal:
         return sys.stdout.isatty()
 
     def _manage_cursor(self, show: bool) -> None:
-        """Toggle cursor visibility."""
+        """Toggle cursor visibility based on 'show' flag."""
         if self._cursor_visible != show and self._is_terminal():
             self._cursor_visible = show
             sys.stdout.write("\033[?25h" if show else "\033[?25l")
             sys.stdout.flush()
 
     def show_cursor(self) -> None:
-        """Show the cursor."""
+        """Make cursor visible."""
         self._manage_cursor(True)
 
     def hide_cursor(self) -> None:
-        """Hide the cursor."""
+        """Make cursor hidden."""
         self._manage_cursor(False)
 
     def reset(self) -> None:
-        """Reset terminal state (show cursor and clear screen)."""
+        """Reset terminal: show cursor and clear screen."""
         self.show_cursor()
         self.clear_screen()
 
@@ -92,24 +87,17 @@ class DisplayTerminal:
             sys.stdout.flush()
 
     def write(self, text: str = "", newline: bool = False) -> None:
-        """
-        Write raw text to the terminal.
-        
-        Args:
-            text: Text to write
-            newline: Whether to append a newline
-        """
+        """Write text to stdout; append newline if requested."""
         try:
             sys.stdout.write(text)
             if newline:
                 sys.stdout.write('\n')
             sys.stdout.flush()
         except IOError:
-            # Handle pipe errors (e.g., when output is piped to another process)
-            pass
+            pass  # Ignore pipe errors
 
     def write_line(self, text: str = "") -> None:
-        """Write text with a newline."""
+        """Write text with newline."""
         self.write(text, newline=True)
 
     async def get_user_input(
@@ -118,17 +106,7 @@ class DisplayTerminal:
         add_newline: bool = True,
         hide_cursor: bool = True
     ) -> str:
-        """
-        Prompt user for input with optional default text.
-        
-        Args:
-            default_text: Pre-filled text in the input field
-            add_newline: Whether to add a newline before prompt
-            hide_cursor: Whether to hide cursor after input
-            
-        Returns:
-            User input string
-        """
+        """Prompt user for input with default text."""
         class NonEmptyValidator(Validator):
             def validate(self, document):
                 if not document.text.strip():
@@ -136,7 +114,6 @@ class DisplayTerminal:
 
         if add_newline:
             self.write_line()
-            
         self._is_edit_mode = bool(default_text)
         try:
             self.show_cursor()
@@ -153,7 +130,7 @@ class DisplayTerminal:
                 self.hide_cursor()
 
     def format_prompt(self, text: str) -> str:
-        """Format text as a prompt with appropriate ending punctuation."""
+        """Format prompt text with proper ending punctuation."""
         end_char = text[-1] if text.endswith(('?', '!')) else '.'
         return f"> {text.rstrip('?.!')}{end_char * 3}"
 
@@ -163,14 +140,7 @@ class DisplayTerminal:
         prompt: str = None,
         preserve_cursor: bool = False
     ) -> None:
-        """
-        Update the display with content and optional prompt.
-        
-        Args:
-            content: Main content to display
-            prompt: Optional prompt to show after content
-            preserve_cursor: Whether to preserve cursor state
-        """
+        """Clear screen and update display with content and optional prompt."""
         if not preserve_cursor:
             self.hide_cursor()
         self.clear_screen()
@@ -184,14 +154,14 @@ class DisplayTerminal:
             self.hide_cursor()
 
     async def yield_to_event_loop(self) -> None:
-        """Yield briefly to the event loop."""
+        """Yield control to the event loop briefly."""
         await asyncio.sleep(0)
 
     def __enter__(self):
-        """Context manager entry - ensures cursor is hidden."""
+        """Context manager enter: hide cursor."""
         self.hide_cursor()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit - ensures cursor is shown."""
+        """Context manager exit: show cursor."""
         self.show_cursor()
