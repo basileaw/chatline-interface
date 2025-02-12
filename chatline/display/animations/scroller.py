@@ -39,14 +39,17 @@ class Scroller:
                 result.append(line)
         return result
 
-    async def scroll_up(self, text: str, prompt: str, delay: float = 0.5) -> None:
-        """Scroll text upward with a prompt and delay."""
-        lines = self._handle_text(text)
-        for i in range(len(lines) + 1):
-            await self._update_scroll_display(lines[i:], prompt)
-            await asyncio.sleep(delay)
+    async def _update_scroll_display(self, lines: List[str], prompt: str) -> None:
+        """Clear screen and display lines with a prompt."""
+        self.terminal.clear_screen()
+        # Write each line.
+        for line in lines:
+            self.terminal.write(line, newline=True)
+        # Write prompt with reset formatting.
+        self.terminal.write(self.style.get_format('RESET'))
+        self.terminal.write(prompt)
 
-    async def scroll_styled(self, styled_lines: str, prompt: str, delay: float = 0.5) -> None:
+    async def scroll_up(self, styled_lines: str, prompt: str, delay: float = 0.5) -> None:
         """Scroll pre-styled text upward with a prompt and delay."""
         lines = self._handle_text(styled_lines)
         for i in range(len(lines) + 1):
@@ -57,13 +60,3 @@ class Scroller:
             # Write prompt with reset formatting.
             self.terminal.write(self.style.get_format('RESET') + prompt)
             await asyncio.sleep(delay)
-
-    async def _update_scroll_display(self, lines: List[str], prompt: str) -> None:
-        """Clear screen and display lines with a prompt."""
-        self.terminal.clear_screen()
-        # Write each line.
-        for line in lines:
-            self.terminal.write(line, newline=True)
-        # Write prompt with reset formatting.
-        self.terminal.write(self.style.get_format('RESET'))
-        self.terminal.write(prompt)
