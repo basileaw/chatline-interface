@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "chatline"
+version = "0.1.0"
+authors = ["Baze <basileaw@gmail.com>"]
+description = "A chat interface implementation"
+packages = [{include = "chatline"}]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.dependencies]
+python = ">=3.12,<4.0"
+boto3 = "*"
+httpx = "*"
+rich = "*"
+prompt-toolkit = "*"
+
+[tool.poetry.group.dev.dependencies]
+fastapi = "*"
+uvicorn = "*"
