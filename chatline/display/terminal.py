@@ -20,7 +20,7 @@ class DisplayTerminal:
     Base terminal operations layer handling screen management, cursor control, and raw I/O.
     
     This class serves as the foundation for the display hierarchy, providing low-level
-    terminal operations that higher layers (StyleEngine, DisplayAnimations) can build upon.
+    terminal operations that higher layers can build upon.
     """
     def __init__(self):
         """Initialize terminal management."""
@@ -151,6 +151,37 @@ class DisplayTerminal:
             self._is_edit_mode = False
             if hide_cursor:
                 self.hide_cursor()
+
+    def format_prompt(self, text: str) -> str:
+        """Format text as a prompt with appropriate ending punctuation."""
+        end_char = text[-1] if text.endswith(('?', '!')) else '.'
+        return f"> {text.rstrip('?.!')}{end_char * 3}"
+
+    async def update_display(
+        self,
+        content: str = None,
+        prompt: str = None,
+        preserve_cursor: bool = False
+    ) -> None:
+        """
+        Update the display with content and optional prompt.
+        
+        Args:
+            content: Main content to display
+            prompt: Optional prompt to show after content
+            preserve_cursor: Whether to preserve cursor state
+        """
+        if not preserve_cursor:
+            self.hide_cursor()
+        self.clear_screen()
+        if content:
+            self.write(content)
+            if prompt:
+                self.write('\n')
+        if prompt:
+            self.write(prompt)
+        if not preserve_cursor:
+            self.hide_cursor()
 
     async def yield_to_event_loop(self) -> None:
         """Yield briefly to the event loop."""

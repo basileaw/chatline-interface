@@ -7,12 +7,11 @@ class ConversationActions:
     """Manages conversation flow and actions."""
     def __init__(self, display, stream, history, messages, preface, logger):
         self.display = display
-        self.terminal = display.terminal  # Terminal operations
-        self.io = display.io              # Display I/O
-        self.style = display.style      # Text styling
-        self.animations = display.animations  # Animated effects
+        self.terminal = display.terminal
+        self.style = display.style
+        self.animations = display.animations
         self.stream = stream
-        self.generator = stream.get_generator()  # Get the generator from stream
+        self.generator = stream.get_generator()
         self.history = history
         self.messages = messages
         self.preface = preface
@@ -56,11 +55,11 @@ class ConversationActions:
         styled_panel = self.style.append_single_blank_line(styled_panel)
 
         if styled_panel.strip():
-            await self.io.update_display(styled_panel, preserve_cursor=True)
+            await self.terminal.update_display(styled_panel, preserve_cursor=True)
 
         raw, styled = await self._process_message(intro_msg, silent=True)
         full_styled = styled_panel + styled
-        await self.io.update_display(full_styled)
+        await self.terminal.update_display(full_styled)
 
         self.is_silent = True
         self.prompt = ""
@@ -75,7 +74,7 @@ class ConversationActions:
         await scroller.scroll_styled(intro_styled, f"> {user_input}", 0.08)
         raw, styled = await self._process_message(user_input)
         self.is_silent = False
-        self.prompt = self.io.format_prompt(user_input)
+        self.prompt = self.terminal.format_prompt(user_input)
         self.preface.clear()
         self.history.update_state(is_silent=False,
                                 prompt_display=self.prompt,
@@ -107,17 +106,17 @@ class ConversationActions:
             return raw, f"{self.preface.styled_content}\n{styled}", ""
 
         if is_retry:
-            await self.io.clear()
+            self.terminal.clear_screen()
             raw, styled = await self._process_message(last_msg)
         else:
             new_input = await self.terminal.get_user_input(default_text=last_msg, add_newline=False)
             if not new_input:
                 return "", intro_styled, ""
-            await self.io.clear()
+            self.terminal.clear_screen()
             raw, styled = await self._process_message(new_input)
             last_msg = new_input
 
-        self.prompt = self.io.format_prompt(last_msg)
+        self.prompt = self.terminal.format_prompt(last_msg)
         self.history.update_state(prompt_display=self.prompt)
         return raw, styled, self.prompt
 
@@ -139,7 +138,7 @@ class ConversationActions:
             self.logger.error(f"Critical error: {e}", exc_info=True)
             raise
         finally:
-            await self.io.update_display()
+            await self.terminal.update_display()
 
     def start_conversation(self, messages: dict) -> None:
         """Public entry: start the conversation loop with error handling."""
@@ -150,10 +149,10 @@ class ConversationActions:
             ))
         except KeyboardInterrupt:
             self.logger.info("User interrupted")
-            self.display.terminal.reset()
+            self.terminal.reset()
         except Exception as e:
             self.logger.error(f"Critical error in conversation: {e}", exc_info=True)
-            self.display.terminal.reset()
+            self.terminal.reset()
             raise
         finally:
-            self.display.terminal.reset()
+            self.terminal.reset()
