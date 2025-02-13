@@ -1,29 +1,40 @@
-An extremely simple command line interface for AWS Bedrock LLM chat.
+Aan easy-to-use, pretty, command-line chat interface for AWS Bedrock with simple animations, text styling, and 
 
-## Usage 
+## Installation
 
-The absolute simplest, most basic usage is as follows:
+Install it straight from the repo: 
+```
+pip install git+https://github.com/anotherbazeinthewall/chatline-interface.git
+```
+## Config 
+
+### Embedded Stream: 
+
+The most basic config simply passes a system and user message to the embedded stream, using your pre-configured AWS defaults:
 
 ```
 from chatline import Interface
 
 MESSAGES = {
     "system": (
-        'Write in present tense. Write in third person. Use the following text styles:\n'
-        '- "quotes" for dialogue\n'
-        '- [Brackets...] for actions\n'
-        '- underscores for emphasis\n'
-        '- asterisks for bold text'
+        'Be cool.'
     ),
     "user": (
-        """Write the line: "[The machine powers on and hums...]\n\n"""
-        """Then, start a new, 25-word paragraph."""
-        """Begin with a greeting from the machine itself: " "Hey there," " """
+        """Introduce yourself to me in 25 words"""
     )
 }
 
 chat = Interface()
-chat.preface("Welcome to ChatLine", color="WHITE")
 chat.start(MESSAGES)
 
 ```
+
+### Remote Stream: 
+
+Alternatively, you can use chatline in your server and 
+
+## Controls 
+
+Return to 'Send' (send the current message)
+Crt + R to 'Retry' (generate a new response to the previous message)
+Crtl + E to 'Edit' (edit the previous message before sending it again)

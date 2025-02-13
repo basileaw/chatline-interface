@@ -22,5 +22,8 @@ uvicorn = "*"
 poethepoet = "^0.32.2"
 
 [tool.poe.tasks]
-client = "python examples/client.py"
-client-log = "python examples/client.py --enable-logging --log-file logs/chatline_debug.log"
+embedded-client = "python examples/client.py"
+embedded-client-log = "python examples/client.py --enable-logging --log-file logs/chatline_debug.log"
+serve = "python examples/server.py"
+remote-client = "python examples/client.py -e http://127.0.0.1:8000/chat"
+remote-client-log = "python examples/client.py -e http://127.0.0.1:8000/chat --enable-logging --log-file logs/chatline_debug.log"
