@@ -42,7 +42,16 @@ class AsyncDotLoader:
 
     async def _write_loading_state(self):
         """Update display with current loading state."""
-        self.terminal.write(f"\r\033[K{self.prompt}{self.dot_char * self.dots}")
+        # Calculate how many lines our text takes based on terminal width
+        total_length = len(self.prompt) + self.dots  # Length of prompt plus current dots
+        lines_needed = (total_length + self.terminal.width - 1) // self.terminal.width
+        
+        # Move up to the start of our wrapped text block
+        if lines_needed > 1:
+            self.terminal.write(f"\033[{lines_needed - 1}A")
+        
+        # Clear and write from the beginning
+        self.terminal.write(f"\r\033[J{self.prompt}{self.dot_char * self.dots}")
         await self._yield()
 
     async def _handle_message_chunk(self, chunk, first_chunk) -> Tuple[str, str]:
