@@ -42,7 +42,7 @@ class AsyncDotLoader:
 
     async def _write_loading_state(self):
         """Update display with current loading state."""
-        self.terminal.write(f"\r{' ' * 80}\r{self.prompt}{self.dot_char * self.dots}")
+        self.terminal.write(f"\r\033[K{self.prompt}{self.dot_char * self.dots}")
         await self._yield()
 
     async def _handle_message_chunk(self, chunk, first_chunk) -> Tuple[str, str]:
