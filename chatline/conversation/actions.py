@@ -39,11 +39,19 @@ class ConversationActions:
             raw, styled = await loader.run_with_loading(self.generator(msgs))
 
             if raw:
+                # Only include the user message if this isn't the first turn
+                if turn_number > 1:
+                    full_styled = f"> {msg}\n\n{styled}"
+                else:
+                    full_styled = styled
+                
                 self.messages.add_message("assistant", raw, turn_number)
                 state_msgs = await self.messages.get_messages(sys_prompt)
                 self.history.update_state(messages=state_msgs)
 
-            return raw, styled
+                return raw, full_styled
+                
+            return "", ""
         except Exception as e:
             self.logger.error(f"Message processing error: {e}", exc_info=True)
             return "", ""
@@ -70,7 +78,7 @@ class ConversationActions:
     async def process_user_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
         """Process a normal user message and generate a response."""
         scroller = self.animations.create_scroller()
-        await scroller.scroll_up(intro_styled, f"> {user_input}", 0.08)
+        await scroller.scroll_up(intro_styled, f"> {user_input}", .5)
         raw, styled = await self._process_message(user_input)
         self.is_silent = False
         self.prompt = self.terminal.format_prompt(user_input)
