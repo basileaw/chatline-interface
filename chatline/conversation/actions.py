@@ -89,6 +89,7 @@ class ConversationActions:
                 return raw, full_styled
                 
             return "", ""
+        
         except Exception as e:
             self.logger.error(f"Message processing error: {e}", exc_info=True)
             return "", ""
@@ -129,9 +130,10 @@ class ConversationActions:
         """Return to and modify the previous conversation exchange."""
         current_turn = self.history.current_state.turn_number
         rev_streamer = self.animations.create_reverse_streamer()
+        
         await rev_streamer.reverse_stream(
             intro_styled,
-            "" if self.is_silent else self.prompt,
+            "",  # No preserved_msg needed since prompt is in intro_styled
             preconversation_text=self.preface.styled_content
         )
 
@@ -149,14 +151,19 @@ class ConversationActions:
                                     preconversation_styled=self.preface.styled_content)
             return raw, f"{self.preface.styled_content}\n{styled}", ""
 
+        # Clear screen before any input or processing
+        self.terminal.clear_screen()
+        
         if is_retry:
-            self.terminal.clear_screen()
             raw, styled = await self._process_message(last_msg)
         else:
-            new_input = await self.terminal.get_user_input(default_text=last_msg, add_newline=False)
+            # add_newline=False prevents extra spacing
+            new_input = await self.terminal.get_user_input(
+                default_text=last_msg, 
+                add_newline=False
+            )
             if not new_input:
                 return "", intro_styled, ""
-            self.terminal.clear_screen()
             raw, styled = await self._process_message(new_input)
             last_msg = new_input
 
