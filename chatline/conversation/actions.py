@@ -27,18 +27,23 @@ class ConversationActions:
         1. It breaks lines at exact width intervals
         2. It doesn't try to preserve word boundaries
         3. It matches exactly how the terminal displays text initially
+        
+        Args:
+            text: The text to wrap (including prompt)
+            width: The terminal width to wrap at
+        
+        Returns:
+            Text with newlines inserted at terminal wrap points
         """
         if len(text) <= width:
             return text
-            
+
         wrapped_chunks = []
         remaining_text = text
-        
         while remaining_text:
             chunk = remaining_text[:width]
             wrapped_chunks.append(chunk)
             remaining_text = remaining_text[width:]
-        
         return '\n'.join(wrapped_chunks)
     
     async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
@@ -47,6 +52,7 @@ class ConversationActions:
             turn_number = self.history.current_state.turn_number + 1
             self.messages.add_message("user", msg, turn_number)
             sys_prompt = self.history.current_state.system_prompt
+
             state_msgs = await self.messages.get_messages(sys_prompt)
             self.history.update_state(
                 turn_number=turn_number,
@@ -75,9 +81,8 @@ class ConversationActions:
                     full_styled = f"{wrapped_prompt}\n\n{styled}"
                 else:
                     full_styled = styled
-
                 return raw, full_styled
-                
+
             return "", ""
         
         except Exception as e:
@@ -108,7 +113,8 @@ class ConversationActions:
     async def process_user_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
         """Process a normal user message and generate a response."""
         scroller = self.animations.create_scroller()
-        await scroller.scroll_up(intro_styled, f"> {user_input}", .08)
+        await scroller.scroll_up(intro_styled, f"> {user_input}", .5)
+
         raw, styled = await self._process_message(user_input)
         self.is_silent = False
         self.prompt = self.terminal.format_prompt(user_input)
@@ -124,22 +130,52 @@ class ConversationActions:
         """Return to and modify the previous conversation exchange."""
         current_turn = self.history.current_state.turn_number
         rev_streamer = self.animations.create_reverse_streamer()
-        
+
+        # Reverse-stream to visually remove the last assistant's output
         await rev_streamer.reverse_stream(
             intro_styled,
-            "",  # No preserved_msg needed since prompt is in intro_styled
+            "",
             preconversation_text=self.preface.styled_content
         )
 
         last_msg = next((m.content for m in reversed(self.messages.messages) if m.role == "user"), None)
         if not last_msg:
+            # No user messages found at all
             return "", intro_styled, ""
 
-        if len(self.messages.messages) >= 2 and self.messages.messages[-2].role == "user":
-            self.messages.remove_last_n_messages(2)
-            self.history.restore_state(current_turn - 1)
+        # --------------------------------------------------------------------
+        # FIX #1: More robust way to remove the last user+assistant pair.
+        # The old code used:
+        #
+        #    if len(self.messages.messages) >= 2 and self.messages.messages[-2].role == "user":
+        #        self.messages.remove_last_n_messages(2)
+        #        self.history.restore_state(current_turn - 1)
+        #
+        # That fails if the 2nd-to-last isn't user, or if there's a preface, etc.
+        #
+        # Now we explicitly search for the last user and the next assistant:
+        # --------------------------------------------------------------------
+        user_idx = None
+        for i in reversed(range(len(self.messages.messages))):
+            if self.messages.messages[i].role == "user":
+                user_idx = i
+                break
+
+        if user_idx is not None:
+            # If there's an assistant right after that user_idx, remove both
+            if (user_idx + 1 < len(self.messages.messages)
+                and self.messages.messages[user_idx + 1].role == "assistant"):
+                del self.messages.messages[user_idx:user_idx + 2]
+                # Also rollback the conversation state by 1 turn
+                self.history.restore_state(current_turn - 1)
+            else:
+                # If we can't find an assistant after the user, we just remove the user alone
+                # (depends on your preference)
+                del self.messages.messages[user_idx:user_idx + 1]
+                self.history.restore_state(current_turn - 1)
 
         if self.is_silent:
+            # If we're in silent mode, re-process the last user message silently
             raw, styled = await self._process_message(last_msg, silent=True)
             self.history.update_state(
                 is_silent=True,
@@ -147,24 +183,23 @@ class ConversationActions:
             )
             return raw, f"{self.preface.styled_content}\n{styled}", ""
 
-        # Clear screen before any input or processing
+        # Clear screen before re-asking the user to edit or re-check
         self.terminal.clear_screen()
-        
+
         if is_retry:
+            # If user typed "retry," just re-send the same last_msg to process_message
             raw, styled = await self._process_message(last_msg)
         else:
+            # "edit": we let them modify the last_msg
             new_input = await self.terminal.get_user_input(
-                default_text=last_msg, 
+                default_text=last_msg,
                 add_newline=False
             )
             if not new_input:
                 return "", intro_styled, ""
-            
-            # ======================= FIX HERE =======================
-            # This line clears out the echoed prompt-toolkit line so
-            # the only line on screen is the one printed by _process_message().
+
+            # FIX #2: Clear out the typed line so only the dot loader version remains
             self.terminal.clear_screen()
-            # ========================================================
 
             raw, styled = await self._process_message(new_input)
             last_msg = new_input
@@ -178,6 +213,7 @@ class ConversationActions:
         try:
             self.history.current_state.system_prompt = system_msg
             _, intro_styled, _ = await self.introduce_conversation(intro_msg)
+
             while True:
                 user_input = await self.terminal.get_user_input()
                 if not user_input:
@@ -187,6 +223,7 @@ class ConversationActions:
                     _, intro_styled, _ = await self.backtrack_conversation(intro_styled, is_retry=(cmd == "retry"))
                 else:
                     _, intro_styled, _ = await self.process_user_message(user_input, intro_styled)
+
         except Exception as e:
             self.logger.error(f"Critical error: {e}", exc_info=True)
             raise
