@@ -39,9 +39,12 @@ class ConversationActions:
             raw, styled = await loader.run_with_loading(self.generator(msgs))
 
             if raw:
-                # Only include the user message if this isn't the first turn
                 if turn_number > 1:
-                    full_styled = f"> {msg}\n\n{styled}"
+                    # Get the ending punctuation
+                    end_char = msg[-1] if msg.endswith(('?', '!')) else '.'
+                    # Format with zero-width space and proper ending
+                    prompt_line = f"> {'\u200B'}{msg.rstrip('?.!')}{end_char * 3}"
+                    full_styled = f"{prompt_line}\n\n{styled}"
                 else:
                     full_styled = styled
                 
