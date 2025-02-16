@@ -27,30 +27,18 @@ class ConversationActions:
         1. It breaks lines at exact width intervals
         2. It doesn't try to preserve word boundaries
         3. It matches exactly how the terminal displays text initially
-        
-        Args:
-            text: The text to wrap (including prompt)
-            width: The terminal width to wrap at
-        
-        Returns:
-            Text with newlines inserted at terminal wrap points
         """
-        # If text is shorter than width, no wrapping needed
         if len(text) <= width:
             return text
             
-        # Break text into chunks of exactly terminal width
         wrapped_chunks = []
         remaining_text = text
         
         while remaining_text:
-            # Take exactly width characters
             chunk = remaining_text[:width]
             wrapped_chunks.append(chunk)
-            # Move to next chunk
             remaining_text = remaining_text[width:]
         
-        # Join chunks with newlines
         return '\n'.join(wrapped_chunks)
     
     async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
@@ -60,9 +48,11 @@ class ConversationActions:
             self.messages.add_message("user", msg, turn_number)
             sys_prompt = self.history.current_state.system_prompt
             state_msgs = await self.messages.get_messages(sys_prompt)
-            self.history.update_state(turn_number=turn_number,
-                                    last_user_input=msg,
-                                    messages=state_msgs)
+            self.history.update_state(
+                turn_number=turn_number,
+                last_user_input=msg,
+                messages=state_msgs
+            )
 
             self.style.set_output_color('GREEN')
             loader = self.animations.create_dot_loader(
@@ -108,22 +98,26 @@ class ConversationActions:
 
         self.is_silent = True
         self.prompt = ""
-        self.history.update_state(is_silent=True,
-                                prompt_display="",
-                                preconversation_styled=styled_panel)
+        self.history.update_state(
+            is_silent=True,
+            prompt_display="",
+            preconversation_styled=styled_panel
+        )
         return raw, full_styled, ""
 
     async def process_user_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
         """Process a normal user message and generate a response."""
         scroller = self.animations.create_scroller()
-        await scroller.scroll_up(intro_styled, f"> {user_input}", .5)
+        await scroller.scroll_up(intro_styled, f"> {user_input}", .08)
         raw, styled = await self._process_message(user_input)
         self.is_silent = False
         self.prompt = self.terminal.format_prompt(user_input)
         self.preface.clear()
-        self.history.update_state(is_silent=False,
-                                prompt_display=self.prompt,
-                                preconversation_styled="")
+        self.history.update_state(
+            is_silent=False,
+            prompt_display=self.prompt,
+            preconversation_styled=""
+        )
         return raw, styled, self.prompt
 
     async def backtrack_conversation(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
@@ -147,8 +141,10 @@ class ConversationActions:
 
         if self.is_silent:
             raw, styled = await self._process_message(last_msg, silent=True)
-            self.history.update_state(is_silent=True,
-                                    preconversation_styled=self.preface.styled_content)
+            self.history.update_state(
+                is_silent=True,
+                preconversation_styled=self.preface.styled_content
+            )
             return raw, f"{self.preface.styled_content}\n{styled}", ""
 
         # Clear screen before any input or processing
@@ -157,13 +153,19 @@ class ConversationActions:
         if is_retry:
             raw, styled = await self._process_message(last_msg)
         else:
-            # add_newline=False prevents extra spacing
             new_input = await self.terminal.get_user_input(
                 default_text=last_msg, 
                 add_newline=False
             )
             if not new_input:
                 return "", intro_styled, ""
+            
+            # ======================= FIX HERE =======================
+            # This line clears out the echoed prompt-toolkit line so
+            # the only line on screen is the one printed by _process_message().
+            self.terminal.clear_screen()
+            # ========================================================
+
             raw, styled = await self._process_message(new_input)
             last_msg = new_input
 
