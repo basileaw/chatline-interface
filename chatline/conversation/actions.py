@@ -19,6 +19,40 @@ class ConversationActions:
         self.is_silent = False
         self.prompt = ""
 
+    def _wrap_terminal_style(self, text: str, width: int) -> str:
+        """
+        Wrap text exactly as the terminal would, breaking at fixed width boundaries.
+        
+        This is different from typical word wrapping because:
+        1. It breaks lines at exact width intervals
+        2. It doesn't try to preserve word boundaries
+        3. It matches exactly how the terminal displays text initially
+        
+        Args:
+            text: The text to wrap (including prompt)
+            width: The terminal width to wrap at
+        
+        Returns:
+            Text with newlines inserted at terminal wrap points
+        """
+        # If text is shorter than width, no wrapping needed
+        if len(text) <= width:
+            return text
+            
+        # Break text into chunks of exactly terminal width
+        wrapped_chunks = []
+        remaining_text = text
+        
+        while remaining_text:
+            # Take exactly width characters
+            chunk = remaining_text[:width]
+            wrapped_chunks.append(chunk)
+            # Move to next chunk
+            remaining_text = remaining_text[width:]
+        
+        # Join chunks with newlines
+        return '\n'.join(wrapped_chunks)
+    
     async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
         """Process a user message and generate a response."""
         try:
@@ -40,17 +74,17 @@ class ConversationActions:
 
             if raw:
                 if turn_number > 1:
-                    # Get the ending punctuation
+                    # Format the prompt line with zero-width space and ending punctuation
                     end_char = msg[-1] if msg.endswith(('?', '!')) else '.'
-                    # Format with zero-width space and proper ending
-                    prompt_line = f"> {'\u200B'}{msg.rstrip('?.!')}{end_char * 3}"
-                    full_styled = f"{prompt_line}\n\n{styled}"
+                    prompt_line = f"> {msg.rstrip('?.!')}{end_char * 3}"
+                    
+                    # Apply terminal-style wrapping to just the prompt line
+                    wrapped_prompt = self._wrap_terminal_style(prompt_line, self.terminal.width)
+                    
+                    # Combine with the styled response
+                    full_styled = f"{wrapped_prompt}\n\n{styled}"
                 else:
                     full_styled = styled
-                
-                self.messages.add_message("assistant", raw, turn_number)
-                state_msgs = await self.messages.get_messages(sys_prompt)
-                self.history.update_state(messages=state_msgs)
 
                 return raw, full_styled
                 
