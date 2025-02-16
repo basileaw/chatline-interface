@@ -2,6 +2,7 @@
 
 from typing import List, Tuple
 import asyncio
+import sys
 
 class ConversationActions:
     """Manages conversation flow and actions."""
@@ -21,19 +22,7 @@ class ConversationActions:
 
     def _wrap_terminal_style(self, text: str, width: int) -> str:
         """
-        Wrap text exactly as the terminal would, breaking at fixed width boundaries.
-        
-        This is different from typical word wrapping because:
-        1. It breaks lines at exact width intervals
-        2. It doesn't try to preserve word boundaries
-        3. It matches exactly how the terminal displays text initially
-        
-        Args:
-            text: The text to wrap (including prompt)
-            width: The terminal width to wrap at
-        
-        Returns:
-            Text with newlines inserted at terminal wrap points
+        Wrap text exactly as the terminal would, at fixed width boundaries.
         """
         if len(text) <= width:
             return text
@@ -47,13 +36,16 @@ class ConversationActions:
         return '\n'.join(wrapped_chunks)
     
     async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
-        """Process a user message and generate a response."""
+        """Process a user message, generate a response, and store both in history."""
         try:
             turn_number = self.history.current_state.turn_number + 1
-            self.messages.add_message("user", msg, turn_number)
-            sys_prompt = self.history.current_state.system_prompt
 
+            # 1) Store the user's message as role="user"
+            self.messages.add_message("user", msg, turn_number)
+
+            sys_prompt = self.history.current_state.system_prompt
             state_msgs = await self.messages.get_messages(sys_prompt)
+
             self.history.update_state(
                 turn_number=turn_number,
                 last_user_input=msg,
@@ -65,23 +57,37 @@ class ConversationActions:
                 prompt="" if silent else f"> {msg}",
                 no_animation=silent
             )
+
+            # 2) Generate the streaming response
             msgs = await self.messages.get_messages(sys_prompt)
             raw, styled = await loader.run_with_loading(self.generator(msgs))
 
+            # 3) <-- ADDED/CHANGED: store the assistant's full reply in conversation
             if raw:
+                # Add assistant message to self.messages
+                # If you prefer the styled text, you can store that. But usually raw is fine.
+                self.messages.add_message("assistant", raw, turn_number)
+
+                # Refresh the full conversation state
+                new_state_msgs = await self.messages.get_messages(sys_prompt)
+                self.history.update_state(
+                    messages=new_state_msgs
+                )
+
+                # Optionally: also update 'last_user_input' or anything else if needed
+                # e.g., self.history.update_state(last_assistant_reply=raw)
+
                 if turn_number > 1:
-                    # Format the prompt line with zero-width space and ending punctuation
+                    # Format the prompt line with trailing punctuation
                     end_char = msg[-1] if msg.endswith(('?', '!')) else '.'
                     prompt_line = f"> {msg.rstrip('?.!')}{end_char * 3}"
-                    
-                    # Apply terminal-style wrapping to just the prompt line
+
+                    # Apply terminal-style wrapping
                     wrapped_prompt = self._wrap_terminal_style(prompt_line, self.terminal.width)
-                    
-                    # Combine with the styled response
                     full_styled = f"{wrapped_prompt}\n\n{styled}"
+                    return raw, full_styled
                 else:
-                    full_styled = styled
-                return raw, full_styled
+                    return raw, styled
 
             return "", ""
         
@@ -90,7 +96,7 @@ class ConversationActions:
             return "", ""
 
     async def introduce_conversation(self, intro_msg: str) -> Tuple[str, str, str]:
-        """Introduce the conversation with preface content and initial message."""
+        """Introduce conversation with preface content and initial message."""
         styled_panel = await self.preface.format_content(self.style)
         styled_panel = self.style.append_single_blank_line(styled_panel)
 
@@ -131,7 +137,6 @@ class ConversationActions:
         current_turn = self.history.current_state.turn_number
         rev_streamer = self.animations.create_reverse_streamer()
 
-        # Reverse-stream to visually remove the last assistant's output
         await rev_streamer.reverse_stream(
             intro_styled,
             "",
@@ -140,42 +145,25 @@ class ConversationActions:
 
         last_msg = next((m.content for m in reversed(self.messages.messages) if m.role == "user"), None)
         if not last_msg:
-            # No user messages found at all
+            # No user messages found
             return "", intro_styled, ""
 
-        # --------------------------------------------------------------------
-        # FIX #1: More robust way to remove the last user+assistant pair.
-        # The old code used:
-        #
-        #    if len(self.messages.messages) >= 2 and self.messages.messages[-2].role == "user":
-        #        self.messages.remove_last_n_messages(2)
-        #        self.history.restore_state(current_turn - 1)
-        #
-        # That fails if the 2nd-to-last isn't user, or if there's a preface, etc.
-        #
-        # Now we explicitly search for the last user and the next assistant:
-        # --------------------------------------------------------------------
+        # More robust removal: find last user and next assistant
         user_idx = None
         for i in reversed(range(len(self.messages.messages))):
             if self.messages.messages[i].role == "user":
                 user_idx = i
                 break
-
         if user_idx is not None:
-            # If there's an assistant right after that user_idx, remove both
             if (user_idx + 1 < len(self.messages.messages)
                 and self.messages.messages[user_idx + 1].role == "assistant"):
                 del self.messages.messages[user_idx:user_idx + 2]
-                # Also rollback the conversation state by 1 turn
                 self.history.restore_state(current_turn - 1)
             else:
-                # If we can't find an assistant after the user, we just remove the user alone
-                # (depends on your preference)
                 del self.messages.messages[user_idx:user_idx + 1]
                 self.history.restore_state(current_turn - 1)
 
         if self.is_silent:
-            # If we're in silent mode, re-process the last user message silently
             raw, styled = await self._process_message(last_msg, silent=True)
             self.history.update_state(
                 is_silent=True,
@@ -183,24 +171,18 @@ class ConversationActions:
             )
             return raw, f"{self.preface.styled_content}\n{styled}", ""
 
-        # Clear screen before re-asking the user to edit or re-check
         self.terminal.clear_screen()
 
         if is_retry:
-            # If user typed "retry," just re-send the same last_msg to process_message
             raw, styled = await self._process_message(last_msg)
         else:
-            # "edit": we let them modify the last_msg
             new_input = await self.terminal.get_user_input(
                 default_text=last_msg,
                 add_newline=False
             )
             if not new_input:
                 return "", intro_styled, ""
-
-            # FIX #2: Clear out the typed line so only the dot loader version remains
             self.terminal.clear_screen()
-
             raw, styled = await self._process_message(new_input)
             last_msg = new_input
 

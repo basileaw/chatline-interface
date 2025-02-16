@@ -9,14 +9,10 @@ class Conversation:
     """Container for conversation components and actions."""
 
     def __init__(self, display, stream, logger):
-        """
-        We now just pass the 'logger' to ConversationHistory
-        so that all JSON writing goes through logger.write_json.
-        """
-        self.history = ConversationHistory(logger=logger)  # <-- pass logger
+        # Provide logger so history can do logger.write_json(...)
+        self.history = ConversationHistory(logger=logger)
         self.messages = ConversationMessages()
         self.preface = ConversationPreface()
-
         self.actions = ConversationActions(
             display=display,
             stream=stream,

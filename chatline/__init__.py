@@ -12,8 +12,8 @@ from .conversation import Conversation
 
 class Logger:
     """
-    Custom logger that supports both standard logs and
-    optional JSON conversation history logs.
+    Custom logger that supports both standard logs
+    and optional JSON conversation history logs.
     """
 
     def __init__(self, name: str, logging_enabled: bool = False, log_file: Optional[str] = None):
@@ -21,8 +21,9 @@ class Logger:
         Args:
             name: The logger name.
             logging_enabled: If True, standard logging is turned on.
-            log_file: If set, logs go here. If "-", logs go to stdout;
-                      if None, logs go to a null handler.
+            log_file: If "-", logs go to stdout;
+                      If None, logs go nowhere;
+                      Otherwise logs go to the given file path.
         """
         self._logger = logging.getLogger(name)
         self._logger.propagate = False
@@ -32,10 +33,11 @@ class Logger:
         
         self.logging_enabled = logging_enabled
         self.log_file = log_file
-        self.json_history_path = None  # Will hold path for JSON conversation logs
+        self.json_history_path = None
 
+        # Standard logging setup
         if logging_enabled:
-            # Setup standard log handler
+            # Decide how to log text-based messages
             if log_file == '-':
                 handler = logging.StreamHandler(sys.stdout)
             elif log_file:
@@ -50,21 +52,18 @@ class Logger:
             self._logger.addHandler(handler)
             self._logger.setLevel(logging.DEBUG)
 
-            # Determine if we can also create a JSON-history path
+            # NEW: For conversation JSON logs, use a single file "conversation_history.json"
+            # in the same directory as log_file (if it's not "-" or None).
             if log_file and log_file not in ("-", ""):
-                log_dir = os.path.dirname(log_file) if os.path.dirname(log_file) else "."
+                log_dir = os.path.dirname(log_file) or "."
                 os.makedirs(log_dir, exist_ok=True)
-
-                session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-                self.json_history_path = os.path.join(
-                    log_dir,
-                    f"conversation_history_{session_id}.json"
-                )
+                # Always overwrite the same file each run
+                self.json_history_path = os.path.join(log_dir, "conversation_history.json")
         else:
-            # If logging is disabled, use NullHandler
+            # If logging is disabled, a NullHandler swallows logs
             self._logger.addHandler(logging.NullHandler())
 
-        # Dynamically create logging methods
+        # Expose convenience methods like self.debug, self.info, self.error, ...
         for level in ['debug', 'info', 'warning', 'error']:
             setattr(self, level, partial(self._log, level))
 
@@ -73,16 +72,15 @@ class Logger:
 
     def write_json(self, data):
         """
-        If we have a self.json_history_path, write the given
-        data object to JSON. Otherwise, do nothing.
+        Overwrite the entire conversation JSON file with 'data' each time.
+        If self.json_history_path is None, do nothing.
         """
         if not self.json_history_path:
-            return  # JSON logging not in use
+            return
         try:
             with open(self.json_history_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            # Non-critical, just log an error
             self.error(f"Failed to write JSON history: {e}")
 
 
@@ -106,26 +104,24 @@ class Interface:
             # Our custom logger, which can also handle JSON logs
             self.logger = Logger(__name__, logging_enabled, log_file)
 
-            self.display = Display()    # For TUI display
+            self.display = Display()
             self.stream = Stream.create(endpoint, logger=self.logger)
 
-            # Pass the entire logger down so conversation/history can use write_json
+            # Pass the entire logger down so conversation/history can use logger.write_json
             self.conv = Conversation(
                 display=self.display,
                 stream=self.stream,
                 logger=self.logger
             )
 
-            self.display.terminal.reset()  # Reset terminal
+            self.display.terminal.reset()
         except Exception as e:
             self.logger.error(f"Init error: {e}")
             raise
 
     def preface(self, text: str, title: Optional[str] = None,
                 border_color: Optional[str] = None, display_type: str = "panel") -> None:
-        """
-        Display preface text before starting the conversation.
-        """
+        """Display preface text before starting the conversation."""
         self.conv.preface.add_content(
             text=text,
             title=title,
@@ -134,7 +130,5 @@ class Interface:
         )
 
     def start(self, messages: Dict[str, str]) -> None:
-        """
-        Start the conversation with the provided messages.
-        """
+        """Start the conversation with the provided messages."""
         self.conv.actions.start_conversation(messages)
