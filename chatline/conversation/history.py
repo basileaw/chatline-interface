@@ -10,12 +10,11 @@ class ConversationState:
     This state data is shared between frontend and backend, allowing
     both to add, modify, or utilize any fields as needed.
     
-    The system prompt is stored only as a message in the messages array,
-    not as a separate field.
+    The system prompt is stored only as a message in the messages array.
+    UI-specific state is being moved to the component classes.
     """
     messages: list = field(default_factory=list)
     turn_number: int = 0
-    last_user_input: str = None
     is_silent: bool = False
     prompt_display: str = ""
     preconversation_styled: str = ""
@@ -46,7 +45,7 @@ class ConversationState:
     def from_dict(cls, data: dict) -> "ConversationState":
         """
         Rebuild the ConversationState from data received from the backend.
-        This preserves all fields that were sent.
+        This preserves all fields that were sent, handling backward compatibility.
         """
         # Make a copy to avoid modifying the input
         state_data = data.copy()
@@ -55,14 +54,14 @@ class ConversationState:
         if "messages" in state_data:
             messages = state_data.pop("messages")
             # Don't convert messages yet, as the ConversationState expects a list
-            # The Message objects will be created when needed in ConversationMessages
         else:
             messages = []
         
-        # Remove the system_prompt field if it exists in the input data
-        # (for backward compatibility with old state data)
+        # Remove fields that are no longer part of the state model (for backward compatibility)
         if "system_prompt" in state_data:
             state_data.pop("system_prompt")
+        if "last_user_input" in state_data:
+            state_data.pop("last_user_input")
         
         # Create the state with all the remaining fields
         return cls(messages=messages, **state_data)

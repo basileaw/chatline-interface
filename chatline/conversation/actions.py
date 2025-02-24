@@ -19,6 +19,7 @@ class ConversationActions:
         self.logger = logger
         self.is_silent = False
         self.prompt = ""
+        self.last_user_input = ""  # Added local tracking of last user input
 
     def _get_system_prompt(self) -> str:
         """
@@ -27,6 +28,16 @@ class ConversationActions:
         """
         for msg in self.messages.messages:
             if msg.role == "system":
+                return msg.content
+        return ""
+
+    def _get_last_user_input(self) -> str:
+        """
+        Retrieve the last user input from the messages array.
+        Returns empty string if no user message is found.
+        """
+        for msg in reversed(self.messages.messages):
+            if msg.role == "user":
                 return msg.content
         return ""
 
@@ -57,14 +68,14 @@ class ConversationActions:
 
             # 1) We always add the user message to the conversation so LLM sees "user" at each turn.
             self.messages.add_message("user", msg, turn_number)
+            self.last_user_input = msg  # Store locally instead of in state
 
-            # Get system prompt from messages array instead of state
+            # Get system prompt from messages array
             sys_prompt = self._get_system_prompt()
             state_msgs = await self.messages.get_messages(sys_prompt)
 
             self.history.update_state(
                 turn_number=turn_number,
-                last_user_input=msg,
                 messages=state_msgs
             )
 
@@ -234,7 +245,6 @@ class ConversationActions:
         """
         try:
             # Add the system message as the first message in the list
-            # No longer storing in history.current_state.system_prompt
             self.messages.add_message("system", system_msg, 0)  # Turn 0 for system
             _, intro_styled, _ = await self.introduce_conversation(intro_msg)
 
