@@ -28,9 +28,12 @@ class RemoteStream:
 
             payload = {
                 'messages': messages,
-                'conversation_state': state,
-                **kwargs
+                'conversation_state': state
             }
+            
+            # Log the payload (for debugging)
+            if self.logger:
+                self.logger.debug(f"Sending payload to {self.endpoint}")
 
             async with self.client.stream('POST', self.endpoint, json=payload, timeout=30.0) as response:
                 response.raise_for_status()
@@ -40,11 +43,16 @@ class RemoteStream:
                             self.logger.debug(f"Remote response chunk: {line[:50]}...")
                         yield line
 
+                # Process any updated state from the backend
                 if response.headers.get('X-Conversation-State'):
                     try:
                         new_state = json.loads(response.headers['X-Conversation-State'])
                         if self.logger:
-                            self.logger.debug(f"Updated state from response: turn={new_state.get('turn_number', 0)}")
+                            self.logger.debug(f"Received state from response: turn={new_state.get('turn_number', 0)}")
+                        
+                        # Store the updated state if a callback is provided
+                        if 'state_callback' in kwargs and callable(kwargs['state_callback']):
+                            kwargs['state_callback'](new_state)
                     except json.JSONDecodeError as e:
                         if self.logger:
                             self.logger.error(f"Failed to decode state from response: {e}")

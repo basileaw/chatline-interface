@@ -1,6 +1,6 @@
 # conversation/actions.py
 
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 import asyncio
 import sys
 
@@ -43,6 +43,14 @@ class ConversationActions:
             if msg.role == "user":
                 return msg.content
         return ""
+
+    def _handle_state_update(self, new_state: Dict[str, Any]) -> None:
+        """Handle state updates received from the backend."""
+        if self.logger:
+            self.logger.debug(f"Received state update from backend")
+        
+        # Update conversation state with the backend's response
+        self.history.update_state(**new_state)
 
     def _wrap_terminal_style(self, text: str, width: int) -> str:
         """
@@ -91,8 +99,18 @@ class ConversationActions:
             )
 
             # 3) Generate the LLM response
+            # Get current state for the backend
+            current_state = self.history.create_state_snapshot()
+            
+            # Pass messages and state to generator with callback
             msgs_for_generation = await self.messages.get_messages(sys_prompt)
-            raw, styled = await loader.run_with_loading(self.generator(msgs_for_generation))
+            raw, styled = await loader.run_with_loading(
+                self.generator(
+                    messages=msgs_for_generation,
+                    state=current_state,
+                    state_callback=self._handle_state_update
+                )
+            )
 
             # 4) Store the assistant's full reply
             if raw:
