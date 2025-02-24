@@ -9,10 +9,12 @@ class ConversationState:
     Tracks the internal conversation state.
     This state data is shared between frontend and backend, allowing
     both to add, modify, or utilize any fields as needed.
+    
+    The system prompt is stored only as a message in the messages array,
+    not as a separate field.
     """
     messages: list = field(default_factory=list)
     turn_number: int = 0
-    system_prompt: str = None
     last_user_input: str = None
     is_silent: bool = False
     prompt_display: str = ""
@@ -57,7 +59,12 @@ class ConversationState:
         else:
             messages = []
         
-        # Create the state with all the fields
+        # Remove the system_prompt field if it exists in the input data
+        # (for backward compatibility with old state data)
+        if "system_prompt" in state_data:
+            state_data.pop("system_prompt")
+        
+        # Create the state with all the remaining fields
         return cls(messages=messages, **state_data)
 
 

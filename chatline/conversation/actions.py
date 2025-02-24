@@ -20,6 +20,16 @@ class ConversationActions:
         self.is_silent = False
         self.prompt = ""
 
+    def _get_system_prompt(self) -> str:
+        """
+        Retrieve the system prompt from the messages array.
+        Returns empty string if no system message is found.
+        """
+        for msg in self.messages.messages:
+            if msg.role == "system":
+                return msg.content
+        return ""
+
     def _wrap_terminal_style(self, text: str, width: int) -> str:
         """
         Wrap text exactly as the terminal would, at fixed width boundaries.
@@ -48,7 +58,8 @@ class ConversationActions:
             # 1) We always add the user message to the conversation so LLM sees "user" at each turn.
             self.messages.add_message("user", msg, turn_number)
 
-            sys_prompt = self.history.current_state.system_prompt
+            # Get system prompt from messages array instead of state
+            sys_prompt = self._get_system_prompt()
             state_msgs = await self.messages.get_messages(sys_prompt)
 
             self.history.update_state(
@@ -222,8 +233,8 @@ class ConversationActions:
         then repeatedly accept user input, or 'edit'/'retry' commands.
         """
         try:
-            self.history.current_state.system_prompt = system_msg
             # Add the system message as the first message in the list
+            # No longer storing in history.current_state.system_prompt
             self.messages.add_message("system", system_msg, 0)  # Turn 0 for system
             _, intro_styled, _ = await self.introduce_conversation(intro_msg)
 
