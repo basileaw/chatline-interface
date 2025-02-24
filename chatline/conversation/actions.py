@@ -17,9 +17,9 @@ class ConversationActions:
         self.messages = messages
         self.preface = preface
         self.logger = logger
-        self.is_silent = False
+        self.is_silent = False  # UI-specific flag for message display
         self.prompt = ""
-        self.last_user_input = ""  # Added local tracking of last user input
+        self.last_user_input = ""
 
     def _get_system_prompt(self) -> str:
         """
@@ -68,7 +68,7 @@ class ConversationActions:
 
             # 1) We always add the user message to the conversation so LLM sees "user" at each turn.
             self.messages.add_message("user", msg, turn_number)
-            self.last_user_input = msg  # Store locally instead of in state
+            self.last_user_input = msg
 
             # Get system prompt from messages array
             sys_prompt = self._get_system_prompt()
@@ -142,12 +142,10 @@ class ConversationActions:
         await self.terminal.update_display(full_styled)
 
         # 4) Update state
-        self.is_silent = True
+        self.is_silent = True  # This is now only tracked locally
         self.prompt = ""
         self.history.update_state(
-            is_silent=True,
             prompt_display="",
-            # preconversation_styled is only the panel
             preconversation_styled=styled_panel
         )
         return raw, full_styled, ""
@@ -160,11 +158,10 @@ class ConversationActions:
         await scroller.scroll_up(intro_styled, f"> {user_input}", .5)
 
         raw, styled = await self._process_message(user_input, silent=False)
-        self.is_silent = False
+        self.is_silent = False  # This is now only tracked locally
         self.prompt = self.terminal.format_prompt(user_input)
         self.preface.clear()
         self.history.update_state(
-            is_silent=False,
             prompt_display=self.prompt,
             preconversation_styled=""
         )
@@ -213,6 +210,7 @@ class ConversationActions:
                     self.history.restore_state(current_turn - 1)
 
         # If we're still silent, re-process the message silently
+        # This now uses the local is_silent flag
         if self.is_silent:
             raw, styled = await self._process_message(last_msg, silent=True)
             # Return only the preface panel + assistant

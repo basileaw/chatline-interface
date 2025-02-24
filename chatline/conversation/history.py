@@ -15,7 +15,6 @@ class ConversationState:
     """
     messages: list = field(default_factory=list)
     turn_number: int = 0
-    is_silent: bool = False
     prompt_display: str = ""
     preconversation_styled: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -58,10 +57,9 @@ class ConversationState:
             messages = []
         
         # Remove fields that are no longer part of the state model (for backward compatibility)
-        if "system_prompt" in state_data:
-            state_data.pop("system_prompt")
-        if "last_user_input" in state_data:
-            state_data.pop("last_user_input")
+        for old_field in ["system_prompt", "last_user_input", "is_silent"]:
+            if old_field in state_data:
+                state_data.pop(old_field)
         
         # Create the state with all the remaining fields
         return cls(messages=messages, **state_data)
