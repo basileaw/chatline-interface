@@ -18,7 +18,7 @@ class ConversationActions:
         self.preface = preface
         self.logger = logger
         self.is_silent = False  # UI-specific flag for message display
-        self.prompt = ""
+        self.prompt = ""        # UI-specific formatted prompt text
         self.last_user_input = ""
 
     def _get_system_prompt(self) -> str:
@@ -141,11 +141,10 @@ class ConversationActions:
         full_styled = styled_panel + assistant_styled
         await self.terminal.update_display(full_styled)
 
-        # 4) Update state
-        self.is_silent = True  # This is now only tracked locally
-        self.prompt = ""
+        # 4) Update state and UI properties
+        self.is_silent = True
+        self.prompt = ""  # UI-specific prompt text
         self.history.update_state(
-            prompt_display="",
             preconversation_styled=styled_panel
         )
         return raw, full_styled, ""
@@ -158,11 +157,10 @@ class ConversationActions:
         await scroller.scroll_up(intro_styled, f"> {user_input}", .5)
 
         raw, styled = await self._process_message(user_input, silent=False)
-        self.is_silent = False  # This is now only tracked locally
-        self.prompt = self.terminal.format_prompt(user_input)
+        self.is_silent = False
+        self.prompt = self.terminal.format_prompt(user_input)  # UI-specific prompt text
         self.preface.clear()
         self.history.update_state(
-            prompt_display=self.prompt,
             preconversation_styled=""
         )
         return raw, styled, self.prompt
@@ -210,7 +208,6 @@ class ConversationActions:
                     self.history.restore_state(current_turn - 1)
 
         # If we're still silent, re-process the message silently
-        # This now uses the local is_silent flag
         if self.is_silent:
             raw, styled = await self._process_message(last_msg, silent=True)
             # Return only the preface panel + assistant
@@ -232,8 +229,7 @@ class ConversationActions:
             raw, styled = await self._process_message(new_input, silent=False)
             last_msg = new_input
 
-        self.prompt = self.terminal.format_prompt(last_msg)
-        self.history.update_state(prompt_display=self.prompt)
+        self.prompt = self.terminal.format_prompt(last_msg)  # UI-specific prompt text
         return raw, styled, self.prompt
 
     async def _async_conversation_loop(self, system_msg: str, intro_msg: str):

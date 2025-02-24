@@ -11,11 +11,10 @@ class ConversationState:
     both to add, modify, or utilize any fields as needed.
     
     The system prompt is stored only as a message in the messages array.
-    UI-specific state is being moved to the component classes.
+    UI-specific state is managed by the UI components.
     """
     messages: list = field(default_factory=list)
     turn_number: int = 0
-    prompt_display: str = ""
     preconversation_styled: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
@@ -57,7 +56,7 @@ class ConversationState:
             messages = []
         
         # Remove fields that are no longer part of the state model (for backward compatibility)
-        for old_field in ["system_prompt", "last_user_input", "is_silent"]:
+        for old_field in ["system_prompt", "last_user_input", "is_silent", "prompt_display"]:
             if old_field in state_data:
                 state_data.pop(old_field)
         
