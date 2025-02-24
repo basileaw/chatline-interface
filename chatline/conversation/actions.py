@@ -47,10 +47,23 @@ class ConversationActions:
     def _handle_state_update(self, new_state: Dict[str, Any]) -> None:
         """Handle state updates received from the backend."""
         if self.logger:
-            self.logger.debug(f"Received state update from backend")
+            self.logger.debug(f"Received state update with keys: {list(new_state.keys())}")
+            if 'context' in new_state:
+                self.logger.debug(f"Context field received: {new_state['context']}")
+            else:
+                self.logger.debug("No context field in received state!")
         
         # Update conversation state with the backend's response
         self.history.update_state(**new_state)
+        
+        # Verify the state was updated
+        snapshot = self.history.create_state_snapshot()
+        if self.logger:
+            self.logger.debug(f"State after update has keys: {list(snapshot.keys())}")
+            if 'context' in snapshot:
+                self.logger.debug(f"Context in snapshot: {snapshot['context']}")
+            else:
+                self.logger.debug("No context field in state snapshot!")
 
     def _wrap_terminal_style(self, text: str, width: int) -> str:
         """

@@ -21,20 +21,14 @@ class ConversationState:
     custom_fields: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        """
-        Convert the state to a dictionary for serialization.
-        
-        This creates a dictionary with:
-        - Core fields (messages, turn_number)
-        - Any custom fields added by the backend
-        """
-        # Start with the core fields
+        """Convert the state to a dictionary for serialization."""
+        # Start with core fields
         result = {
             "messages": [],
             "turn_number": self.turn_number
         }
         
-        # Format messages array
+        # Format messages
         for m in self.messages:
             if isinstance(m, dict):
                 result["messages"].append(m)
@@ -45,9 +39,8 @@ class ConversationState:
                     "turn_number": m.turn_number
                 })
         
-        # Add any custom fields
-        for key, value in self.custom_fields.items():
-            result[key] = value
+        # Add custom fields
+        result.update(self.custom_fields)  # This is the critical line
         
         return result
 
@@ -107,10 +100,6 @@ class ConversationHistory:
     def update_state(self, **kwargs) -> None:
         """
         Update the internal state with any provided fields.
-        
-        This method handles:
-        - Core fields (messages, turn_number) that update ConversationState directly
-        - Any other fields that go into custom_fields
         """
         # Handle core fields explicitly
         core_fields = {"messages", "turn_number"}
@@ -125,10 +114,10 @@ class ConversationHistory:
             if key not in core_fields:
                 self.current_state.custom_fields[key] = value
         
-        # Store a snapshot indexed by the current turn number
+        # Store a snapshot in history
         self.state_history[self.current_state.turn_number] = self.create_state_snapshot()
         
-        # Log the updated state if a logger is available
+        # Log the updated state
         if self.logger and hasattr(self.logger, "write_json"):
             self.logger.write_json(self.create_state_snapshot())
 

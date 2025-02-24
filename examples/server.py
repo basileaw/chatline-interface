@@ -2,7 +2,6 @@
 
 import json
 import uvicorn
-import random
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from chatline.stream.generator import generate_stream
@@ -11,34 +10,43 @@ app = FastAPI()
 
 @app.post("/chat")
 async def stream_chat(request: Request):
-    """Handle chat requests."""
-    # Parse the request body and handle potential None cases
+    """
+    Simple example endpoint for Chatline interface.
+    
+    This server:
+    1. Receives messages and state from the client
+    2. Generates a streaming response
+    3. Adds a persistent 'context' field to the state
+    4. Returns the updated state in the X-Conversation-State header
+    """
+    # Parse the request body
     body = await request.json()
     messages = body.get('messages', [])
     
-    # Get the state from the request, defaulting to an empty state if not present
+    # Initialize state with default values
     state = {
         'messages': messages,
         'turn_number': 0
     }
     
-    # If we received state information, update our state
+    # Use the received state if available
     if 'conversation_state' in body and body['conversation_state']:
         received_state = body['conversation_state']
-        # Update state with received data
         for key, value in received_state.items():
             state[key] = value
     
-    # Increment the turn number
+    # Increment turn number
     state['turn_number'] += 1
     
-    # Add a context field on every third turn for testing
-    if state['turn_number'] % 3 == 0:
-        state["context"] = {
-            "sentiment": "positive",
-            "topics": ["chat", "ai", "programming"],
-            "importance": random.uniform(0.5, 1.0)
-        }
+    # Add a persistent context field (this demonstrates backend state persistence)
+    state['context'] = {
+        'server_version': '1.0',
+        'persistent_field': 'This field persists across turns',
+        'current_turn': state['turn_number']
+    }
+    
+    # Print state info for debugging
+    print(f"Turn: {state['turn_number']}, State keys: {list(state.keys())}")
     
     # Create response with the updated state
     headers = {
@@ -46,6 +54,7 @@ async def stream_chat(request: Request):
         'X-Conversation-State': json.dumps(state)
     }
     
+    # Return streaming response
     return StreamingResponse(
         generate_stream(messages),
         headers=headers,
@@ -53,7 +62,16 @@ async def stream_chat(request: Request):
     )
 
 if __name__ == "__main__":
-    print("Starting server on http://127.0.0.1:8000/chat")
-    print("This server will add a context field every third turn")
-    print("to demonstrate preserving backend-added fields")
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    print("\n=== Chatline Example Server ===")
+    print("Endpoint: http://127.0.0.1:8000/chat")
+    print("This server adds a persistent 'context' field to demonstrate state management")
+    print("Auto-reload is enabled - changes to this file will restart the server\n")
+    
+    # Run the server with auto-reload enabled
+    uvicorn.run(
+        "server:app",  # Import string (file:app_variable)
+        host="127.0.0.1",
+        port=8000,
+        reload=True,  # Enable auto-reload on file changes
+        reload_dirs=["./"]  # Directories to watch for changes
+    )
