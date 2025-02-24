@@ -10,13 +10,14 @@ class ConversationState:
     This state data is shared between frontend and backend, allowing
     both to add, modify, or utilize any fields as needed.
     
-    The system prompt is stored only as a message in the messages array.
-    UI-specific state is managed by the UI components.
+    The state has been minimized to include only what's necessary for the conversation:
+    - messages: The array of messages (including system prompt at index 0)
+    - turn_number: The current turn in the conversation
+    
+    All UI-specific state has been moved to the UI components.
     """
     messages: list = field(default_factory=list)
     turn_number: int = 0
-    preconversation_styled: str = ""
-    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def to_dict(self) -> dict:
         """
@@ -56,7 +57,15 @@ class ConversationState:
             messages = []
         
         # Remove fields that are no longer part of the state model (for backward compatibility)
-        for old_field in ["system_prompt", "last_user_input", "is_silent", "prompt_display"]:
+        old_fields = [
+            "system_prompt", 
+            "last_user_input", 
+            "is_silent", 
+            "prompt_display", 
+            "preconversation_styled",
+            "timestamp"
+        ]
+        for old_field in old_fields:
             if old_field in state_data:
                 state_data.pop(old_field)
         
@@ -74,6 +83,7 @@ class ConversationHistory:
         self.current_state = ConversationState()
         self.state_history: dict = {}
         self.logger = logger
+        self._creation_time = datetime.now().isoformat()  # Class-level timestamp for debugging
 
     def create_state_snapshot(self) -> dict:
         return self.current_state.to_dict()

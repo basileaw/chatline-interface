@@ -17,9 +17,12 @@ class ConversationActions:
         self.messages = messages
         self.preface = preface
         self.logger = logger
-        self.is_silent = False  # UI-specific flag for message display
-        self.prompt = ""        # UI-specific formatted prompt text
+        
+        # UI-specific state, no longer stored in conversation state
+        self.is_silent = False
+        self.prompt = ""
         self.last_user_input = ""
+        self.preconversation_styled = ""  # Stores the styled preface panel content
 
     def _get_system_prompt(self) -> str:
         """
@@ -141,12 +144,10 @@ class ConversationActions:
         full_styled = styled_panel + assistant_styled
         await self.terminal.update_display(full_styled)
 
-        # 4) Update state and UI properties
+        # 4) Update UI-specific state
         self.is_silent = True
-        self.prompt = ""  # UI-specific prompt text
-        self.history.update_state(
-            preconversation_styled=styled_panel
-        )
+        self.prompt = ""
+        self.preconversation_styled = styled_panel  # Store locally for animations
         return raw, full_styled, ""
 
     async def process_user_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
@@ -158,11 +159,9 @@ class ConversationActions:
 
         raw, styled = await self._process_message(user_input, silent=False)
         self.is_silent = False
-        self.prompt = self.terminal.format_prompt(user_input)  # UI-specific prompt text
+        self.prompt = self.terminal.format_prompt(user_input)
         self.preface.clear()
-        self.history.update_state(
-            preconversation_styled=""
-        )
+        self.preconversation_styled = ""  # Clear local preconversation content
         return raw, styled, self.prompt
 
     async def backtrack_conversation(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
@@ -173,7 +172,7 @@ class ConversationActions:
         current_turn = self.history.current_state.turn_number
         rev_streamer = self.animations.create_reverse_streamer()
 
-        # Reverse only the text in 'intro_styled' (which never included the silent user message)
+        # Use the locally stored preconversation_styled for animations
         await rev_streamer.reverse_stream(
             intro_styled,
             "",
@@ -229,7 +228,7 @@ class ConversationActions:
             raw, styled = await self._process_message(new_input, silent=False)
             last_msg = new_input
 
-        self.prompt = self.terminal.format_prompt(last_msg)  # UI-specific prompt text
+        self.prompt = self.terminal.format_prompt(last_msg)
         return raw, styled, self.prompt
 
     async def _async_conversation_loop(self, system_msg: str, intro_msg: str):
