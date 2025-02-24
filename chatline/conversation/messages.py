@@ -19,9 +19,16 @@ class ConversationMessages:
         self.messages.append(Message(role, content, turn_number))
 
     async def get_messages(self, system_prompt: str = None) -> list[dict]:
-        """Return messages as dicts; prepend system prompt if provided."""
+        """Return messages as dicts; prepend system prompt if provided and not already present."""
         base_messages = [{"role": m.role, "content": m.content} for m in self.messages]
-        return [{"role": "system", "content": system_prompt}] + base_messages if system_prompt else base_messages
+        
+        # Check if we already have a system message at the start
+        has_system = base_messages and base_messages[0]["role"] == "system"
+        
+        # If system_prompt is provided and we don't have a system message yet, add it
+        if system_prompt and not has_system:
+            return [{"role": "system", "content": system_prompt}] + base_messages
+        return base_messages
 
     def remove_last_n_messages(self, n: int) -> None:
         """Remove the last n messages."""

@@ -179,14 +179,16 @@ class ConversationActions:
                 user_idx = i
                 break
         if user_idx is not None:
-            # If next message is an assistant, remove both
-            if (user_idx + 1 < len(self.messages.messages)
-                and self.messages.messages[user_idx + 1].role == "assistant"):
-                del self.messages.messages[user_idx:user_idx + 2]
-                self.history.restore_state(current_turn - 1)
-            else:
-                del self.messages.messages[user_idx:user_idx + 1]
-                self.history.restore_state(current_turn - 1)
+            # Ensure we don't remove the system message at index 0
+            if user_idx > 0:
+                # If next message is an assistant, remove both
+                if (user_idx + 1 < len(self.messages.messages)
+                    and self.messages.messages[user_idx + 1].role == "assistant"):
+                    del self.messages.messages[user_idx:user_idx + 2]
+                    self.history.restore_state(current_turn - 1)
+                else:
+                    del self.messages.messages[user_idx:user_idx + 1]
+                    self.history.restore_state(current_turn - 1)
 
         # If we're still silent, re-process the message silently
         if self.is_silent:
@@ -221,6 +223,8 @@ class ConversationActions:
         """
         try:
             self.history.current_state.system_prompt = system_msg
+            # Add the system message as the first message in the list
+            self.messages.add_message("system", system_msg, 0)  # Turn 0 for system
             _, intro_styled, _ = await self.introduce_conversation(intro_msg)
 
             while True:
