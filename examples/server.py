@@ -8,16 +8,27 @@ from chatline.stream.generator import generate_stream
 
 app = FastAPI()
 
+# Default messages the server will use if the client doesn't provide any
+DEFAULT_MESSAGES = [
+    {
+        "role": "system",
+        "content": "You are a helpful assistant that provides concise, accurate information. Respond in a friendly, conversational tone.",
+        "turn_number": 0
+    },
+    {
+        "role": "user",
+        "content": "Hello! How can you help me today?",
+        "turn_number": 1
+    }
+]
+
 @app.post("/chat")
 async def stream_chat(request: Request):
     """
-    Simple example endpoint for Chatline interface.
+    Process chat requests and provide streaming responses.
     
-    This server:
-    1. Receives messages and state from the client
-    2. Generates a streaming response
-    3. Adds a persistent 'context' field to the state
-    4. Returns the updated state in the X-Conversation-State header
+    If no messages are provided by the client, default messages will be used.
+    The server always adds a 'context' field to demonstrate state persistence.
     """
     # Parse the request body
     body = await request.json()
@@ -25,7 +36,6 @@ async def stream_chat(request: Request):
     
     # Initialize state with default values
     state = {
-        'messages': messages,
         'turn_number': 0
     }
     
@@ -34,6 +44,16 @@ async def stream_chat(request: Request):
         received_state = body['conversation_state']
         for key, value in received_state.items():
             state[key] = value
+    
+    # If no messages provided by client, use defaults
+    if not messages:
+        print("No messages provided by client. Using default messages.")
+        messages = DEFAULT_MESSAGES
+        # Also add default messages to state
+        state['messages'] = messages
+    else:
+        # Store the client-provided messages in state
+        state['messages'] = messages
     
     # Increment turn number
     state['turn_number'] += 1
@@ -46,7 +66,7 @@ async def stream_chat(request: Request):
     }
     
     # Print state info for debugging
-    print(f"Turn: {state['turn_number']}, State keys: {list(state.keys())}")
+    print(f"Turn: {state['turn_number']}, Message count: {len(messages)}")
     
     # Create response with the updated state
     headers = {
@@ -64,14 +84,16 @@ async def stream_chat(request: Request):
 if __name__ == "__main__":
     print("\n=== Chatline Example Server ===")
     print("Endpoint: http://127.0.0.1:8000/chat")
-    print("This server adds a persistent 'context' field to demonstrate state management")
-    print("Auto-reload is enabled - changes to this file will restart the server\n")
+    print("Features:")
+    print("- Provides default messages if client sends none")
+    print("- Adds a persistent 'context' field to state")
+    print("- Auto-reload enabled - changes to this file will restart the server\n")
     
     # Run the server with auto-reload enabled
     uvicorn.run(
-        "server:app",  # Import string (file:app_variable)
+        "server:app",
         host="127.0.0.1",
         port=8000,
-        reload=True,  # Enable auto-reload on file changes
-        reload_dirs=["./"]  # Directories to watch for changes
+        reload=True,
+        reload_dirs=["./"]
     )

@@ -1,6 +1,6 @@
 # conversation/actions.py
 
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 import asyncio
 import sys
 
@@ -23,6 +23,9 @@ class ConversationActions:
         self.prompt = ""
         self.last_user_input = ""
         self.preconversation_styled = ""  # Stores the styled preface panel content
+        
+        # Track if we're in remote mode (for handling optional messages)
+        self.is_remote_mode = hasattr(stream, 'endpoint')
 
     def _get_system_prompt(self) -> str:
         """
@@ -47,23 +50,22 @@ class ConversationActions:
     def _handle_state_update(self, new_state: Dict[str, Any]) -> None:
         """Handle state updates received from the backend."""
         if self.logger:
-            self.logger.debug(f"Received state update with keys: {list(new_state.keys())}")
-            if 'context' in new_state:
-                self.logger.debug(f"Context field received: {new_state['context']}")
-            else:
-                self.logger.debug("No context field in received state!")
+            self.logger.debug(f"Received state update from backend")
+            if 'messages' in new_state and new_state['messages']:
+                self.logger.debug(f"State contains {len(new_state['messages'])} messages")
+        
+        # If we sent no messages and got messages from the server, add them
+        if (not self.messages.messages and 'messages' in new_state and 
+            new_state['messages'] and len(new_state['messages']) > 0):
+            
+            self.logger.debug("Adding server-provided messages to conversation")
+            for msg in new_state['messages']:
+                # Ensure messages have a turn_number
+                turn = msg.get('turn_number', 0) 
+                self.messages.add_message(msg['role'], msg['content'], turn)
         
         # Update conversation state with the backend's response
         self.history.update_state(**new_state)
-        
-        # Verify the state was updated
-        snapshot = self.history.create_state_snapshot()
-        if self.logger:
-            self.logger.debug(f"State after update has keys: {list(snapshot.keys())}")
-            if 'context' in snapshot:
-                self.logger.debug(f"Context in snapshot: {snapshot['context']}")
-            else:
-                self.logger.debug("No context field in state snapshot!")
 
     def _wrap_terminal_style(self, text: str, width: int) -> str:
         """
@@ -90,9 +92,14 @@ class ConversationActions:
         try:
             turn_number = self.history.current_state.turn_number + 1
 
-            # 1) We always add the user message to the conversation so LLM sees "user" at each turn.
-            self.messages.add_message("user", msg, turn_number)
-            self.last_user_input = msg
+            # In remote mode with no existing messages, we might need to handle
+            # server-provided initial messages differently
+            first_interaction = len(self.messages.messages) == 0
+            
+            # Only add user message if we have a message or are not in remote mode
+            if msg or not self.is_remote_mode:
+                self.messages.add_message("user", msg, turn_number)
+                self.last_user_input = msg
 
             # Get system prompt from messages array
             sys_prompt = self._get_system_prompt()
@@ -117,6 +124,11 @@ class ConversationActions:
             
             # Pass messages and state to generator with callback
             msgs_for_generation = await self.messages.get_messages(sys_prompt)
+            
+            # Log special case handling
+            if first_interaction and self.is_remote_mode and not msg:
+                self.logger.debug("First interaction with no messages. Server will provide defaults.")
+            
             raw, styled = await loader.run_with_loading(
                 self.generator(
                     messages=msgs_for_generation,
@@ -139,13 +151,17 @@ class ConversationActions:
                 if not silent:
                     # Format user text in final output
                     end_char = "..."
-                    if msg.endswith(("?", "!")):
-                        end_char = msg[-1] * 3
-                    elif msg.endswith("."):
-                        end_char = "..."
-                    prompt_line = f"> {msg.rstrip('?.!')}{end_char}"
-                    wrapped_prompt = self._wrap_terminal_style(prompt_line, self.terminal.width)
-                    full_styled = f"{wrapped_prompt}\n\n{styled}"
+                    if not msg:
+                        # No user message to display
+                        full_styled = styled
+                    else:
+                        if msg.endswith(("?", "!")):
+                            end_char = msg[-1] * 3
+                        elif msg.endswith("."):
+                            end_char = "..."
+                        prompt_line = f"> {msg.rstrip('?.!')}{end_char}"
+                        wrapped_prompt = self._wrap_terminal_style(prompt_line, self.terminal.width)
+                        full_styled = f"{wrapped_prompt}\n\n{styled}"
                     return raw, full_styled
                 else:
                     # Return only the assistant's text
@@ -160,7 +176,7 @@ class ConversationActions:
     async def introduce_conversation(self, intro_msg: str) -> Tuple[str, str, str]:
         """
         Show any preface, then process the first user message silently (i.e. not displayed).
-        We only display the assistant's reply in 'intro_styled'.
+        If in remote mode with no messages, the intro_msg can be empty.
         """
         # 1) Preface panel
         styled_panel = await self.preface.format_content(self.style)
@@ -169,6 +185,7 @@ class ConversationActions:
             await self.terminal.update_display(styled_panel, preserve_cursor=True)
 
         # 2) The first user message is silent => user text is never shown
+        # In remote mode, intro_msg might be empty if server provides messages
         raw, assistant_styled = await self._process_message(intro_msg, silent=True)
 
         # 3) Combine panel + assistant reply only (no user text) into 'intro_styled'
@@ -266,10 +283,16 @@ class ConversationActions:
         """
         Main async loop: system prompt + first user (silent),
         then repeatedly accept user input, or 'edit'/'retry' commands.
+        
+        In remote mode, system_msg and intro_msg can be empty if the server
+        will provide default messages.
         """
         try:
-            # Add the system message as the first message in the list
-            self.messages.add_message("system", system_msg, 0)  # Turn 0 for system
+            # Add the system message as the first message in the list if provided
+            if system_msg:
+                self.messages.add_message("system", system_msg, 0)  # Turn 0 for system
+                
+            # Process the first message (which might be empty in remote mode)
             _, intro_styled, _ = await self.introduce_conversation(intro_msg)
 
             while True:
@@ -296,12 +319,19 @@ class ConversationActions:
         """
         Public entry: system + first user message. The first user message is silent in the UI,
         but still stored in the conversation for the LLM. Then normal conversation proceeds.
+        
+        In remote mode, messages can be empty and the server will provide defaults.
         """
         try:
-            asyncio.run(self._async_conversation_loop(
-                messages.get('system', ''),
-                messages.get('user', '')
-            ))
+            # Extract messages, allowing for empty strings in remote mode
+            system_msg = messages.get('system', '')
+            user_msg = messages.get('user', '')
+            
+            # Log message status
+            if not system_msg and not user_msg and self.is_remote_mode:
+                self.logger.debug("Starting conversation with no messages. Server will provide defaults.")
+            
+            asyncio.run(self._async_conversation_loop(system_msg, user_msg))
         except KeyboardInterrupt:
             self.logger.info("User interrupted")
             self.terminal.reset()

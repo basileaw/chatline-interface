@@ -4,7 +4,7 @@ import argparse
 from chatline import Interface
 
 # Example messages for our test client implementation
-MESSAGES = {
+EXAMPLE_MESSAGES = {
     "system": (
         'Write in present tense. Write in third person. Use the following text styles:\n'
         '- "quotes" for dialogue\n'
@@ -28,17 +28,31 @@ def main():
         help='Enable debug logging')
     parser.add_argument('--log-file',
         help='Log file path (use "-" for stdout)')
+    parser.add_argument('--use-server-messages',
+        action='store_true',
+        help='In remote mode, use server-provided default messages')
     
     args = parser.parse_args()
     
+    # Initialize the interface
     chat = Interface(
         endpoint=args.endpoint, 
         logging_enabled=args.enable_logging,
         log_file=args.log_file
     )
     
+    # Add a welcome message
     chat.preface("Welcome to ChatLine", title="Baze, Inc.", border_color="dim yellow")
-    chat.start(MESSAGES)
+    
+    # Start the conversation
+    if args.use_server_messages and args.endpoint:
+        # In remote mode with --use-server-messages, don't provide messages
+        # The server will provide default messages
+        print("Using server-provided default messages")
+        chat.start()
+    else:
+        # Otherwise use our example messages
+        chat.start(EXAMPLE_MESSAGES)
 
 if __name__ == "__main__":
     main()

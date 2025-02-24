@@ -94,6 +94,11 @@ class Interface:
                  log_file: Optional[str] = None):
         """
         Initialize components with an optional endpoint and logging.
+        
+        Args:
+            endpoint: URL endpoint for remote mode. If None, embedded mode is used.
+            logging_enabled: Enable detailed logging.
+            log_file: Path to log file. Use "-" for stdout.
         """
         self._init_components(endpoint, logging_enabled, log_file)
     
@@ -115,8 +120,17 @@ class Interface:
             )
 
             self.display.terminal.reset()
+            
+            # Track if we're in remote mode (important for optional messages)
+            self.is_remote_mode = endpoint is not None
+            if self.is_remote_mode:
+                self.logger.debug(f"Initialized in remote mode with endpoint: {endpoint}")
+            else:
+                self.logger.debug("Initialized in embedded mode")
+                
         except Exception as e:
-            self.logger.error(f"Init error: {e}")
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Init error: {e}")
             raise
 
     def preface(self, text: str, title: Optional[str] = None,
@@ -129,6 +143,26 @@ class Interface:
             display_type=display_type
         )
 
-    def start(self, messages: Dict[str, str]) -> None:
-        """Start the conversation with the provided messages."""
+    def start(self, messages: Optional[Dict[str, str]] = None) -> None:
+        """
+        Start the conversation with optional messages.
+        
+        In remote mode, messages can be omitted and the server will provide defaults.
+        In embedded mode, messages are required.
+        
+        Args:
+            messages: Dictionary with 'system' and 'user' messages.
+                     Can be None in remote mode.
+        """
+        if messages is None:
+            if not self.is_remote_mode:
+                raise ValueError(
+                    "Messages are required in embedded mode. "
+                    "Please provide 'system' and 'user' messages."
+                )
+            # In remote mode, use empty dict if no messages provided
+            # The server will provide default messages
+            messages = {}
+            self.logger.debug("No messages provided. Server will use defaults.")
+        
         self.conv.actions.start_conversation(messages)
