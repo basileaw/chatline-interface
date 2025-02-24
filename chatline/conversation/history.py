@@ -1,19 +1,17 @@
 # conversation/history.py
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
 
 @dataclass
 class ConversationState:
     """
     Tracks the internal conversation state.
-    Internally, messages are stored as a list along with extra keys.
-    When converting to a dict for the frontend, only the messages array and
-    the turn number (as "turn") are exported.
+    This state data is shared between frontend and backend, allowing
+    both to add, modify, or utilize any fields as needed.
     """
     messages: list = field(default_factory=list)
     turn_number: int = 0
-    # Other internal keys that the backend may use but not expose to the frontend.
     system_prompt: str = None
     last_user_input: str = None
     is_silent: bool = False
@@ -23,35 +21,50 @@ class ConversationState:
 
     def to_dict(self) -> dict:
         """
-        Convert the internal state to a dict for the frontend.
-        Only the "messages" key (as an array) and a "turn" key are exported.
+        Convert the entire state to a dictionary, preserving all fields.
+        This allows backends to access and modify any part of the state.
         """
+        # First convert all dataclass fields to a dictionary
+        state_dict = asdict(self)
+        
+        # Ensure the messages are properly formatted
         messages_array = []
         for m in self.messages:
             if isinstance(m, dict):
-                role = m.get("role")
-                content = m.get("content")
+                messages_array.append(m)
             else:
-                role = m.role
-                content = m.content
-            messages_array.append({"role": role, "content": content})
-        return {"messages": messages_array, "turn": self.turn_number}
+                messages_array.append({"role": m.role, "content": m.content, "turn_number": m.turn_number})
+        
+        # Replace the messages with properly formatted ones
+        state_dict["messages"] = messages_array
+        
+        return state_dict
 
     @classmethod
     def from_dict(cls, data: dict) -> "ConversationState":
         """
-        Rebuild the ConversationState from data received from the frontend.
-        Only the "messages" array and "turn" number are provided.
+        Rebuild the ConversationState from data received from the backend.
+        This preserves all fields that were sent.
         """
-        messages_array = data.get("messages", [])
-        return cls(messages=messages_array, turn_number=data.get("turn", 0))
+        # Make a copy to avoid modifying the input
+        state_data = data.copy()
+        
+        # Extract and convert messages if they exist
+        if "messages" in state_data:
+            messages = state_data.pop("messages")
+            # Don't convert messages yet, as the ConversationState expects a list
+            # The Message objects will be created when needed in ConversationMessages
+        else:
+            messages = []
+        
+        # Create the state with all the fields
+        return cls(messages=messages, **state_data)
 
 
 class ConversationHistory:
     """
     Manages conversation state and JSON snapshots.
-    The exported JSON only contains a "messages" array and a "turn" key.
-    The backend can manage additional internal state separately.
+    The entire state is preserved when communicating with the backend.
     """
 
     def __init__(self, logger=None):
@@ -64,8 +77,7 @@ class ConversationHistory:
 
     def update_state(self, **kwargs) -> None:
         """
-        Update the internal state. Only keys that exist on ConversationState
-        are updated. The snapshot exported contains only the "messages" and "turn" keys.
+        Update the internal state with any provided fields.
         """
         for key, value in kwargs.items():
             if hasattr(self.current_state, key):
