@@ -34,13 +34,18 @@ class ConversationActions:
             wrapped_chunks.append(chunk)
             remaining_text = remaining_text[width:]
         return '\n'.join(wrapped_chunks)
-    
+
     async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
-        """Process a user message, generate a response, and store both in history."""
+        """
+        Process a user message, generate a response, and store both in history.
+        If silent=True, we do NOT append the user text to the displayed output,
+        even if turn_number is > 1. That ensures repeated retries of a 'silent'
+        message remain silent in the UI.
+        """
         try:
             turn_number = self.history.current_state.turn_number + 1
 
-            # 1) Store the user's message as role="user"
+            # 1) We always add the user message to the conversation so LLM sees "user" at each turn.
             self.messages.add_message("user", msg, turn_number)
 
             sys_prompt = self.history.current_state.system_prompt
@@ -52,76 +57,87 @@ class ConversationActions:
                 messages=state_msgs
             )
 
+            # 2) If not silent, display the user prompt
             self.style.set_output_color('GREEN')
+            prompt_text = "" if silent else f"> {msg}"
             loader = self.animations.create_dot_loader(
-                prompt="" if silent else f"> {msg}",
+                prompt=prompt_text,
                 no_animation=silent
             )
 
-            # 2) Generate the streaming response
-            msgs = await self.messages.get_messages(sys_prompt)
-            raw, styled = await loader.run_with_loading(self.generator(msgs))
+            # 3) Generate the LLM response
+            msgs_for_generation = await self.messages.get_messages(sys_prompt)
+            raw, styled = await loader.run_with_loading(self.generator(msgs_for_generation))
 
-            # 3) <-- ADDED/CHANGED: store the assistant's full reply in conversation
+            # 4) Store the assistant's full reply
             if raw:
-                # Add assistant message to self.messages
-                # If you prefer the styled text, you can store that. But usually raw is fine.
                 self.messages.add_message("assistant", raw, turn_number)
 
-                # Refresh the full conversation state
+                # Update conversation state again
                 new_state_msgs = await self.messages.get_messages(sys_prompt)
-                self.history.update_state(
-                    messages=new_state_msgs
-                )
+                self.history.update_state(messages=new_state_msgs)
 
-                # Optionally: also update 'last_user_input' or anything else if needed
-                # e.g., self.history.update_state(last_assistant_reply=raw)
-
-                if turn_number > 1:
-                    # Format the prompt line with trailing punctuation
-                    end_char = msg[-1] if msg.endswith(('?', '!')) else '.'
-                    prompt_line = f"> {msg.rstrip('?.!')}{end_char * 3}"
-
-                    # Apply terminal-style wrapping
+                # 5) Build final UI text:
+                #    - If silent, skip the user text in the returned styled output.
+                #    - If not silent, prepend user text to assistant text.
+                if not silent:
+                    # Format user text in final output
+                    end_char = "..."
+                    if msg.endswith(("?", "!")):
+                        end_char = msg[-1] * 3
+                    elif msg.endswith("."):
+                        end_char = "..."
+                    prompt_line = f"> {msg.rstrip('?.!')}{end_char}"
                     wrapped_prompt = self._wrap_terminal_style(prompt_line, self.terminal.width)
                     full_styled = f"{wrapped_prompt}\n\n{styled}"
                     return raw, full_styled
                 else:
+                    # Return only the assistant's text
                     return raw, styled
 
             return "", ""
-        
+
         except Exception as e:
             self.logger.error(f"Message processing error: {e}", exc_info=True)
             return "", ""
 
     async def introduce_conversation(self, intro_msg: str) -> Tuple[str, str, str]:
-        """Introduce conversation with preface content and initial message."""
+        """
+        Show any preface, then process the first user message silently (i.e. not displayed).
+        We only display the assistant's reply in 'intro_styled'.
+        """
+        # 1) Preface panel
         styled_panel = await self.preface.format_content(self.style)
         styled_panel = self.style.append_single_blank_line(styled_panel)
-
         if styled_panel.strip():
             await self.terminal.update_display(styled_panel, preserve_cursor=True)
 
-        raw, styled = await self._process_message(intro_msg, silent=True)
-        full_styled = styled_panel + styled
+        # 2) The first user message is silent => user text is never shown
+        raw, assistant_styled = await self._process_message(intro_msg, silent=True)
+
+        # 3) Combine panel + assistant reply only (no user text) into 'intro_styled'
+        full_styled = styled_panel + assistant_styled
         await self.terminal.update_display(full_styled)
 
+        # 4) Update state
         self.is_silent = True
         self.prompt = ""
         self.history.update_state(
             is_silent=True,
             prompt_display="",
+            # preconversation_styled is only the panel
             preconversation_styled=styled_panel
         )
         return raw, full_styled, ""
 
     async def process_user_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
-        """Process a normal user message and generate a response."""
+        """
+        Process a normal user message (non-silent).
+        """
         scroller = self.animations.create_scroller()
         await scroller.scroll_up(intro_styled, f"> {user_input}", .5)
 
-        raw, styled = await self._process_message(user_input)
+        raw, styled = await self._process_message(user_input, silent=False)
         self.is_silent = False
         self.prompt = self.terminal.format_prompt(user_input)
         self.preface.clear()
@@ -133,28 +149,37 @@ class ConversationActions:
         return raw, styled, self.prompt
 
     async def backtrack_conversation(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
-        """Return to and modify the previous conversation exchange."""
+        """
+        Return to the previous user message. If we are still in silent mode,
+        we re-process that user message with silent=True => no user text shown.
+        """
         current_turn = self.history.current_state.turn_number
         rev_streamer = self.animations.create_reverse_streamer()
 
+        # Reverse only the text in 'intro_styled' (which never included the silent user message)
         await rev_streamer.reverse_stream(
             intro_styled,
             "",
             preconversation_text=self.preface.styled_content
         )
 
-        last_msg = next((m.content for m in reversed(self.messages.messages) if m.role == "user"), None)
+        # Find last user message in self.messages
+        last_msg = next(
+            (m.content for m in reversed(self.messages.messages)
+             if m.role == "user"),
+            None
+        )
         if not last_msg:
-            # No user messages found
             return "", intro_styled, ""
 
-        # More robust removal: find last user and next assistant
+        # Remove the user+assistant pair
         user_idx = None
         for i in reversed(range(len(self.messages.messages))):
             if self.messages.messages[i].role == "user":
                 user_idx = i
                 break
         if user_idx is not None:
+            # If next message is an assistant, remove both
             if (user_idx + 1 < len(self.messages.messages)
                 and self.messages.messages[user_idx + 1].role == "assistant"):
                 del self.messages.messages[user_idx:user_idx + 2]
@@ -163,18 +188,17 @@ class ConversationActions:
                 del self.messages.messages[user_idx:user_idx + 1]
                 self.history.restore_state(current_turn - 1)
 
+        # If we're still silent, re-process the message silently
         if self.is_silent:
             raw, styled = await self._process_message(last_msg, silent=True)
-            self.history.update_state(
-                is_silent=True,
-                preconversation_styled=self.preface.styled_content
-            )
+            # Return only the preface panel + assistant
             return raw, f"{self.preface.styled_content}\n{styled}", ""
 
+        # Otherwise, normal backtrack for a non-silent message
         self.terminal.clear_screen()
 
         if is_retry:
-            raw, styled = await self._process_message(last_msg)
+            raw, styled = await self._process_message(last_msg, silent=False)
         else:
             new_input = await self.terminal.get_user_input(
                 default_text=last_msg,
@@ -183,7 +207,7 @@ class ConversationActions:
             if not new_input:
                 return "", intro_styled, ""
             self.terminal.clear_screen()
-            raw, styled = await self._process_message(new_input)
+            raw, styled = await self._process_message(new_input, silent=False)
             last_msg = new_input
 
         self.prompt = self.terminal.format_prompt(last_msg)
@@ -191,7 +215,10 @@ class ConversationActions:
         return raw, styled, self.prompt
 
     async def _async_conversation_loop(self, system_msg: str, intro_msg: str):
-        """Asynchronous conversation loop."""
+        """
+        Main async loop: system prompt + first user (silent),
+        then repeatedly accept user input, or 'edit'/'retry' commands.
+        """
         try:
             self.history.current_state.system_prompt = system_msg
             _, intro_styled, _ = await self.introduce_conversation(intro_msg)
@@ -202,9 +229,13 @@ class ConversationActions:
                     continue
                 cmd = user_input.lower().strip()
                 if cmd in ["edit", "retry"]:
-                    _, intro_styled, _ = await self.backtrack_conversation(intro_styled, is_retry=(cmd == "retry"))
+                    _, intro_styled, _ = await self.backtrack_conversation(
+                        intro_styled, is_retry=(cmd == "retry")
+                    )
                 else:
-                    _, intro_styled, _ = await self.process_user_message(user_input, intro_styled)
+                    _, intro_styled, _ = await self.process_user_message(
+                        user_input, intro_styled
+                    )
 
         except Exception as e:
             self.logger.error(f"Critical error: {e}", exc_info=True)
@@ -213,7 +244,10 @@ class ConversationActions:
             await self.terminal.update_display()
 
     def start_conversation(self, messages: dict) -> None:
-        """Public entry: start the conversation loop with error handling."""
+        """
+        Public entry: system + first user message. The first user message is silent in the UI,
+        but still stored in the conversation for the LLM. Then normal conversation proceeds.
+        """
         try:
             asyncio.run(self._async_conversation_loop(
                 messages.get('system', ''),
