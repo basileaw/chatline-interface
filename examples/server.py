@@ -5,22 +5,9 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from chatline.stream.generator import generate_stream
+from chatline import DEFAULT_MESSAGES
 
 app = FastAPI()
-
-# Default messages the server will use if the client doesn't provide any
-DEFAULT_MESSAGES = [
-    {
-        "role": "system",
-        "content": "You are a helpful assistant that provides concise, accurate information. Respond in a friendly, conversational tone.",
-        "turn_number": 0
-    },
-    {
-        "role": "user",
-        "content": "Hello! How can you help me today?",
-        "turn_number": 1
-    }
-]
 
 @app.post("/chat")
 async def stream_chat(request: Request):
@@ -45,15 +32,16 @@ async def stream_chat(request: Request):
         for key, value in received_state.items():
             state[key] = value
     
-    # If no messages provided by client, use defaults
+    # If no messages provided by client, use library defaults
     if not messages:
-        print("No messages provided by client. Using default messages.")
-        messages = DEFAULT_MESSAGES
-        # Also add default messages to state
-        state['messages'] = messages
-    else:
-        # Store the client-provided messages in state
-        state['messages'] = messages
+        print("No messages provided by client. Using library default messages.")
+        messages = [
+            {"role": "system", "content": DEFAULT_MESSAGES["system"]},
+            {"role": "user", "content": DEFAULT_MESSAGES["user"]}
+        ]
+    
+    # Store the messages in state
+    state['messages'] = messages
     
     # Increment turn number
     state['turn_number'] += 1
@@ -85,7 +73,7 @@ if __name__ == "__main__":
     print("\n=== Chatline Example Server ===")
     print("Endpoint: http://127.0.0.1:8000/chat")
     print("Features:")
-    print("- Provides default messages if client sends none")
+    print("- Uses library default messages if client sends none")
     print("- Adds a persistent 'context' field to state")
     print("- Auto-reload enabled - changes to this file will restart the server\n")
     

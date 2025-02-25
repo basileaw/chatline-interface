@@ -10,6 +10,23 @@ from .display import Display
 from .stream import Stream
 from .conversation import Conversation
 
+# Default messages to use when none are provided by the developer
+DEFAULT_MESSAGES = {
+    "system": (
+        'Write in present tense. Write in third person. Use the following text styles:\n'
+        '- "quotes" for dialogue\n'
+        '- [Brackets...] for actions\n'
+        '- underscores for emphasis\n'
+        '- asterisks for bold text\n\n'
+        'Note: These are default instructions provided by the Chatline library.'
+    ),
+    "user": (
+        '[Default message from Chatline]\n\n'
+        'Please introduce yourself and explain how you can assist. '
+        'Include an example of how you follow the style instructions above.'
+    )
+}
+
 class Logger:
     """
     Custom logger that supports both standard logs
@@ -52,7 +69,7 @@ class Logger:
             self._logger.addHandler(handler)
             self._logger.setLevel(logging.DEBUG)
 
-            # NEW: For conversation JSON logs, use a single file "conversation_history.json"
+            # For conversation JSON logs, use a single file "conversation_history.json"
             # in the same directory as log_file (if it's not "-" or None).
             if log_file and log_file not in ("-", ""):
                 log_dir = os.path.dirname(log_file) or "."
@@ -121,7 +138,7 @@ class Interface:
 
             self.display.terminal.reset()
             
-            # Track if we're in remote mode (important for optional messages)
+            # Track if we're in remote mode
             self.is_remote_mode = endpoint is not None
             if self.is_remote_mode:
                 self.logger.debug(f"Initialized in remote mode with endpoint: {endpoint}")
@@ -147,22 +164,15 @@ class Interface:
         """
         Start the conversation with optional messages.
         
-        In remote mode, messages can be omitted and the server will provide defaults.
-        In embedded mode, messages are required.
+        If no messages are provided, default messages will be used in both
+        embedded and remote modes.
         
         Args:
             messages: Dictionary with 'system' and 'user' messages.
-                     Can be None in remote mode.
+                     If None, default messages will be used.
         """
         if messages is None:
-            if not self.is_remote_mode:
-                raise ValueError(
-                    "Messages are required in embedded mode. "
-                    "Please provide 'system' and 'user' messages."
-                )
-            # In remote mode, use empty dict if no messages provided
-            # The server will provide default messages
-            messages = {}
-            self.logger.debug("No messages provided. Server will use defaults.")
+            self.logger.debug("No messages provided. Using default messages.")
+            messages = DEFAULT_MESSAGES.copy()
         
         self.conv.actions.start_conversation(messages)

@@ -26,6 +26,10 @@ class ConversationActions:
         
         # Track if we're in remote mode (for handling optional messages)
         self.is_remote_mode = hasattr(stream, 'endpoint')
+        if self.is_remote_mode:
+            self.logger.debug("Using remote mode for message generation")
+        else:
+            self.logger.debug("Using embedded mode for message generation")
 
     def _get_system_prompt(self) -> str:
         """
@@ -51,18 +55,6 @@ class ConversationActions:
         """Handle state updates received from the backend."""
         if self.logger:
             self.logger.debug(f"Received state update from backend")
-            if 'messages' in new_state and new_state['messages']:
-                self.logger.debug(f"State contains {len(new_state['messages'])} messages")
-        
-        # If we sent no messages and got messages from the server, add them
-        if (not self.messages.messages and 'messages' in new_state and 
-            new_state['messages'] and len(new_state['messages']) > 0):
-            
-            self.logger.debug("Adding server-provided messages to conversation")
-            for msg in new_state['messages']:
-                # Ensure messages have a turn_number
-                turn = msg.get('turn_number', 0) 
-                self.messages.add_message(msg['role'], msg['content'], turn)
         
         # Update conversation state with the backend's response
         self.history.update_state(**new_state)
@@ -92,14 +84,9 @@ class ConversationActions:
         try:
             turn_number = self.history.current_state.turn_number + 1
 
-            # In remote mode with no existing messages, we might need to handle
-            # server-provided initial messages differently
-            first_interaction = len(self.messages.messages) == 0
-            
-            # Only add user message if we have a message or are not in remote mode
-            if msg or not self.is_remote_mode:
-                self.messages.add_message("user", msg, turn_number)
-                self.last_user_input = msg
+            # Add the user message to the conversation
+            self.messages.add_message("user", msg, turn_number)
+            self.last_user_input = msg
 
             # Get system prompt from messages array
             sys_prompt = self._get_system_prompt()
@@ -110,7 +97,7 @@ class ConversationActions:
                 messages=state_msgs
             )
 
-            # 2) If not silent, display the user prompt
+            # If not silent, display the user prompt
             self.style.set_output_color('GREEN')
             prompt_text = "" if silent else f"> {msg}"
             loader = self.animations.create_dot_loader(
@@ -118,26 +105,34 @@ class ConversationActions:
                 no_animation=silent
             )
 
-            # 3) Generate the LLM response
+            # Generate the LLM response
             # Get current state for the backend
             current_state = self.history.create_state_snapshot()
             
             # Pass messages and state to generator with callback
             msgs_for_generation = await self.messages.get_messages(sys_prompt)
             
-            # Log special case handling
-            if first_interaction and self.is_remote_mode and not msg:
-                self.logger.debug("First interaction with no messages. Server will provide defaults.")
-            
-            raw, styled = await loader.run_with_loading(
-                self.generator(
-                    messages=msgs_for_generation,
-                    state=current_state,
-                    state_callback=self._handle_state_update
+            # Handle different generator parameters based on mode
+            if self.is_remote_mode:
+                # In remote mode, pass state and callback
+                self.logger.debug("Calling remote generator with state and callback")
+                raw, styled = await loader.run_with_loading(
+                    self.generator(
+                        messages=msgs_for_generation,
+                        state=current_state,
+                        state_callback=self._handle_state_update
+                    )
                 )
-            )
+            else:
+                # In embedded mode, only pass messages
+                self.logger.debug("Calling embedded generator with messages only")
+                raw, styled = await loader.run_with_loading(
+                    self.generator(
+                        messages=msgs_for_generation
+                    )
+                )
 
-            # 4) Store the assistant's full reply
+            # Store the assistant's full reply
             if raw:
                 self.messages.add_message("assistant", raw, turn_number)
 
@@ -145,23 +140,19 @@ class ConversationActions:
                 new_state_msgs = await self.messages.get_messages(sys_prompt)
                 self.history.update_state(messages=new_state_msgs)
 
-                # 5) Build final UI text:
-                #    - If silent, skip the user text in the returned styled output.
-                #    - If not silent, prepend user text to assistant text.
+                # Build final UI text:
+                # - If silent, skip the user text in the returned styled output.
+                # - If not silent, prepend user text to assistant text.
                 if not silent:
                     # Format user text in final output
                     end_char = "..."
-                    if not msg:
-                        # No user message to display
-                        full_styled = styled
-                    else:
-                        if msg.endswith(("?", "!")):
-                            end_char = msg[-1] * 3
-                        elif msg.endswith("."):
-                            end_char = "..."
-                        prompt_line = f"> {msg.rstrip('?.!')}{end_char}"
-                        wrapped_prompt = self._wrap_terminal_style(prompt_line, self.terminal.width)
-                        full_styled = f"{wrapped_prompt}\n\n{styled}"
+                    if msg.endswith(("?", "!")):
+                        end_char = msg[-1] * 3
+                    elif msg.endswith("."):
+                        end_char = "..."
+                    prompt_line = f"> {msg.rstrip('?.!')}{end_char}"
+                    wrapped_prompt = self._wrap_terminal_style(prompt_line, self.terminal.width)
+                    full_styled = f"{wrapped_prompt}\n\n{styled}"
                     return raw, full_styled
                 else:
                     # Return only the assistant's text
@@ -176,23 +167,22 @@ class ConversationActions:
     async def introduce_conversation(self, intro_msg: str) -> Tuple[str, str, str]:
         """
         Show any preface, then process the first user message silently (i.e. not displayed).
-        If in remote mode with no messages, the intro_msg can be empty.
+        We only display the assistant's reply in 'intro_styled'.
         """
-        # 1) Preface panel
+        # Preface panel
         styled_panel = await self.preface.format_content(self.style)
         styled_panel = self.style.append_single_blank_line(styled_panel)
         if styled_panel.strip():
             await self.terminal.update_display(styled_panel, preserve_cursor=True)
 
-        # 2) The first user message is silent => user text is never shown
-        # In remote mode, intro_msg might be empty if server provides messages
+        # The first user message is silent => user text is never shown
         raw, assistant_styled = await self._process_message(intro_msg, silent=True)
 
-        # 3) Combine panel + assistant reply only (no user text) into 'intro_styled'
+        # Combine panel + assistant reply only (no user text) into 'intro_styled'
         full_styled = styled_panel + assistant_styled
         await self.terminal.update_display(full_styled)
 
-        # 4) Update UI-specific state
+        # Update UI-specific state
         self.is_silent = True
         self.prompt = ""
         self.preconversation_styled = styled_panel  # Store locally for animations
@@ -283,16 +273,10 @@ class ConversationActions:
         """
         Main async loop: system prompt + first user (silent),
         then repeatedly accept user input, or 'edit'/'retry' commands.
-        
-        In remote mode, system_msg and intro_msg can be empty if the server
-        will provide default messages.
         """
         try:
-            # Add the system message as the first message in the list if provided
-            if system_msg:
-                self.messages.add_message("system", system_msg, 0)  # Turn 0 for system
-                
-            # Process the first message (which might be empty in remote mode)
+            # Add the system message as the first message in the list
+            self.messages.add_message("system", system_msg, 0)  # Turn 0 for system
             _, intro_styled, _ = await self.introduce_conversation(intro_msg)
 
             while True:
@@ -320,16 +304,13 @@ class ConversationActions:
         Public entry: system + first user message. The first user message is silent in the UI,
         but still stored in the conversation for the LLM. Then normal conversation proceeds.
         
-        In remote mode, messages can be empty and the server will provide defaults.
+        Default messages are handled at the Interface level, so this method always
+        receives valid messages.
         """
         try:
-            # Extract messages, allowing for empty strings in remote mode
+            # Extract messages, which will always be present (either provided or defaults)
             system_msg = messages.get('system', '')
             user_msg = messages.get('user', '')
-            
-            # Log message status
-            if not system_msg and not user_msg and self.is_remote_mode:
-                self.logger.debug("Starting conversation with no messages. Server will provide defaults.")
             
             asyncio.run(self._async_conversation_loop(system_msg, user_msg))
         except KeyboardInterrupt:
