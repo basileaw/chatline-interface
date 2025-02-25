@@ -18,11 +18,15 @@ class ConversationActions:
         self.preface = preface
         self.logger = logger
         
-        # UI-specific state, no longer stored in conversation state
+        # UI-specific state, managed locally
         self.is_silent = False
         self.prompt = ""
         self.last_user_input = ""
         self.preconversation_styled = ""  # Stores the styled preface panel content
+        
+        # Local turn tracking (independent from state dictionary)
+        self.current_turn = 0
+        self.history_index = -1  # No history yet
         
         # Track if we're in remote mode (for handling optional messages)
         self.is_remote_mode = hasattr(stream, 'endpoint')
@@ -57,6 +61,7 @@ class ConversationActions:
             self.logger.debug(f"Received state update from backend")
         
         # Update conversation state with the backend's response
+        # Note: This preserves backend-added fields but doesn't affect our local turn tracking
         self.history.update_state(**new_state)
 
     def _wrap_terminal_style(self, text: str, width: int) -> str:
@@ -78,24 +83,26 @@ class ConversationActions:
         """
         Process a user message, generate a response, and store both in history.
         If silent=True, we do NOT append the user text to the displayed output,
-        even if turn_number is > 1. That ensures repeated retries of a 'silent'
+        even if the current turn > 0. That ensures repeated retries of a 'silent'
         message remain silent in the UI.
         """
         try:
-            turn_number = self.history.current_state.turn_number + 1
-
+            # Increment our local turn counter
+            self.current_turn += 1
+            
             # Add the user message to the conversation
-            self.messages.add_message("user", msg, turn_number)
+            self.messages.add_message("user", msg, self.current_turn)
             self.last_user_input = msg
 
             # Get system prompt from messages array
             sys_prompt = self._get_system_prompt()
             state_msgs = await self.messages.get_messages(sys_prompt)
 
-            self.history.update_state(
-                turn_number=turn_number,
-                messages=state_msgs
-            )
+            # Update state with messages only (no turn number)
+            self.history.update_state(messages=state_msgs)
+            
+            # Update our history index after creating a new snapshot
+            self.history_index = self.history.get_latest_state_index()
 
             # If not silent, display the user prompt
             self.style.set_output_color('GREEN')
@@ -106,10 +113,10 @@ class ConversationActions:
             )
 
             # Generate the LLM response
-            # Get current state for the backend
+            # Get current state for the backend (without turn number)
             current_state = self.history.create_state_snapshot()
             
-            # Pass messages and state to generator with callback
+            # Pass messages to generator
             msgs_for_generation = await self.messages.get_messages(sys_prompt)
             
             # Handle different generator parameters based on mode
@@ -134,11 +141,14 @@ class ConversationActions:
 
             # Store the assistant's full reply
             if raw:
-                self.messages.add_message("assistant", raw, turn_number)
+                self.messages.add_message("assistant", raw, self.current_turn)
 
-                # Update conversation state again
+                # Update conversation state again with new messages
                 new_state_msgs = await self.messages.get_messages(sys_prompt)
                 self.history.update_state(messages=new_state_msgs)
+                
+                # Update our history index
+                self.history_index = self.history.get_latest_state_index()
 
                 # Build final UI text:
                 # - If silent, skip the user text in the returned styled output.
@@ -193,7 +203,7 @@ class ConversationActions:
         Process a normal user message (non-silent).
         """
         scroller = self.animations.create_scroller()
-        await scroller.scroll_up(intro_styled, f"> {user_input}", .5)
+        await scroller.scroll_up(intro_styled, f"> {user_input}", 0.08)
 
         raw, styled = await self._process_message(user_input, silent=False)
         self.is_silent = False
@@ -207,7 +217,7 @@ class ConversationActions:
         Return to the previous user message. If we are still in silent mode,
         we re-process that user message with silent=True => no user text shown.
         """
-        current_turn = self.history.current_state.turn_number
+        # Using our local tracking instead of state.turn_number
         rev_streamer = self.animations.create_reverse_streamer()
 
         # Use the locally stored preconversation_styled for animations
@@ -239,10 +249,20 @@ class ConversationActions:
                 if (user_idx + 1 < len(self.messages.messages)
                     and self.messages.messages[user_idx + 1].role == "assistant"):
                     del self.messages.messages[user_idx:user_idx + 2]
-                    self.history.restore_state(current_turn - 1)
+                    # Decrement our turn counter
+                    self.current_turn -= 1
+                    # Restore previous state if available
+                    if self.history_index > 0:
+                        self.history_index -= 1
+                        self.history.restore_state_by_index(self.history_index)
                 else:
                     del self.messages.messages[user_idx:user_idx + 1]
-                    self.history.restore_state(current_turn - 1)
+                    # Decrement our turn counter
+                    self.current_turn -= 1
+                    # Restore previous state if available
+                    if self.history_index > 0:
+                        self.history_index -= 1
+                        self.history.restore_state_by_index(self.history_index)
 
         # If we're still silent, re-process the message silently
         if self.is_silent:
@@ -275,8 +295,15 @@ class ConversationActions:
         then repeatedly accept user input, or 'edit'/'retry' commands.
         """
         try:
-            # Add the system message as the first message in the list
-            self.messages.add_message("system", system_msg, 0)  # Turn 0 for system
+            # Add the system message as the first message in the list (turn 0)
+            self.messages.add_message("system", system_msg, 0)
+            
+            # Initial state snapshot with system message
+            sys_msgs = await self.messages.get_messages()
+            self.history.update_state(messages=sys_msgs)
+            self.history_index = self.history.get_latest_state_index()
+            
+            # Process the first user message
             _, intro_styled, _ = await self.introduce_conversation(intro_msg)
 
             while True:
@@ -311,6 +338,10 @@ class ConversationActions:
             # Extract messages, which will always be present (either provided or defaults)
             system_msg = messages.get('system', '')
             user_msg = messages.get('user', '')
+            
+            # Reset our local tracking counters when starting a new conversation
+            self.current_turn = 0
+            self.history_index = -1
             
             asyncio.run(self._async_conversation_loop(system_msg, user_msg))
         except KeyboardInterrupt:

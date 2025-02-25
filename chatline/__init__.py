@@ -3,7 +3,7 @@
 import sys, logging
 import os, json
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from functools import partial
 
 from .display import Display
@@ -11,21 +11,25 @@ from .stream import Stream
 from .conversation import Conversation
 
 # Default messages to use when none are provided by the developer
-DEFAULT_MESSAGES = {
-    "system": (
-        'Write in present tense. Write in third person. Use the following text styles:\n'
-        '- "quotes" for dialogue\n'
-        '- [Brackets...] for actions\n'
-        '- underscores for emphasis\n'
-        '- asterisks for bold text\n\n'
-        'Note: These are default instructions provided by the Chatline library.'
-    ),
-    "user": (
-        '[Default message from Chatline]\n\n'
-        'Please introduce yourself and explain how you can assist. '
-        'Include an example of how you follow the style instructions above.'
-    )
-}
+# Using array format for direct use in both frontend and backend
+DEFAULT_MESSAGES = [
+    {
+        "role": "system",
+        "content": (
+            'Write in present tense. Write in third person. Use the following text styles:\n'
+            '- "quotes" for dialogue\n'
+            '- [Brackets...] for actions\n'
+            '- underscores for emphasis\n'
+            '- asterisks for bold text\n'
+        )
+    },
+    {
+        "role": "user",
+        "content": (
+            'Write the line: \"[The machine powers on and hums...]\n\nThen, start a new, 25-word paragraph, informing me that I have not provided any messages, so the system defaults are being used. Begin this paragraph with a greeting from the machine itself: \" \"Hey there,\" \" \n\n'
+        )
+    }
+]
 
 class Logger:
     """
@@ -160,7 +164,7 @@ class Interface:
             display_type=display_type
         )
 
-    def start(self, messages: Optional[Dict[str, str]] = None) -> None:
+    def start(self, messages: Optional[List[Dict[str, str]]] = None) -> None:
         """
         Start the conversation with optional messages.
         
@@ -168,11 +172,25 @@ class Interface:
         embedded and remote modes.
         
         Args:
-            messages: Dictionary with 'system' and 'user' messages.
+            messages: List of message dictionaries with 'role' and 'content' keys.
                      If None, default messages will be used.
         """
         if messages is None:
             self.logger.debug("No messages provided. Using default messages.")
             messages = DEFAULT_MESSAGES.copy()
         
-        self.conv.actions.start_conversation(messages)
+        # Extract system and user messages for ConversationActions
+        system_content = ""
+        user_content = ""
+        
+        for msg in messages:
+            if msg["role"] == "system":
+                system_content = msg["content"]
+            elif msg["role"] == "user" and not user_content:  # Take first user message
+                user_content = msg["content"]
+        
+        # Start conversation with extracted messages
+        self.conv.actions.start_conversation({
+            "system": system_content,
+            "user": user_content
+        })

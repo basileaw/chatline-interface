@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 
 @dataclass
 class ConversationState:
@@ -11,36 +11,42 @@ class ConversationState:
     
     The state contains:
     - messages: The array of messages (including system prompt at index 0)
-    - turn_number: The current turn in the conversation
     - custom_fields: A dictionary that preserves any fields added by the backend
     
-    All UI-specific state has been moved to the UI components.
+    This design focuses on a clean separation of concerns: the frontend only
+    manages messages, while backend-specific fields are stored separately.
     """
     messages: list = field(default_factory=list)
-    turn_number: int = 0
     custom_fields: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        """Convert the state to a dictionary for serialization."""
-        # Start with core fields
+        """
+        Convert the state to a dictionary for serialization.
+        
+        This returns a dictionary containing:
+        - messages: The formatted messages array
+        - Any backend-added fields from custom_fields
+        
+        Note that frontend-specific tracking (like turn counter) is not included.
+        """
+        # Start with just the messages
         result = {
-            "messages": [],
-            "turn_number": self.turn_number
+            "messages": []
         }
         
-        # Format messages
+        # Format messages array
         for m in self.messages:
             if isinstance(m, dict):
                 result["messages"].append(m)
             else:
                 result["messages"].append({
                     "role": m.role, 
-                    "content": m.content, 
-                    "turn_number": m.turn_number
+                    "content": m.content
                 })
         
-        # Add custom fields
-        result.update(self.custom_fields)  # This is the critical line
+        # Add any custom fields from the backend
+        for key, value in self.custom_fields.items():
+            result[key] = value
         
         return result
 
@@ -49,49 +55,39 @@ class ConversationState:
         """
         Rebuild the ConversationState from a dictionary.
         
-        This handles both:
-        - Core fields (messages, turn_number)
-        - Any additional fields from the backend
+        This extracts the 'messages' array and places any other fields
+        into the custom_fields dictionary.
         """
         # Make a copy to avoid modifying the input
         state_data = data.copy()
         
-        # Extract core fields
+        # Extract known fields
         messages = state_data.pop("messages", [])
-        turn_number = state_data.pop("turn_number", 0)
-        
-        # Remove obsolete fields for backward compatibility
-        old_fields = [
-            "system_prompt", 
-            "last_user_input", 
-            "is_silent", 
-            "prompt_display", 
-            "preconversation_styled",
-            "timestamp"
-        ]
-        for old_field in old_fields:
-            if old_field in state_data:
-                state_data.pop(old_field)
         
         # Any remaining fields go into custom_fields
         custom_fields = state_data
         
+        # Return a new state instance
         return cls(
             messages=messages,
-            turn_number=turn_number,
             custom_fields=custom_fields
         )
 
 
 class ConversationHistory:
     """
-    Manages conversation state and JSON snapshots.
+    Manages conversation state history with index-based storage.
+    
+    This class maintains a history of conversation states, indexed by
+    an internal counter rather than relying on turn numbers from the state.
+    This creates a clean separation between frontend tracking and state data.
     """
 
     def __init__(self, logger=None):
         self.current_state = ConversationState()
-        self.state_history: dict = {}
+        self.state_history: List[dict] = []  # Array-based history instead of dict
         self.logger = logger
+        self._creation_time = datetime.now().isoformat()
 
     def create_state_snapshot(self) -> dict:
         """Create a dictionary representation of the current state."""
@@ -100,32 +96,45 @@ class ConversationHistory:
     def update_state(self, **kwargs) -> None:
         """
         Update the internal state with any provided fields.
+        
+        Messages are updated directly, while other fields go into custom_fields.
         """
-        # Handle core fields explicitly
-        core_fields = {"messages", "turn_number"}
+        # Handle messages directly if provided
+        if "messages" in kwargs:
+            self.current_state.messages = kwargs.pop("messages")
         
-        # Update direct fields first
-        for key in core_fields:
-            if key in kwargs:
-                setattr(self.current_state, key, kwargs[key])
-        
-        # Handle custom fields
+        # Handle any custom fields
         for key, value in kwargs.items():
-            if key not in core_fields:
-                self.current_state.custom_fields[key] = value
+            self.current_state.custom_fields[key] = value
         
-        # Store a snapshot in history
-        self.state_history[self.current_state.turn_number] = self.create_state_snapshot()
+        # Store a snapshot in the history array
+        self.state_history.append(self.create_state_snapshot())
         
         # Log the updated state
         if self.logger and hasattr(self.logger, "write_json"):
             self.logger.write_json(self.create_state_snapshot())
 
-    def restore_state(self, turn_number: int):
-        """Restore state from history based on turn number."""
-        if turn_number in self.state_history:
-            state_snapshot = self.state_history[turn_number]
+    def get_latest_state_index(self) -> int:
+        """Get the index of the latest state in history."""
+        return len(self.state_history) - 1
+
+    def restore_state_by_index(self, index: int) -> Optional[ConversationState]:
+        """
+        Restore state from history based on index.
+        
+        Args:
+            index: Zero-based index into the state history
+            
+        Returns:
+            The restored state or None if index is invalid
+        """
+        if 0 <= index < len(self.state_history):
+            state_snapshot = self.state_history[index]
             self.current_state = ConversationState.from_dict(state_snapshot)
+            
+            # Truncate history to this point
+            self.state_history = self.state_history[:index + 1]
+            
             return self.current_state
         return None
 
