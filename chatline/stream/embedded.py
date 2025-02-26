@@ -1,17 +1,16 @@
 # stream/embedded.py
 
 from typing import Optional, Callable, AsyncGenerator
-from .generator import generate_stream
 
 class EmbeddedStream:
     """Handler for local embedded message streams."""
     
-    def __init__(self, logger=None) -> None:
+    def __init__(self, logger=None, generator_func=None) -> None:
         self.logger = logger
         self._last_error: Optional[str] = None
-        self.generator = generate_stream
+        self.generator = generator_func
         if self.logger:
-            self.logger.debug("Initialized embedded stream with default generator")
+            self.logger.debug("Initialized embedded stream with injected generator")
 
     async def _wrap_generator(
         self,

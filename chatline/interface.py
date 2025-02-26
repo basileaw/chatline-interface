@@ -7,6 +7,7 @@ from .default_messages import DEFAULT_MESSAGES
 from .display import Display
 from .stream import Stream
 from .conversation import Conversation
+from .generator import generate_stream
 
 class Interface:
     """
@@ -34,7 +35,7 @@ class Interface:
             self.logger = Logger(__name__, logging_enabled, log_file)
 
             self.display = Display()
-            self.stream = Stream.create(endpoint, logger=self.logger)
+            self.stream = Stream.create(endpoint, logger=self.logger, generator_func=generate_stream)
 
             # Pass the entire logger down so conversation/history can use logger.write_json
             self.conv = Conversation(
