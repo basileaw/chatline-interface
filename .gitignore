@@ -4,3 +4,4 @@ chatline/logs/*
 logs/
 *.egg-info/
 .env
+dist/

@@ -1,9 +1,13 @@
 [tool.poetry]
 name = "chatline"
-version = "0.1.0"
-authors = ["Baze <basileaw@gmail.com>"]
-description = "A chat interface implementation"
-packages = [{ include = "chatline" }]
+version = "0.0.0"
+authors = ["Alex Basile <basileaw@gmail.com>"]
+description = "A pretty command line interface for LLM chat."
+readme = "README.md"
+license = "MIT"
+
+[[tool.poetry.packages]]
+include = "chatline"
 
 [build-system]
 requires = ["poetry-core"]
@@ -19,7 +23,7 @@ prompt-toolkit = "*"
 [tool.poetry.group.dev.dependencies]
 fastapi = "*"
 uvicorn = "*"
-poethepoet = "^0.32.2"
+poethepoet = "*"
 
 [tool.poe.tasks]
 embedded-client = "python examples/client.py"
