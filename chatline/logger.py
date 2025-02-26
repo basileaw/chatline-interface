@@ -38,6 +38,10 @@ class Logger:
             if log_file == '-':
                 handler = logging.StreamHandler(sys.stdout)
             elif log_file:
+                # Create directory for log file if it doesn't exist
+                log_dir = os.path.dirname(log_file)
+                if log_dir:
+                    os.makedirs(log_dir, exist_ok=True)
                 handler = logging.FileHandler(log_file, mode='w')
             else:
                 handler = logging.StreamHandler(sys.stderr)

@@ -1,6 +1,6 @@
 Aan easy-to-use, pretty, command-line chat interface for AWS Bedrock with simple animations, text styling, and 
 
-![PyPI](https://img.shields.io/pypi/v/chatline.svg)
+![PyPI](https://img.shields.io/pypi/v/chatline.svg) ![License](https://img.shields.io/github/license/my-username/my-repo.svg)
 
 ## Installation
 
