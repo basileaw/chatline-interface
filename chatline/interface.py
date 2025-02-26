@@ -72,28 +72,38 @@ class Interface:
         """
         Start the conversation with optional messages.
         
-        If no messages are provided, default messages will be used in both
-        embedded and remote modes.
+        Messages must follow one of these formats:
+        1. A single user message: [{"role": "user", "content": "..."}]
+        2. System message followed by a user message: [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}]
+        
+        If no messages are provided, default messages will be used.
         
         Args:
-            messages: List of message dictionaries with 'role' and 'content' keys.
+            messages: List of message dictionaries with proper format.
                      If None, default messages will be used.
+                     
+        Raises:
+            ValueError: If messages don't follow the required format.
         """
         if messages is None:
             self.logger.debug("No messages provided. Using default messages.")
             messages = DEFAULT_MESSAGES.copy()
         
-        # Extract system and user messages for ConversationActions
-        system_content = ""
-        user_content = ""
+        # Validate message format
+        if len(messages) == 1:
+            if messages[0]["role"] != "user":
+                raise ValueError("Single message must be a user message")
+            system_content = ""
+            user_content = messages[0]["content"]
+        elif len(messages) == 2:
+            if messages[0]["role"] != "system" or messages[1]["role"] != "user":
+                raise ValueError("Two messages must be system followed by user")
+            system_content = messages[0]["content"]
+            user_content = messages[1]["content"]
+        else:
+            raise ValueError("Messages must contain either 1 user message or 1 system + 1 user message")
         
-        for msg in messages:
-            if msg["role"] == "system":
-                system_content = msg["content"]
-            elif msg["role"] == "user" and not user_content:  # Take first user message
-                user_content = msg["content"]
-        
-        # Start conversation with extracted messages
+        # Start conversation with validated messages
         self.conv.actions.start_conversation({
             "system": system_content,
             "user": user_content
