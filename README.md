@@ -4,6 +4,8 @@
 
 A lightweight CLI library for building terminal-based LLM chat interfaces with minimal effort. Provides rich text styling, animations, and conversation state management.
 
+![](https://raw.githubusercontent.com/anotherbazeinthewall/chatline-interface/main/demo.gif)
+
 ## Installation
 
 ```bash
