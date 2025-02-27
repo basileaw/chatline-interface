@@ -1,6 +1,7 @@
 # interface.py
 
 from typing import Dict, Optional, List
+import socket
 
 from .logger import Logger
 from .default_messages import DEFAULT_MESSAGES
@@ -15,19 +16,28 @@ class Interface:
     """
 
     def __init__(self, endpoint: Optional[str] = None, 
+                 use_same_origin: bool = False,
+                 origin_path: str = "/chat", 
+                 origin_port: Optional[int] = None,
                  logging_enabled: bool = False,
                  log_file: Optional[str] = None):
         """
         Initialize components with an optional endpoint and logging.
         
         Args:
-            endpoint: URL endpoint for remote mode. If None, embedded mode is used.
+            endpoint: URL endpoint for remote mode. If None and use_same_origin is False, embedded mode is used.
+            use_same_origin: If True, attempts to determine server origin automatically.
+            origin_path: Path component to use when constructing same-origin URL.
+            origin_port: Port to use when constructing same-origin URL. If None, uses default ports.
             logging_enabled: Enable detailed logging.
             log_file: Path to log file. Use "-" for stdout.
         """
-        self._init_components(endpoint, logging_enabled, log_file)
+        self._init_components(endpoint, use_same_origin, origin_path, origin_port, logging_enabled, log_file)
     
     def _init_components(self, endpoint: Optional[str], 
+                         use_same_origin: bool,
+                         origin_path: str,
+                         origin_port: Optional[int],
                          logging_enabled: bool,
                          log_file: Optional[str]) -> None:
         try:
@@ -35,6 +45,25 @@ class Interface:
             self.logger = Logger(__name__, logging_enabled, log_file)
 
             self.display = Display()
+            
+            # Handle same-origin case
+            if use_same_origin and not endpoint:
+                try:
+                    # Try to determine the origin automatically
+                    hostname = socket.gethostname()
+                    # Get container IP if possible
+                    try:
+                        ip_address = socket.gethostbyname(hostname)
+                    except:
+                        ip_address = "localhost"  # Fallback
+                    
+                    port = origin_port or 8000  # Default to 8000 if not specified
+                    endpoint = f"http://{ip_address}:{port}{origin_path}"
+                    self.logger.debug(f"Auto-detected same-origin endpoint: {endpoint}")
+                except Exception as e:
+                    self.logger.error(f"Failed to determine origin: {e}")
+                    # Continue with embedded mode if we can't determine the endpoint
+            
             self.stream = Stream.create(endpoint, logger=self.logger, generator_func=generate_stream)
 
             # Pass the entire logger down so conversation/history can use logger.write_json

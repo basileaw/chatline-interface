@@ -7,6 +7,15 @@ def main():
     parser = argparse.ArgumentParser(description='ChatLine Interface')
     parser.add_argument('-e', '--endpoint',
         help='Remote endpoint URL for chat service')
+    parser.add_argument('--same-origin', 
+        action='store_true',
+        help='Auto-detect server running on the same host')
+    parser.add_argument('--origin-path',
+        default='/chat',
+        help='Path component for same-origin server (default: /chat)')
+    parser.add_argument('--origin-port',
+        type=int,
+        help='Port for same-origin server (default: 8000)')
     parser.add_argument('--enable-logging',
         action='store_true',
         help='Enable debug logging')
@@ -18,6 +27,9 @@ def main():
     # Initialize the interface
     chat = Interface(
         endpoint=args.endpoint, 
+        use_same_origin=args.same_origin,
+        origin_path=args.origin_path,
+        origin_port=args.origin_port,
         logging_enabled=args.enable_logging,
         log_file=args.log_file
     )

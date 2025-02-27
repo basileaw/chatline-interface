@@ -31,3 +31,5 @@ embedded-client-log = "python example/client.py --enable-logging --log-file logs
 serve = "python example/server.py"
 remote-client = "python example/client.py -e http://127.0.0.1:8000/chat"
 remote-client-log = "python example/client.py -e http://127.0.0.1:8000/chat --enable-logging --log-file logs/chatline_debug.log"
+remote-same-origin = "python example/client.py --same-origin"
+remote-same-origin-log = "python example/client.py --same-origin --enable-logging --log-file logs/chatline_debug.log"
