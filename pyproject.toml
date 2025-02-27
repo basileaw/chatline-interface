@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "chatline"
-version = "0.0.0"
+version = "0.0.4"
 authors = ["Alex Basile <basileaw@gmail.com>"]
 description = "A pretty command line interface for LLM chat."
 readme = "README.md"
