@@ -122,18 +122,11 @@ class Interface:
         if len(messages) == 1:
             if messages[0]["role"] != "user":
                 raise ValueError("Single message must be a user message")
-            system_content = ""
-            user_content = messages[0]["content"]
         elif len(messages) == 2:
             if messages[0]["role"] != "system" or messages[1]["role"] != "user":
                 raise ValueError("Two messages must be system followed by user")
-            system_content = messages[0]["content"]
-            user_content = messages[1]["content"]
         else:
             raise ValueError("Messages must contain either 1 user message or 1 system + 1 user message")
         
-        # Start conversation with validated messages
-        self.conv.actions.start_conversation({
-            "system": system_content,
-            "user": user_content
-        })
+        # Start conversation with validated messages - pass the list directly
+        self.conv.actions.start_conversation(messages)

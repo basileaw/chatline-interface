@@ -1,8 +1,7 @@
 # conversation/actions.py
 
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any
 import asyncio
-import sys
 
 class ConversationActions:
     """Manages conversation flow and actions."""
@@ -326,23 +325,36 @@ class ConversationActions:
         finally:
             await self.terminal.update_display()
 
-    def start_conversation(self, messages: dict) -> None:
+    def start_conversation(self, messages: List[Dict[str, str]]) -> None:
         """
-        Public entry: system + first user message. The first user message is silent in the UI,
-        but still stored in the conversation for the LLM. Then normal conversation proceeds.
+        Public entry: Starts a conversation with validated messages.
         
-        Default messages are handled at the Interface level, so this method always
-        receives valid messages.
+        The messages list has been validated by the Interface and follows one of these formats:
+        1. A single user message: [{"role": "user", "content": "..."}]
+        2. System message followed by a user message: [{"role": "system", "content": "..."}, 
+                                                     {"role": "user", "content": "..."}]
+        
+        Args:
+            messages: Validated list of message dictionaries
         """
         try:
-            # Extract messages, which will always be present (either provided or defaults)
-            system_msg = messages.get('system', '')
-            user_msg = messages.get('user', '')
+            # Extract system and user messages from the validated list
+            system_msg = ""  # Default to empty system message
+            user_msg = ""
+            
+            # Single user message case
+            if len(messages) == 1:
+                user_msg = messages[0]["content"]
+            # System + user message case
+            elif len(messages) == 2:
+                system_msg = messages[0]["content"]
+                user_msg = messages[1]["content"]
             
             # Reset our local tracking counters when starting a new conversation
             self.current_turn = 0
             self.history_index = -1
             
+            # Continue with the existing conversation loop
             asyncio.run(self._async_conversation_loop(system_msg, user_msg))
         except KeyboardInterrupt:
             self.logger.info("User interrupted")
