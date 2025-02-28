@@ -1,6 +1,6 @@
 # Chatline
 
-[![PyPI](https://img.shields.io/pypi/v/chatline.svg)](https://pypi.org/project/chatline/) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://opensource.org/licenses/MIT) [![Demo at chat.alexbasile.com](https://img.shields.io/badge/Demo%20at-chat.alexbasile.com-blue)](https://chat.alexbasile.com)
+[![PyPI](https://img.shields.io/pypi/v/chatline.svg)](https://pypi.org/project/chatline/) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://opensource.org/licenses/MIT) [![Demo chat.alexbasile.com](https://img.shields.io/badge/Demo%20at-chat.alexbasile.com-blue)](https://chat.alexbasile.com)
 
 A lightweight CLI library for building terminal-based LLM chat interfaces with minimal effort. Provides rich text styling, animations, and conversation state management.
 
