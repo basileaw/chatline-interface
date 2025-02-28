@@ -1,3 +1,5 @@
+# pyproject.toml
+
 [tool.poetry]
 name = "chatline"
 version = "0.0.4"
@@ -33,3 +35,9 @@ remote-client = "python example/client.py -e http://127.0.0.1:8000/chat"
 remote-client-log = "python example/client.py -e http://127.0.0.1:8000/chat --enable-logging --log-file logs/chatline_debug.log"
 remote-same-origin = "python example/client.py --same-origin"
 remote-same-origin-log = "python example/client.py --same-origin --enable-logging --log-file logs/chatline_debug.log"
+
+# Simplified publish scripts
+check-changes = "bash -c 'if [ ! -z \"$(git status --porcelain)\" ]; then echo \"Error: You have uncommitted changes.\"; exit 1; fi'"
+publish-patch = "bash -c 'poe check-changes && poetry version patch && VERSION=$(poetry version -s) && poetry build && poetry publish && git add pyproject.toml && git commit -m \"release v$VERSION\" && git tag v$VERSION && git push && git push --tags'"
+publish-minor = "bash -c 'poe check-changes && poetry version minor && VERSION=$(poetry version -s) && poetry build && poetry publish && git add pyproject.toml && git commit -m \"release v$VERSION\" && git tag v$VERSION && git push && git push --tags'"
+publish-major = "bash -c 'poe check-changes && poetry version major && VERSION=$(poetry version -s) && poetry build && poetry publish && git add pyproject.toml && git commit -m \"release v$VERSION\" && git tag v$VERSION && git push && git push --tags'"
