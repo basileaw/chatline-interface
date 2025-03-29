@@ -8,7 +8,7 @@ from typing import Any, AsyncGenerator, Dict, Optional
 # Default model ID
 DEFAULT_MODEL_ID = "anthropic.claude-3-5-haiku-20241022-v1:0"
 
-def get_bedrock_clients(config: Optional[Dict[str, Any]] = None) -> tuple[Any, Any]:
+def get_bedrock_clients(config: Optional[Dict[str, Any]] = None, logger=None) -> tuple[Any, Any, str]:
     """
     Get Bedrock clients with flexible configuration options.
     
@@ -22,12 +22,22 @@ def get_bedrock_clients(config: Optional[Dict[str, Any]] = None) -> tuple[Any, A
             - model_id: Bedrock model ID to use
             - aws_access_key_id: Explicit access key (not recommended)
             - aws_secret_access_key: Explicit secret key (not recommended)
+        logger: Optional logger instance
     
     Returns:
         tuple: (bedrock_client, bedrock_runtime_client, model_id)
     """
     # Initialize with empty dict if None
     config = config or {}
+    
+    # Helper for logging or silently ignoring if no logger
+    def log_debug(msg):
+        if logger:
+            logger.debug(msg)
+            
+    def log_error(msg):
+        if logger:
+            logger.error(msg)
     
     # Ensure EC2 metadata service is enabled
     os.environ['AWS_EC2_METADATA_DISABLED'] = 'false'
@@ -46,8 +56,8 @@ def get_bedrock_clients(config: Optional[Dict[str, Any]] = None) -> tuple[Any, A
         connect_timeout=config.get('timeout', 300)
     )
     
-    print(f"Initializing Bedrock clients in region: {region}")
-    print(f"Using model: {model_id}")
+    log_debug(f"Initializing Bedrock clients in region: {region}")
+    log_debug(f"Using model: {model_id}")
     
     # Session parameters (only if explicitly provided)
     session_params = {}
@@ -76,14 +86,14 @@ def get_bedrock_clients(config: Optional[Dict[str, Any]] = None) -> tuple[Any, A
         try:
             sts = session.client('sts')
             identity = sts.get_caller_identity()
-            print(f"Using credentials for account: {identity['Account']}")
+            log_debug(f"Using credentials for account: {identity['Account']}")
         except Exception as e:
-            print(f"Warning: Could not verify credentials: {e}")
+            log_debug(f"Warning: Could not verify credentials: {e}")
         
         return bedrock, runtime, model_id
     
     except Exception as e:
-        print(f"Critical error initializing Bedrock clients: {e}")
+        log_error(f"Critical error initializing Bedrock clients: {e}")
         return None, None, model_id
 
 # Initialize clients when module is imported (with default settings)
@@ -93,7 +103,8 @@ async def generate_stream(
     messages: list[dict[str, str]],
     max_gen_len: int = 1024,
     temperature: float = 0.9,
-    aws_config: Optional[Dict[str, Any]] = None
+    aws_config: Optional[Dict[str, Any]] = None,
+    logger=None
 ) -> AsyncGenerator[str, None]:
     """
     Generate streaming responses from Bedrock.
@@ -103,7 +114,17 @@ async def generate_stream(
         max_gen_len: Maximum tokens to generate
         temperature: Temperature for generation
         aws_config: Optional AWS configuration overrides
+        logger: Optional logger instance
     """
+    # Helper for logging
+    def log_debug(msg):
+        if logger:
+            logger.debug(msg)
+            
+    def log_error(msg):
+        if logger:
+            logger.error(msg)
+    
     # Using time.sleep(0) to yield control (as in the original)
     time.sleep(0)
     
@@ -111,11 +132,11 @@ async def generate_stream(
     current_bedrock, current_runtime, model_id = (bedrock, runtime, MODEL_ID)
     if aws_config:
         try:
-            b, r, m = get_bedrock_clients(aws_config)
+            b, r, m = get_bedrock_clients(aws_config, logger)
             if b and r:
                 current_bedrock, current_runtime, model_id = b, r, m
         except Exception as e:
-            print(f"Error using custom AWS config: {e}")
+            log_error(f"Error using custom AWS config: {e}")
     
     # Check if clients were successfully initialized
     if current_runtime is None:
@@ -144,7 +165,7 @@ async def generate_stream(
                 await asyncio.sleep(0)
         yield "data: [DONE]\n\n"
     except Exception as e:
-        print(f"Error during generation: {str(e)}")
+        log_error(f"Error during generation: {str(e)}")
         error_message = str(e)
         # Format error as a valid response chunk
         error_chunk = {"choices": [{"delta": {"content": f"Error: {error_message}"}}]}
@@ -152,13 +173,23 @@ async def generate_stream(
         yield "data: [DONE]\n\n"
 
 if __name__ == "__main__":
+    # For the test script, we can use print statements directly
+    import logging
+    
+    # Setup basic logger for testing
+    test_logger = logging.getLogger("bedrock_test")
+    test_logger.setLevel(logging.DEBUG)
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+    test_logger.addHandler(handler)
+    
     async def test_generator() -> None:
         messages = [
             {"role": "user", "content": "Tell me a joke about computers."},
             {"role": "system", "content": "Be helpful and humorous."}
         ]
         print("\nTesting with default configuration:")
-        async for chunk in generate_stream(messages):
+        async for chunk in generate_stream(messages, logger=test_logger):
             print(f"\nChunk: {chunk}")
             try:
                 if chunk.startswith("data: "):

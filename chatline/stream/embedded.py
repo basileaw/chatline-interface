@@ -68,6 +68,8 @@ class EmbeddedStream:
                 generator_kwargs = kwargs.copy()
                 if self.aws_config:
                     generator_kwargs['aws_config'] = self.aws_config
+                # Pass the logger to the generator
+                generator_kwargs['logger'] = self.logger
                 
                 async for chunk in self._wrap_generator(
                     self.generator, 
