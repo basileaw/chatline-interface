@@ -3,86 +3,129 @@
 import boto3, json, time, asyncio, os
 from botocore.config import Config
 from botocore.exceptions import ProfileNotFound, ClientError
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Dict, Optional
 
-# Ensure EC2 metadata service is enabled
-os.environ['AWS_EC2_METADATA_DISABLED'] = 'false'
+# Default model ID
+DEFAULT_MODEL_ID = "anthropic.claude-3-5-haiku-20241022-v1:0"
 
-MODEL_ID = "anthropic.claude-3-5-haiku-20241022-v1:0"
-
-def _get_clients() -> tuple[Any, Any]:
-    """Initialize Bedrock clients with appropriate configuration."""
-    # Keep us-west-2 as Claude models are available there
-    region = 'us-west-2'
+def get_bedrock_clients(config: Optional[Dict[str, Any]] = None) -> tuple[Any, Any]:
+    """
+    Get Bedrock clients with flexible configuration options.
     
-    cfg = Config(
-        region_name=region, 
-        read_timeout=300, 
-        connect_timeout=300,
-        retries={'max_attempts': 0}
+    Args:
+        config (dict, optional): Override configuration with any of these keys:
+            - region: AWS region for Bedrock (overrides environment variables)
+            - profile_name: AWS profile to use (for local development)
+            - timeout: Request timeout in seconds
+            - max_retries: Maximum retry attempts
+            - endpoint_url: Custom endpoint URL (for testing/VPC endpoints)
+            - model_id: Bedrock model ID to use
+            - aws_access_key_id: Explicit access key (not recommended)
+            - aws_secret_access_key: Explicit secret key (not recommended)
+    
+    Returns:
+        tuple: (bedrock_client, bedrock_runtime_client, model_id)
+    """
+    # Initialize with empty dict if None
+    config = config or {}
+    
+    # Ensure EC2 metadata service is enabled
+    os.environ['AWS_EC2_METADATA_DISABLED'] = 'false'
+    
+    # Region resolution with priority order
+    region = config.get('region') or os.environ.get('AWS_BEDROCK_REGION') or os.environ.get('AWS_REGION') or os.environ.get('AWS_DEFAULT_REGION', 'us-west-2')
+    
+    # Get the model ID (default is Claude 3.5 Haiku)
+    model_id = config.get('model_id') or os.environ.get('AWS_BEDROCK_MODEL_ID', DEFAULT_MODEL_ID)
+    
+    # Build boto3 config with potential overrides
+    boto_config = Config(
+        region_name=region,
+        retries={'max_attempts': config.get('max_retries', 2)},
+        read_timeout=config.get('timeout', 300),
+        connect_timeout=config.get('timeout', 300)
     )
     
-    # Debug information to help diagnose credential issues
     print(f"Initializing Bedrock clients in region: {region}")
-    print(f"AWS_EC2_METADATA_DISABLED: {os.environ.get('AWS_EC2_METADATA_DISABLED', 'Not set')}")
+    print(f"Using model: {model_id}")
     
-    # First try default credentials (which will use EC2 instance profile in EB)
+    # Session parameters (only if explicitly provided)
+    session_params = {}
+    if config.get('profile_name'):
+        session_params['profile_name'] = config['profile_name']
+    if config.get('aws_access_key_id') and config.get('aws_secret_access_key'):
+        session_params['aws_access_key_id'] = config['aws_access_key_id']
+        session_params['aws_secret_access_key'] = config['aws_secret_access_key']
+        if config.get('aws_session_token'):
+            session_params['aws_session_token'] = config['aws_session_token']
+    
+    # Client parameters
+    client_params = {'config': boto_config}
+    if config.get('endpoint_url'):
+        client_params['endpoint_url'] = config['endpoint_url']
+    
     try:
-        session = boto3.Session()
+        # Create session with optional parameters - uses default credential chain
+        session = boto3.Session(**session_params)
         
-        # Get account ID to confirm credentials are working
+        # Create and verify clients
+        bedrock = session.client('bedrock', **client_params)
+        runtime = session.client('bedrock-runtime', **client_params)
+        
+        # Verify credentials by making a basic call
         try:
             sts = session.client('sts')
             identity = sts.get_caller_identity()
-            print(f"Using AWS credentials for account: {identity['Account']}")
-            print(f"Identity ARN: {identity['Arn']}")
-            
-            # Create and return clients
-            return session.client('bedrock', config=cfg), session.client('bedrock-runtime', config=cfg)
-            
-        except ClientError as e:
-            print(f"Error with default credentials: {e}")
-            raise
-            
-    except Exception as e:
-        print(f"Failed to initialize with default credentials: {e}")
+            print(f"Using credentials for account: {identity['Account']}")
+        except Exception as e:
+            print(f"Warning: Could not verify credentials: {e}")
         
-        # Fall back to named profile (for local development only)
-        try:
-            print("Attempting to use 'bedrock' profile as fallback")
-            session = boto3.Session(profile_name='bedrock')
-            return session.client('bedrock', config=cfg), session.client('bedrock-runtime', config=cfg)
-        except ProfileNotFound:
-            print("Bedrock profile not found")
-            raise
+        return bedrock, runtime, model_id
+    
+    except Exception as e:
+        print(f"Critical error initializing Bedrock clients: {e}")
+        return None, None, model_id
 
-# Initialize clients when module is imported
-try:
-    bedrock, runtime = _get_clients()
-    print("Successfully initialized Bedrock clients")
-except Exception as e:
-    print(f"CRITICAL ERROR: Failed to initialize Bedrock clients: {e}")
-    # Still define the variables to avoid NameError when functions try to use them
-    bedrock, runtime = None, None
+# Initialize clients when module is imported (with default settings)
+bedrock, runtime, MODEL_ID = get_bedrock_clients()
 
 async def generate_stream(
     messages: list[dict[str, str]],
     max_gen_len: int = 1024,
-    temperature: float = 0.9
+    temperature: float = 0.9,
+    aws_config: Optional[Dict[str, Any]] = None
 ) -> AsyncGenerator[str, None]:
-    """Generate streaming responses from Bedrock."""
+    """
+    Generate streaming responses from Bedrock.
+    
+    Args:
+        messages: List of conversation messages
+        max_gen_len: Maximum tokens to generate
+        temperature: Temperature for generation
+        aws_config: Optional AWS configuration overrides
+    """
     # Using time.sleep(0) to yield control (as in the original)
     time.sleep(0)
     
+    # Use provided config to get clients if specified
+    current_bedrock, current_runtime, model_id = (bedrock, runtime, MODEL_ID)
+    if aws_config:
+        try:
+            b, r, m = get_bedrock_clients(aws_config)
+            if b and r:
+                current_bedrock, current_runtime, model_id = b, r, m
+        except Exception as e:
+            print(f"Error using custom AWS config: {e}")
+    
     # Check if clients were successfully initialized
-    if runtime is None:
+    if current_runtime is None:
         yield f"data: {{\"choices\": [{{\"delta\": {{\"content\": \"Error: Bedrock client initialization failed.\"}}}}]}}\n\n"
         yield "data: [DONE]\n\n"
         return
     
     try:
-        response = runtime.converse_stream(
-            modelId=MODEL_ID,
+        response = current_runtime.converse_stream(
+            modelId=model_id,
             messages=[
                 {"role": m["role"], "content": [{"text": m["content"]}]}
                 for m in messages if m["role"] != "system"
@@ -114,7 +157,7 @@ if __name__ == "__main__":
             {"role": "user", "content": "Tell me a joke about computers."},
             {"role": "system", "content": "Be helpful and humorous."}
         ]
-        print("\nRaw chunks:")
+        print("\nTesting with default configuration:")
         async for chunk in generate_stream(messages):
             print(f"\nChunk: {chunk}")
             try:
@@ -128,7 +171,6 @@ if __name__ == "__main__":
     # Only run test if Bedrock client is available
     if bedrock is not None:
         try:
-            if bedrock.get_foundation_model(modelIdentifier=MODEL_ID).get("modelDetails", {}).get("responseStreamingSupported"):
-                asyncio.run(test_generator())
+            asyncio.run(test_generator())
         except Exception as e:
             print(f"Test failed: {e}")
