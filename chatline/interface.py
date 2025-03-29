@@ -1,6 +1,6 @@
 # interface.py
 
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 import socket
 
 from .logger import Logger
@@ -20,7 +20,8 @@ class Interface:
                  origin_path: str = "/chat", 
                  origin_port: Optional[int] = None,
                  logging_enabled: bool = False,
-                 log_file: Optional[str] = None):
+                 log_file: Optional[str] = None,
+                 aws_config: Optional[Dict[str, Any]] = None):
         """
         Initialize components with an optional endpoint and logging.
         
@@ -31,15 +32,22 @@ class Interface:
             origin_port: Port to use when constructing same-origin URL. If None, uses default ports.
             logging_enabled: Enable detailed logging.
             log_file: Path to log file. Use "-" for stdout.
+            aws_config: Optional AWS configuration dictionary with keys like:
+                        - region: AWS region for Bedrock
+                        - profile_name: AWS profile to use
+                        - model_id: Bedrock model ID
+                        - timeout: Request timeout in seconds
         """
-        self._init_components(endpoint, use_same_origin, origin_path, origin_port, logging_enabled, log_file)
+        self._init_components(endpoint, use_same_origin, origin_path, 
+                              origin_port, logging_enabled, log_file, aws_config)
     
     def _init_components(self, endpoint: Optional[str], 
                          use_same_origin: bool,
                          origin_path: str,
                          origin_port: Optional[int],
                          logging_enabled: bool,
-                         log_file: Optional[str]) -> None:
+                         log_file: Optional[str],
+                         aws_config: Optional[Dict[str, Any]] = None) -> None:
         try:
             # Our custom logger, which can also handle JSON logs
             self.logger = Logger(__name__, logging_enabled, log_file)
@@ -64,7 +72,21 @@ class Interface:
                     self.logger.error(f"Failed to determine origin: {e}")
                     # Continue with embedded mode if we can't determine the endpoint
             
-            self.stream = Stream.create(endpoint, logger=self.logger, generator_func=generate_stream)
+            # Log AWS configuration if provided
+            if aws_config and self.logger:
+                # Don't log sensitive credential values
+                safe_config = {k: v for k, v in aws_config.items() 
+                              if k not in ('aws_access_key_id', 'aws_secret_access_key', 'aws_session_token')}
+                if safe_config:
+                    self.logger.debug(f"Using AWS config: {safe_config}")
+            
+            # Pass AWS config to Stream.create
+            self.stream = Stream.create(
+                endpoint, 
+                logger=self.logger, 
+                generator_func=generate_stream,
+                aws_config=aws_config
+            )
 
             # Pass the entire logger down so conversation/history can use logger.write_json
             self.conv = Conversation(
