@@ -70,11 +70,12 @@ class DisplayTerminal:
     def show_cursor(self) -> None:
         """Make cursor visible and enable blinking."""
         self._manage_cursor(True)
-        if self._is_terminal():
-            # Add cursor blinking and set to block style
-            sys.stdout.write("\033[?12h")  # Enable cursor blinking
-            sys.stdout.write("\033[1 q")   # Set cursor style to blinking block
-            sys.stdout.flush()
+        # Always send cursor style commands regardless of terminal detection
+        # if self._is_terminal():
+        # Add cursor blinking and set to block style
+        sys.stdout.write("\033[?12h")  # Enable cursor blinking
+        sys.stdout.write("\033[1 q")   # Set cursor style to blinking block
+        sys.stdout.flush()
 
     def hide_cursor(self) -> None:
         """Make cursor hidden."""
