@@ -68,18 +68,22 @@ class DisplayTerminal:
             sys.stdout.flush()
 
     def show_cursor(self) -> None:
-        """Make cursor visible and enable blinking."""
+        """Make cursor visible and restore previous style."""
         self._manage_cursor(True)
-        # Always send cursor style commands regardless of terminal detection
-        # if self._is_terminal():
-        # Add cursor blinking and set to block style
+        # Always send cursor style commands
         sys.stdout.write("\033[?12h")  # Enable cursor blinking
         sys.stdout.write("\033[1 q")   # Set cursor style to blinking block
         sys.stdout.flush()
 
     def hide_cursor(self) -> None:
-        """Make cursor hidden."""
-        self._manage_cursor(False)
+        """Make cursor hidden, preserving its style for next show_cursor()."""
+        if self._cursor_visible:
+            # Store info that cursor was blinking before hiding
+            self._was_blinking = True
+            # Standard hide cursor sequence
+            self._cursor_visible = False
+            sys.stdout.write("\033[?25l")
+            sys.stdout.flush()
 
     def reset(self) -> None:
         """Reset terminal: show cursor and clear screen."""
