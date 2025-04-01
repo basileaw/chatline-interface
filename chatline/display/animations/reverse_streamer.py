@@ -152,8 +152,17 @@ class ReverseStreamer:
             for _, grp in groups:
                 remaining_tokens.extend(grp)
             new_text = self.reassemble_tokens(remaining_tokens)
-            full_display = (preconversation_text.rstrip() + "\n\n" + new_text
-                            if preconversation_text else new_text)
+            
+            # Key fix: Ensure double newline between preconversation text and new response
+            # for the first response retry scenario (when no user_message)
+            if preconversation_text:
+                if not user_message:  # First response retry case
+                    full_display = preconversation_text.rstrip() + "\n\n" + new_text
+                else:  # Normal retry case
+                    full_display = preconversation_text + new_text
+            else:
+                full_display = new_text
+                
             await self.update_display(full_display, user_message, no_spacing)
             await asyncio.sleep(delay)
         
@@ -162,8 +171,9 @@ class ReverseStreamer:
             await self._handle_punctuation(user_message, delay)
             return
             
-        # Only reaches here if there's no user message
-        final_text = preconversation_text.rstrip() if preconversation_text else ""
+        # Only reaches here if there's no user message (first response retry)
+        # Ensure we preserve the double newline after preconversation text
+        final_text = preconversation_text.rstrip() + "\n\n" if preconversation_text else ""
         await self.update_display(final_text)
 
     async def _handle_punctuation(self, preserved_msg: str, delay: float) -> None:
