@@ -71,16 +71,31 @@ class ReverseStreamer:
         return groups
 
     async def update_display(self, content: str, preserved_msg: str = "", no_spacing: bool = False) -> None:
-        """Clear screen and update display with content and optional preserved message."""
-        self.terminal.clear_screen()
+        """Clear screen and update display with content and optional preserved message using home positioning."""
+        # Move cursor to home position rather than clearing screen each time
+        self.terminal.write("\033[H")
+        
+        # Build full output content first
+        output = ""
+        if preserved_msg:
+            output += preserved_msg
+            if not no_spacing:
+                output += "\n"
+        
         if content:
-            if preserved_msg:
-                self.terminal.write(preserved_msg + ("" if no_spacing else "\n"))
-            self.terminal.write(content)
-        else:
-            self.terminal.write(preserved_msg)
-        self.terminal.write("", newline=False)
+            output += content
+        
+        # Write the full content in one go
+        self.terminal.write(output)
+        
+        # Clear from cursor to end of screen (rather than full clear)
+        self.terminal.write("\033[J")
+        
+        # Reset formatting
         self.terminal.write(self.style.get_format('RESET'))
+        
+        # Ensure flush
+        self.terminal.write("", newline=False)
         await self._yield()
 
     @staticmethod
