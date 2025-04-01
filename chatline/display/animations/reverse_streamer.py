@@ -1,5 +1,4 @@
 # display/animations/reverse_streamer.py
-
 import asyncio
 import re
 from typing import List, Dict, Tuple
@@ -76,13 +75,32 @@ class ReverseStreamer:
         self.terminal.clear_screen()
         if content:
             if preserved_msg:
-                self.terminal.write(preserved_msg + ("" if no_spacing else "\n\n"))
+                self.terminal.write(preserved_msg + ("" if no_spacing else "\n"))
             self.terminal.write(content)
         else:
             self.terminal.write(preserved_msg)
         self.terminal.write("", newline=False)
         self.terminal.write(self.style.get_format('RESET'))
         await self._yield()
+
+    @staticmethod
+    def extract_user_message(text: str) -> Tuple[str, str]:
+        """
+        Extract the user message (first line) from the full text.
+        Returns a tuple of (user_message, remaining_text)
+        """
+        # Find the first line (user message)
+        lines = text.split('\n', 2)
+        
+        if len(lines) <= 1:
+            # If there's only one line, it's the user message
+            return lines[0], ""
+        elif len(lines) == 2:
+            # If there are two lines, first is user message, second might be empty
+            return lines[0], lines[1]
+        else:
+            # If there are 3+ lines, first is user message, rest is remaining content
+            return lines[0], lines[1] + "\n" + lines[2]
 
     async def reverse_stream(
         self,
@@ -93,13 +111,34 @@ class ReverseStreamer:
         acceleration_factor: float = 1.15
     ) -> None:
         """Animate reverse streaming of text word-by-word with acceleration."""
-        if preconversation_text and styled_text.startswith(preconversation_text):
-            conversation_text = styled_text[len(preconversation_text):].lstrip()
+        # Extract the user message if preserved_msg is empty
+        user_message = preserved_msg
+        response_text = styled_text
+        
+        # If no preserved_msg was provided, extract the user message from the first line
+        if not preserved_msg and styled_text:
+            user_message, remaining_text = self.extract_user_message(styled_text)
+            
+            # If we successfully extracted a user message (starts with ">")
+            if user_message.startswith(">"):
+                # Use the user message as preserved_msg and the rest as the content to reverse stream
+                response_text = remaining_text
+            else:
+                # No user message found, reset to original behavior
+                user_message = ""
+        
+        # Process preconversation text if present
+        if preconversation_text and response_text.startswith(preconversation_text):
+            conversation_text = response_text[len(preconversation_text):].lstrip()
         else:
-            conversation_text = styled_text
+            conversation_text = response_text
+            
+        # Tokenize and group the conversation text (not including user message)
         tokens = self.tokenize_text(conversation_text)
         groups = self.group_tokens_by_word(tokens)
-        no_spacing = not preserved_msg
+        no_spacing = not user_message
+        
+        # Remove words until none remain
         chunks_to_remove = 1.0
         while any(group_type == 'word' for group_type, _ in groups):
             chunks_this_round = round(chunks_to_remove)
@@ -115,19 +154,23 @@ class ReverseStreamer:
             new_text = self.reassemble_tokens(remaining_tokens)
             full_display = (preconversation_text.rstrip() + "\n\n" + new_text
                             if preconversation_text else new_text)
-            await self.update_display(full_display, preserved_msg, no_spacing)
+            await self.update_display(full_display, user_message, no_spacing)
             await asyncio.sleep(delay)
-        await self._handle_punctuation(preserved_msg, delay)
-        if preserved_msg:
-            final_text = preconversation_text.rstrip() if preconversation_text else ""
-        else:
-            final_text = (preconversation_text.rstrip() if preconversation_text else "") + "\n\n"
+        
+        # Once all response words are removed, handle punctuation in the user message
+        if user_message:
+            await self._handle_punctuation(user_message, delay)
+            return
+            
+        # Only reaches here if there's no user message
+        final_text = preconversation_text.rstrip() if preconversation_text else ""
         await self.update_display(final_text)
 
     async def _handle_punctuation(self, preserved_msg: str, delay: float) -> None:
         """Animate punctuation in the preserved message."""
         if not preserved_msg:
             return
+            
         base = preserved_msg.rstrip('?.!')
         if preserved_msg.endswith(('!', '?')):
             char = preserved_msg[-1]
@@ -135,10 +178,14 @@ class ReverseStreamer:
             for i in range(count, 0, -1):
                 await self.update_display("", f"{base}{char * i}")
                 await asyncio.sleep(delay)
+            # Show the message without punctuation as the final state
+            await self.update_display("", base)
         elif preserved_msg.endswith('.'):
             for i in range(3, 0, -1):
                 await self.update_display("", f"{base}{'.' * i}")
                 await asyncio.sleep(delay)
+            # Show the message without punctuation as the final state
+            await self.update_display("", base)
 
     async def _yield(self) -> None:
         """Yield briefly to the event loop."""
