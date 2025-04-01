@@ -39,6 +39,70 @@ class DisplayTerminal:
         self._current_buffer = ""
         self._last_size = self.get_size()
 
+    async def pre_initialize_prompt_toolkit(self):
+        """
+        Silently pre-initialize prompt toolkit components.
+        """
+        try:
+            # Save the original stdout
+            original_stdout = sys.stdout
+            
+            # Redirect stdout to /dev/null (or NUL on Windows)
+            null_device = open(os.devnull, 'w')
+            sys.stdout = null_device
+            
+            # Create a temporary PromptSession with the same configuration
+            # but isolated from our main session
+            temp_kb = KeyBindings()
+            temp_session = PromptSession(key_bindings=temp_kb, complete_while_typing=False)
+            
+            try:
+                # Create a background task that will cancel the prompt after a brief delay
+                async def cancel_after_delay(task):
+                    await asyncio.sleep(0.05)
+                    task.cancel()
+                
+                # Start the temporary prompt session
+                prompt_task = asyncio.create_task(
+                    temp_session.prompt_async(
+                        message="",
+                        default="",
+                        validate_while_typing=False
+                    )
+                )
+                
+                # Create cancellation task
+                cancel_task = asyncio.create_task(cancel_after_delay(prompt_task))
+                
+                # Wait for either completion or cancellation
+                await asyncio.gather(prompt_task, cancel_task, return_exceptions=True)
+                
+            except (asyncio.CancelledError, Exception):
+                # Expected - we're forcing cancellation
+                pass
+            
+        except Exception as e:
+            pass
+        finally:
+            # Restore the original stdout
+            if 'original_stdout' in locals():
+                sys.stdout = original_stdout
+                
+            # Close the null device if it was opened
+            if 'null_device' in locals():
+                null_device.close()
+            
+            # NOW that stdout is restored, forcibly hide the cursor
+            # This ensures cursor hiding commands actually reach the terminal
+            if self._cursor_visible:
+                self._cursor_visible = False
+                sys.stdout.write("\033[?25l")  # Hide cursor
+                sys.stdout.flush()
+                
+            # Also clear the screen after stdout is restored
+            sys.stdout.write("\033[2J\033[H")  # Clear and home
+            sys.stdout.flush()
+
     class NonEmptyValidator(Validator):
         def validate(self, document):
             if not document.text.strip():

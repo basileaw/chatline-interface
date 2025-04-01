@@ -178,23 +178,33 @@ class ConversationActions:
         Show any preface, then process the first user message silently (i.e. not displayed).
         We only display the assistant's reply in 'intro_styled'.
         """
+        # Ensure cursor is hidden at the start
+        self.terminal.hide_cursor()
+        
         # Preface panel
         styled_panel = await self.preface.format_content(self.style)
         styled_panel = self.style.append_single_blank_line(styled_panel)
         if styled_panel.strip():
-            await self.terminal.update_display(styled_panel, preserve_cursor=True)
+            # Change preserve_cursor to False to ensure cursor stays hidden
+            await self.terminal.update_display(styled_panel, preserve_cursor=False)
 
         # The first user message is silent => user text is never shown
         raw, assistant_styled = await self._process_message(intro_msg, silent=True)
 
         # Combine panel + assistant reply only (no user text) into 'intro_styled'
         full_styled = styled_panel + assistant_styled
+        
+        # Always ensure cursor is hidden when updating the display
         await self.terminal.update_display(full_styled)
 
         # Update UI-specific state
         self.is_silent = True
         self.prompt = ""
         self.preconversation_styled = styled_panel  # Store locally for animations
+        
+        # Final check to ensure cursor remains hidden
+        self.terminal.hide_cursor()
+        
         return raw, full_styled, ""
 
     async def process_user_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
@@ -294,6 +304,13 @@ class ConversationActions:
         then repeatedly accept user input, or 'edit'/'retry' commands.
         """
         try:
+            # Pre-initialize prompt toolkit to avoid first-time delay on edit
+            if hasattr(self.terminal, 'pre_initialize_prompt_toolkit'):
+                await self.terminal.pre_initialize_prompt_toolkit()
+                
+                # Ensure terminal is completely clean before proceeding
+                self.terminal.clear_screen()
+                
             # Add the system message as the first message in the list (turn 0)
             self.messages.add_message("system", system_msg, 0)
             
@@ -324,7 +341,7 @@ class ConversationActions:
             raise
         finally:
             await self.terminal.update_display()
-
+            
     def start_conversation(self, messages: List[Dict[str, str]]) -> None:
         """
         Public entry: Starts a conversation with validated messages.
