@@ -1,8 +1,12 @@
 # Chatline
 
-[![PyPI](https://img.shields.io/pypi/v/chatline.svg)](https://pypi.org/project/chatline/) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://opensource.org/licenses/MIT) [![Demo chat.alexbasile.com](https://img.shields.io/badge/Demo%20at-chat.alexbasile.com-blue)](https://chat.alexbasile.com)
-
 A lightweight CLI library for building terminal-based LLM chat interfaces with minimal effort. Provides rich text styling, animations, and conversation state management.
+
+- **Terminal UI**: Rich text formatting with styled quotes, brackets, emphasis, and more
+- **Response Streaming**: Real-time streamed responses with loading animations
+- **State Management**: Conversation history with edit and retry functionality
+- **Dual Modes**: Run with embedded AWS Bedrock or connect to a custom backend
+- **Keyboard Shortcuts**: Ctrl+E to edit previous message, Ctrl+R to retry
 
 ![](https://raw.githubusercontent.com/anotherbazeinthewall/chatline-interface/main/demo.gif)
 
@@ -18,20 +22,27 @@ With Poetry:
 poetry add chatline
 ```
 
+Using the embedded generator requires AWS credentials configured. You can configure AWS credentials using environment variables or by setting them in your shell configuration file.
+
 ## Usage
+
+There are two modes: Embedded (no external dependencies) and Remote (requires response generation endpoint). 
 
 ### Embedded Mode (AWS Bedrock)
 
-For quick prototyping with AWS Bedrock:
+The easiest way to get started is to use the embedded generator (with AWS Bedrock):
 
 ```python
 from chatline import Interface
 
 # Initialize with embedded mode (uses AWS Bedrock)
-chat = Interface(logging_enabled=True)
+chat = Interface()
 
 # Add optional welcome message
-chat.preface("Welcome to the Demo", title="My App", border_color="green")
+chat.preface(
+    "Welcome", 
+    title="My App", 
+    border_color="green")
 
 # Start the conversation
 chat.start()
@@ -39,7 +50,7 @@ chat.start()
 
 ### Remote Mode (Custom Backend)
 
-Connect to your own FastAPI/HTTP backend:
+However, you can also connect to a custom backend by providing the endpoint URL:
 
 ```python
 from chatline import Interface
@@ -54,12 +65,11 @@ chat.start([
 ])
 ```
 
-### Setting Up a Backend Server
+#### Setting Up a Backend Server
 
-Example FastAPI server:
+You can use generate_stream function (or build your own) in your backend. Here's an example in a FastAPI server:
 
 ```python
-# server.py
 import json
 import uvicorn
 from fastapi import FastAPI, Request
@@ -67,6 +77,12 @@ from fastapi.responses import StreamingResponse
 from chatline import generate_stream
 
 app = FastAPI()
+
+# Define AWS configuration
+aws_config = {
+    "model_id": "anthropic.claude-3-sonnet-20240229-v1:0",
+    "region": "us-east-1"  # replace with your AWS region
+}
 
 @app.post("/chat")
 async def stream_chat(request: Request):
@@ -84,7 +100,7 @@ async def stream_chat(request: Request):
     }
     
     return StreamingResponse(
-        generate_stream(messages),
+        generate_stream(messages, aws_config=aws_config),  # Pass aws_config to generate_stream
         headers=headers,
         media_type="text/event-stream"
     )
@@ -92,20 +108,6 @@ async def stream_chat(request: Request):
 if __name__ == "__main__":
     uvicorn.run("server:app", host="127.0.0.1", port=8000)
 ```
-
-## Features
-
-- **Terminal UI**: Rich text formatting with styled quotes, brackets, emphasis, and more
-- **Response Streaming**: Real-time streamed responses with loading animations
-- **State Management**: Conversation history with edit and retry functionality
-- **Dual Modes**: Run with embedded AWS Bedrock or connect to a custom backend
-- **Keyboard Shortcuts**: Ctrl+E to edit previous message, Ctrl+R to retry
-
-## Dependencies
-
-- Python ≥ 3.12
-- AWS credentials configured (for embedded mode with Bedrock)
-- boto3, httpx, rich, prompt-toolkit
 
 ## License
 
