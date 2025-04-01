@@ -41,11 +41,16 @@ class DisplayTerminal:
 
     async def pre_initialize_prompt_toolkit(self):
         """
-        Silently pre-initialize prompt toolkit components.
+        Silently pre-initialize prompt toolkit components without showing the cursor.
         """
         try:
             # Save the original stdout
             original_stdout = sys.stdout
+            
+            # First, ensure cursor is hidden before we do anything
+            self._cursor_visible = False
+            sys.stdout.write("\033[?25l")  # Hide cursor
+            sys.stdout.flush()
             
             # Redirect stdout to /dev/null (or NUL on Windows)
             null_device = open(os.devnull, 'w')
@@ -59,7 +64,7 @@ class DisplayTerminal:
             try:
                 # Create a background task that will cancel the prompt after a brief delay
                 async def cancel_after_delay(task):
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(0.0)
                     task.cancel()
                 
                 # Start the temporary prompt session
@@ -92,12 +97,10 @@ class DisplayTerminal:
             if 'null_device' in locals():
                 null_device.close()
             
-            # NOW that stdout is restored, forcibly hide the cursor
-            # This ensures cursor hiding commands actually reach the terminal
-            if self._cursor_visible:
-                self._cursor_visible = False
-                sys.stdout.write("\033[?25l")  # Hide cursor
-                sys.stdout.flush()
+            # Ensure cursor remains hidden after restoration
+            self._cursor_visible = False
+            sys.stdout.write("\033[?25l")  # Hide cursor again
+            sys.stdout.flush()
                 
             # Also clear the screen after stdout is restored
             sys.stdout.write("\033[2J\033[H")  # Clear and home
