@@ -70,10 +70,14 @@ class ReverseStreamer:
             groups.append((current_type, current_group))
         return groups
 
-    async def update_display(self, content: str, preserved_msg: str = "", no_spacing: bool = False) -> None:
-        """Clear screen and update display with content and optional preserved message using home positioning."""
-        # Move cursor to home position rather than clearing screen each time
-        self.terminal.write("\033[H")
+    async def update_display(self, content: str, preserved_msg: str = "", no_spacing: bool = False, force_full_clear: bool = False) -> None:
+        """Clear screen and update display with content and optional preserved message."""
+        # Use full screen clearing for punctuation animation
+        if force_full_clear:
+            self.terminal.clear_screen()
+        else:
+            # Move cursor to home position rather than clearing screen each time
+            self.terminal.write("\033[H")
         
         # Build full output content first
         output = ""
@@ -88,8 +92,9 @@ class ReverseStreamer:
         # Write the full content in one go
         self.terminal.write(output)
         
-        # Clear from cursor to end of screen (rather than full clear)
-        self.terminal.write("\033[J")
+        if not force_full_clear:
+            # Clear from cursor to end of screen (rather than full clear)
+            self.terminal.write("\033[J")
         
         # Reset formatting
         self.terminal.write(self.style.get_format('RESET'))
@@ -201,16 +206,16 @@ class ReverseStreamer:
             char = preserved_msg[-1]
             count = len(preserved_msg) - len(base)
             for i in range(count, 0, -1):
-                await self.update_display("", f"{base}{char * i}")
+                await self.update_display("", f"{base}{char * i}", force_full_clear=True)
                 await asyncio.sleep(delay)
             # Show the message without punctuation as the final state
-            await self.update_display("", base)
+            await self.update_display("", base, force_full_clear=True)
         elif preserved_msg.endswith('.'):
             for i in range(3, 0, -1):
-                await self.update_display("", f"{base}{'.' * i}")
+                await self.update_display("", f"{base}{'.' * i}", force_full_clear=True)
                 await asyncio.sleep(delay)
             # Show the message without punctuation as the final state
-            await self.update_display("", base)
+            await self.update_display("", base, force_full_clear=True)
 
     async def _yield(self) -> None:
         """Yield briefly to the event loop."""
