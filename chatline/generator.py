@@ -8,6 +8,16 @@ from typing import Any, AsyncGenerator, Dict, Optional
 # Default model ID
 DEFAULT_MODEL_ID = "anthropic.claude-3-5-haiku-20241022-v1:0"
 
+# Replace direct initialization with None values
+bedrock, runtime, MODEL_ID = None, None, DEFAULT_MODEL_ID
+
+def _lazy_init_clients(config: Optional[Dict[str, Any]] = None, logger=None):
+    """Lazily initialize Bedrock clients when first needed"""
+    global bedrock, runtime, MODEL_ID
+    if bedrock is None or runtime is None:
+        bedrock, runtime, MODEL_ID = get_bedrock_clients(config, logger)
+    return bedrock, runtime, MODEL_ID
+
 def get_bedrock_clients(config: Optional[Dict[str, Any]] = None, logger=None) -> tuple[Any, Any, str]:
     """
     Get Bedrock clients with flexible configuration options.
@@ -96,9 +106,6 @@ def get_bedrock_clients(config: Optional[Dict[str, Any]] = None, logger=None) ->
         log_error(f"Critical error initializing Bedrock clients: {e}")
         return None, None, model_id
 
-# Initialize clients when module is imported (with default settings)
-bedrock, runtime, MODEL_ID = get_bedrock_clients()
-
 async def generate_stream(
     messages: list[dict[str, str]],
     max_gen_len: int = 1024,
@@ -128,15 +135,22 @@ async def generate_stream(
     # Using time.sleep(0) to yield control (as in the original)
     time.sleep(0)
     
+    # Lazily initialize clients only when needed
+    current_bedrock, current_runtime, model_id = None, None, MODEL_ID
+    
     # Use provided config to get clients if specified
-    current_bedrock, current_runtime, model_id = (bedrock, runtime, MODEL_ID)
     if aws_config:
         try:
+            log_debug("Initializing Bedrock clients with custom AWS config")
             b, r, m = get_bedrock_clients(aws_config, logger)
             if b and r:
                 current_bedrock, current_runtime, model_id = b, r, m
         except Exception as e:
             log_error(f"Error using custom AWS config: {e}")
+    else:
+        # Only initialize the global clients when needed
+        log_debug("Lazily initializing Bedrock clients with default settings")
+        current_bedrock, current_runtime, model_id = _lazy_init_clients(logger=logger)
     
     # Check if clients were successfully initialized
     if current_runtime is None:
@@ -199,9 +213,8 @@ if __name__ == "__main__":
             except json.JSONDecodeError:
                 continue
 
-    # Only run test if Bedrock client is available
-    if bedrock is not None:
-        try:
-            asyncio.run(test_generator())
-        except Exception as e:
-            print(f"Test failed: {e}")
+    # Only run test if executed directly
+    try:
+        asyncio.run(test_generator())
+    except Exception as e:
+        print(f"Test failed: {e}")
