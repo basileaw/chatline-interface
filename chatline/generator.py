@@ -8,15 +8,8 @@ from typing import Any, AsyncGenerator, Dict, Optional
 # Default model ID
 DEFAULT_MODEL_ID = "anthropic.claude-3-5-haiku-20241022-v1:0"
 
-# Replace direct initialization with None values
-bedrock, runtime, MODEL_ID = None, None, DEFAULT_MODEL_ID
-
-def _lazy_init_clients(config: Optional[Dict[str, Any]] = None, logger=None):
-    """Lazily initialize Bedrock clients when first needed"""
-    global bedrock, runtime, MODEL_ID
-    if bedrock is None or runtime is None:
-        bedrock, runtime, MODEL_ID = get_bedrock_clients(config, logger)
-    return bedrock, runtime, MODEL_ID
+# Replace global variables with a client cache dictionary
+_CLIENT_CACHE = {}
 
 def get_bedrock_clients(config: Optional[Dict[str, Any]] = None, logger=None) -> tuple[Any, Any, str]:
     """
@@ -48,6 +41,24 @@ def get_bedrock_clients(config: Optional[Dict[str, Any]] = None, logger=None) ->
     def log_error(msg):
         if logger:
             logger.error(msg)
+    
+    # Use a cache key based on the config
+    cache_key = None
+    if config:
+        # Create a cache key from the most important config values that would affect client behavior
+        key_elements = [
+            config.get('region'),
+            config.get('profile_name'),
+            config.get('endpoint_url'),
+            config.get('aws_access_key_id', '')[:4],  # Just use first few chars for security
+            str(config.get('timeout'))
+        ]
+        cache_key = ":".join(str(k) for k in key_elements if k)
+        
+        # Check if we already have clients for this config
+        if cache_key in _CLIENT_CACHE:
+            log_debug(f"Using cached Bedrock clients for config: {cache_key}")
+            return _CLIENT_CACHE[cache_key]
     
     # Ensure EC2 metadata service is enabled
     os.environ['AWS_EC2_METADATA_DISABLED'] = 'false'
@@ -100,6 +111,10 @@ def get_bedrock_clients(config: Optional[Dict[str, Any]] = None, logger=None) ->
         except Exception as e:
             log_debug(f"Warning: Could not verify credentials: {e}")
         
+        # Store in cache if we have a cache key
+        if cache_key:
+            _CLIENT_CACHE[cache_key] = (bedrock, runtime, model_id)
+            
         return bedrock, runtime, model_id
     
     except Exception as e:
@@ -135,25 +150,22 @@ async def generate_stream(
     # Using time.sleep(0) to yield control (as in the original)
     time.sleep(0)
     
-    # Lazily initialize clients only when needed
-    current_bedrock, current_runtime, model_id = None, None, MODEL_ID
+    # Initialize bedrock, runtime, and model_id variables to None
+    current_bedrock, current_runtime, model_id = None, None, DEFAULT_MODEL_ID
     
-    # Use provided config to get clients if specified
-    if aws_config:
-        try:
+    # Always try to initialize the clients
+    try:
+        if aws_config:
             log_debug("Initializing Bedrock clients with custom AWS config")
-            b, r, m = get_bedrock_clients(aws_config, logger)
-            if b and r:
-                current_bedrock, current_runtime, model_id = b, r, m
-        except Exception as e:
-            log_error(f"Error using custom AWS config: {e}")
-    else:
-        # Only initialize the global clients when needed
-        log_debug("Lazily initializing Bedrock clients with default settings")
-        current_bedrock, current_runtime, model_id = _lazy_init_clients(logger=logger)
+            current_bedrock, current_runtime, model_id = get_bedrock_clients(aws_config, logger)
+        else:
+            log_debug("Initializing Bedrock clients with default settings")
+            current_bedrock, current_runtime, model_id = get_bedrock_clients(None, logger)
+    except Exception as e:
+        log_error(f"Error initializing Bedrock clients: {e}")
     
     # Check if clients were successfully initialized
-    if current_runtime is None:
+    if current_bedrock is None or current_runtime is None:
         yield f"data: {{\"choices\": [{{\"delta\": {{\"content\": \"Error: Bedrock client initialization failed.\"}}}}]}}\n\n"
         yield "data: [DONE]\n\n"
         return
