@@ -35,8 +35,3 @@ remote-client = "python example/client.py -e http://127.0.0.1:8000/chat"
 remote-client-log = "python example/client.py -e http://127.0.0.1:8000/chat --enable-logging --log-file logs/chatline_debug.log"
 remote-same-origin = "python example/client.py --same-origin"
 remote-same-origin-log = "python example/client.py --same-origin --enable-logging --log-file logs/chatline_debug.log"
-
-[tool.poe.tasks.release]
-help = "Release one of three new versions:"
-args = [{ name = "type", positional = true, help = "patch | minor | major" }]
-cmd = "python utilities/release.py ${type}"
