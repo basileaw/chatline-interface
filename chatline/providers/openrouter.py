@@ -35,8 +35,8 @@ class OpenRouterProvider(BaseProvider):
         
         # Extract configuration options
         self.model = self.config.get('model') or os.environ.get('OPENROUTER_MODEL_ID')
-        self.referer = self.config.get('referer', 'https://chatline-library.github.io')
-        self.title = self.config.get('title', 'ChatLine CLI')
+        self.referer = self.config.get('referer', 'https://github.com/anotherbazeinthewall/chatline-interface/')
+        self.title = self.config.get('title', 'ChatLine Interface')
         self.timeout = self.config.get('timeout', 60.0)
         
         # Log initialization status
@@ -146,6 +146,11 @@ class OpenRouterProvider(BaseProvider):
                                     content = delta.get('content')
                                     
                                     if content:
+                                        # Handle first chunk leading whitespace issue
+                                        if not hasattr(self, '_first_chunk_sent'):
+                                            self._first_chunk_sent = True
+                                            content = content.lstrip()
+                                        
                                         # Format it to match the expected output format
                                         chunk = {"choices": [{"delta": {"content": content}}]}
                                         yield f"data: {json.dumps(chunk)}\n\n"
