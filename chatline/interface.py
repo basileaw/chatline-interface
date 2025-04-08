@@ -10,14 +10,19 @@ from .stream import Stream
 from .conversation import Conversation
 from .generator import generate_stream, DEFAULT_PROVIDER
 
+
 class Interface:
     """
     Main entry point that assembles our Display, Stream, and Conversation.
+    Allows starting a conversation with an arbitrary list of messages
+    (including multiple user/assistant pairs) as long as the conversation
+    ends on a user message.
     """
 
-    def __init__(self, endpoint: Optional[str] = None, 
+    def __init__(self,
+                 endpoint: Optional[str] = None,
                  use_same_origin: bool = False,
-                 origin_path: str = "/chat", 
+                 origin_path: str = "/chat",
                  origin_port: Optional[int] = None,
                  logging_enabled: bool = False,
                  log_file: Optional[str] = None,
@@ -28,10 +33,12 @@ class Interface:
         Initialize components with an optional endpoint and logging.
         
         Args:
-            endpoint: URL endpoint for remote mode. If None and use_same_origin is False, embedded mode is used.
+            endpoint: URL endpoint for remote mode. If None and use_same_origin is False, 
+                      embedded mode is used.
             use_same_origin: If True, attempts to determine server origin automatically.
             origin_path: Path component to use when constructing same-origin URL.
-            origin_port: Port to use when constructing same-origin URL. If None, uses default ports.
+            origin_port: Port to use when constructing same-origin URL. 
+                         If None, uses default ports.
             logging_enabled: Enable detailed logging.
             log_file: Path to log file. Use "-" for stdout.
             aws_config: (Legacy) AWS configuration dictionary with keys like:
@@ -46,12 +53,18 @@ class Interface:
         # and the provider is 'bedrock', use aws_config as the provider_config
         if provider == "bedrock" and aws_config and not provider_config:
             provider_config = aws_config
-            
-        self._init_components(endpoint, use_same_origin, origin_path, 
-                              origin_port, logging_enabled, log_file, 
-                              provider, provider_config)
-    
-    def _init_components(self, endpoint: Optional[str], 
+
+        self._init_components(endpoint,
+                              use_same_origin,
+                              origin_path,
+                              origin_port,
+                              logging_enabled,
+                              log_file,
+                              provider,
+                              provider_config)
+
+    def _init_components(self,
+                         endpoint: Optional[str],
                          use_same_origin: bool,
                          origin_path: str,
                          origin_port: Optional[int],
@@ -59,48 +72,50 @@ class Interface:
                          log_file: Optional[str],
                          provider: str = DEFAULT_PROVIDER,
                          provider_config: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Internal helper to initialize logger, display, stream, and conversation components.
+        """
         try:
-            # Our custom logger, which can also handle JSON logs
             self.logger = Logger(__name__, logging_enabled, log_file)
-
             self.display = Display()
-            
+
             # Handle same-origin case
             if use_same_origin and not endpoint:
                 try:
-                    # Try to determine the origin automatically
                     hostname = socket.gethostname()
-                    # Get container IP if possible
                     try:
                         ip_address = socket.gethostbyname(hostname)
                     except:
-                        ip_address = "localhost"  # Fallback
-                    
-                    port = origin_port or 8000  # Default to 8000 if not specified
+                        ip_address = "localhost"
+                    port = origin_port or 8000
                     endpoint = f"http://{ip_address}:{port}{origin_path}"
                     self.logger.debug(f"Auto-detected same-origin endpoint: {endpoint}")
                 except Exception as e:
                     self.logger.error(f"Failed to determine origin: {e}")
                     # Continue with embedded mode if we can't determine the endpoint
-            
-            # Log provider configuration if provided
+
+            # Log (safe) provider config
             if provider_config and self.logger:
-                # Don't log sensitive credential values
-                safe_config = {k: v for k, v in provider_config.items() 
-                              if k not in ('api_key', 'aws_access_key_id', 'aws_secret_access_key', 'aws_session_token')}
+                safe_config = {
+                    k: v for k, v in provider_config.items()
+                    if k not in (
+                        'api_key', 'aws_access_key_id',
+                        'aws_secret_access_key', 'aws_session_token'
+                    )
+                }
                 if safe_config:
                     self.logger.debug(f"Using provider '{provider}' with config: {safe_config}")
-            
-            # Pass provider info to Stream.create
+
+            # Create appropriate Stream object
             self.stream = Stream.create(
-                endpoint, 
-                logger=self.logger, 
+                endpoint,
+                logger=self.logger,
                 generator_func=generate_stream,
                 provider=provider,
                 provider_config=provider_config
             )
 
-            # Pass the entire logger down so conversation/history can use logger.write_json
+            # Create our main conversation object
             self.conv = Conversation(
                 display=self.display,
                 stream=self.stream,
@@ -108,22 +123,28 @@ class Interface:
             )
 
             self.display.terminal.reset()
-            
-            # Track if we're in remote mode
+
+            # Track mode
             self.is_remote_mode = endpoint is not None
             if self.is_remote_mode:
                 self.logger.debug(f"Initialized in remote mode with endpoint: {endpoint}")
             else:
                 self.logger.debug(f"Initialized in embedded mode with provider: {provider}")
-                
+
         except Exception as e:
             if hasattr(self, 'logger'):
                 self.logger.error(f"Init error: {e}")
             raise
 
-    def preface(self, text: str, title: Optional[str] = None,
-                border_color: Optional[str] = None, display_type: str = "panel") -> None:
-        """Display preface text before starting the conversation."""
+    def preface(self,
+                text: str,
+                title: Optional[str] = None,
+                border_color: Optional[str] = None,
+                display_type: str = "panel") -> None:
+        """
+        Display a "preface" panel (optionally titled/bordered) before
+        starting the conversation.
+        """
         self.conv.preface.add_content(
             text=text,
             title=title,
@@ -135,32 +156,54 @@ class Interface:
         """
         Start the conversation with optional messages.
         
-        Messages must follow one of these formats:
-        1. A single user message: [{"role": "user", "content": "..."}]
-        2. System message followed by a user message: [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}]
+        The messages list can contain:
+        - An optional system message at the start
+        - Zero or more user/assistant pairs
+        - Must end with a user message (so the next reply can be generated)
         
-        If no messages are provided, default messages will be used.
+        Example of a valid messages list:
+        
+        [
+          {"role": "system", "content": "You're a friendly AI."},
+          {"role": "user", "content": "Hello!"},
+          {"role": "assistant", "content": "Hi there!"},
+          {"role": "user", "content": "What's up?"}
+        ]
         
         Args:
-            messages: List of message dictionaries with proper format.
-                     If None, default messages will be used.
-                     
+            messages: List of message dictionaries with roles "system", "user", or "assistant".
+                      If None, default_messages will be used.
+        
         Raises:
-            ValueError: If messages don't follow the required format.
+            ValueError: If invalid roles or ordering, or if not ending in user.
         """
         if messages is None:
             self.logger.debug("No messages provided. Using default messages.")
             messages = DEFAULT_MESSAGES.copy()
-        
-        # Validate message format
-        if len(messages) == 1:
-            if messages[0]["role"] != "user":
-                raise ValueError("Single message must be a user message")
-        elif len(messages) == 2:
-            if messages[0]["role"] != "system" or messages[1]["role"] != "user":
-                raise ValueError("Two messages must be system followed by user")
-        else:
-            raise ValueError("Messages must contain either 1 user message or 1 system + 1 user message")
-        
-        # Start conversation with validated messages - pass the list directly
+
+        if not messages:
+            raise ValueError("Messages list cannot be empty")
+
+        # Ensure final message is from user
+        if messages[-1]["role"] != "user":
+            raise ValueError("Messages must end with a user message.")
+
+        # Optional: check if the first message is system
+        has_system = (messages[0]["role"] == "system")
+
+        # We'll start validating from the *first non-system* message
+        start_idx = 1 if has_system else 0
+
+        # Enforce strict alternating from that point on
+        # e.g. user -> assistant -> user -> assistant -> ...
+        for i in range(start_idx, len(messages)):
+            expected = "user" if i % 2 == start_idx % 2 else "assistant"
+            actual = messages[i]["role"]
+            if actual != expected:
+                raise ValueError(
+                    f"Invalid role order at index {i}. "
+                    f"Expected '{expected}', got '{actual}'."
+                )
+
+        # If we pass all checks, proceed:
         self.conv.actions.start_conversation(messages)
