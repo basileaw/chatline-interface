@@ -5,7 +5,7 @@ A lightweight CLI library for building terminal-based LLM chat interfaces with m
 - **Terminal UI**: Rich text formatting with styled quotes, brackets, emphasis, and more
 - **Response Streaming**: Real-time streamed responses with loading animations
 - **State Management**: Conversation history with edit and retry functionality
-- **Dual Modes**: Run with embedded AWS Bedrock or connect to a custom backend
+- **Multiple Providers**: Run with OpenRouter, AWS Bedrock, or connect to a custom backend
 - **Keyboard Shortcuts**: Ctrl+E to edit previous message, Ctrl+R to retry
 
 ![](https://raw.githubusercontent.com/anotherbazeinthewall/chatline-interface/main/demo.gif)
@@ -22,15 +22,13 @@ With Poetry:
 poetry add chatline
 ```
 
-Using the embedded generator requires AWS credentials configured. You can configure AWS credentials using environment variables or by setting them in your shell configuration file.
-
 ## Usage
 
-There are two modes: Embedded (no external dependencies) and Remote (requires response generation endpoint). 
+There are two modes: Embedded (with built-in providers) and Remote (requires response generation endpoint).
 
-### Embedded Mode (AWS Bedrock)
+### Embedded Mode with OpenRouter (Default)
 
-The easiest way to get started is to use the embedded generator (with AWS Bedrock):
+The easiest way to get started is to use the embedded generator with OpenRouter: (Just make sure to set your OPENROUTER_API_KEY environment variable first)
 
 ```python
 from chatline import Interface
@@ -40,20 +38,24 @@ chat = Interface()
 chat.start()
 ```
 
-For more customization, you can configure initial messages, AWS settings, logging, and a welcome message:
+For more customization:
+
 
 ```python
 from chatline import Interface
 
-# Initialize with embedded mode with all available configuration options
+# Initialize with embedded mode with OpenRouter configuration
 chat = Interface(
-    # AWS Configuration
-    aws_config={
-        "region": "us-west-2",  # Optional: defaults to AWS_REGION env var or us-west-2
-        "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0",  # Optional: defaults to Claude 3.5 Haiku
-        "profile_name": "development",  # Optional: use specific AWS profile
-        "timeout": 120  # Optional: request timeout in seconds
+    provider="openrouter",  # Optional: this is the default
+    provider_config={
+        "model": "anthropic/claude-3-opus", 
+        "temperature": 0.7, 
+        "top_p": 0.9, 
+        "frequency_penalty": 0.5, 
+        "presence_penalty": 0.5,
+        "timeout": 60 
     },
+
     # Logging Configuration
     logging_enabled=True,  # Enable detailed logging
     log_file="logs/chatline_debug.log",  # Output file for logs
@@ -70,6 +72,27 @@ chat.start([
     {"role": "system", "content": "You are a friendly AI assistant that specializes in code generation."},
     {"role": "user", "content": "Can you help me with a Python project?"}
 ])
+```
+
+### Embedded Mode with AWS Bedrock
+
+You can also use AWS Bedrock as your provider: (as long as you're okay stocking to Anthropic models)
+
+```python
+from chatline import Interface
+
+# Initialize with Bedrock provider
+chat = Interface(
+    provider="bedrock",
+    provider_config={
+        "region": "us-west-2",  
+        "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0", 
+        "profile_name": "development", 
+        "timeout": 120  
+    }
+)
+
+chat.start()
 ```
 
 ### Remote Mode (Custom Backend)
@@ -99,10 +122,8 @@ from chatline import generate_stream
 
 app = FastAPI()
 
-# Define AWS configuration
-aws_config = {
-    "model_id": "anthropic.claude-3-sonnet-20240229-v1:0",
-    "region": "us-east-1"  # replace with your AWS region
+provider_config = {
+    "model": "mistralai/mixtral-8x7b-instruct"
 }
 
 @app.post("/chat")
@@ -121,7 +142,11 @@ async def stream_chat(request: Request):
     }
     
     return StreamingResponse(
-        generate_stream(messages, aws_config=aws_config),  # Pass aws_config to generate_stream
+        generate_stream(
+            messages, 
+            provider="openrouter",
+            provider_config=provider_config
+        ),
         headers=headers,
         media_type="text/event-stream"
     )
@@ -133,7 +158,3 @@ if __name__ == "__main__":
 ## Acknowledgements
 
 Chatline was built with plenty of LLM assistance, particularly from (Anthropic)[https://github.com/anthropics], (Mistral)[https://github.com/mistralai] and (Continue.dev)[https://github.com/continuedev/continue]. 
-
-## License
-
-MIT

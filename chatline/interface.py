@@ -8,7 +8,7 @@ from .default_messages import DEFAULT_MESSAGES
 from .display import Display
 from .stream import Stream
 from .conversation import Conversation
-from .generator import generate_stream
+from .generator import generate_stream, DEFAULT_PROVIDER
 
 class Interface:
     """
@@ -21,7 +21,9 @@ class Interface:
                  origin_port: Optional[int] = None,
                  logging_enabled: bool = False,
                  log_file: Optional[str] = None,
-                 aws_config: Optional[Dict[str, Any]] = None):
+                 aws_config: Optional[Dict[str, Any]] = None,
+                 provider: str = DEFAULT_PROVIDER,
+                 provider_config: Optional[Dict[str, Any]] = None):
         """
         Initialize components with an optional endpoint and logging.
         
@@ -32,14 +34,22 @@ class Interface:
             origin_port: Port to use when constructing same-origin URL. If None, uses default ports.
             logging_enabled: Enable detailed logging.
             log_file: Path to log file. Use "-" for stdout.
-            aws_config: Optional AWS configuration dictionary with keys like:
+            aws_config: (Legacy) AWS configuration dictionary with keys like:
                         - region: AWS region for Bedrock
                         - profile_name: AWS profile to use
                         - model_id: Bedrock model ID
                         - timeout: Request timeout in seconds
+            provider: Provider name (e.g., 'bedrock', 'openrouter')
+            provider_config: Provider-specific configuration
         """
+        # For backward compatibility: if aws_config is provided but provider_config is not,
+        # and the provider is 'bedrock', use aws_config as the provider_config
+        if provider == "bedrock" and aws_config and not provider_config:
+            provider_config = aws_config
+            
         self._init_components(endpoint, use_same_origin, origin_path, 
-                              origin_port, logging_enabled, log_file, aws_config)
+                              origin_port, logging_enabled, log_file, 
+                              provider, provider_config)
     
     def _init_components(self, endpoint: Optional[str], 
                          use_same_origin: bool,
@@ -47,7 +57,8 @@ class Interface:
                          origin_port: Optional[int],
                          logging_enabled: bool,
                          log_file: Optional[str],
-                         aws_config: Optional[Dict[str, Any]] = None) -> None:
+                         provider: str = DEFAULT_PROVIDER,
+                         provider_config: Optional[Dict[str, Any]] = None) -> None:
         try:
             # Our custom logger, which can also handle JSON logs
             self.logger = Logger(__name__, logging_enabled, log_file)
@@ -72,20 +83,21 @@ class Interface:
                     self.logger.error(f"Failed to determine origin: {e}")
                     # Continue with embedded mode if we can't determine the endpoint
             
-            # Log AWS configuration if provided
-            if aws_config and self.logger:
+            # Log provider configuration if provided
+            if provider_config and self.logger:
                 # Don't log sensitive credential values
-                safe_config = {k: v for k, v in aws_config.items() 
-                              if k not in ('aws_access_key_id', 'aws_secret_access_key', 'aws_session_token')}
+                safe_config = {k: v for k, v in provider_config.items() 
+                              if k not in ('api_key', 'aws_access_key_id', 'aws_secret_access_key', 'aws_session_token')}
                 if safe_config:
-                    self.logger.debug(f"Using AWS config: {safe_config}")
+                    self.logger.debug(f"Using provider '{provider}' with config: {safe_config}")
             
-            # Pass AWS config to Stream.create
+            # Pass provider info to Stream.create
             self.stream = Stream.create(
                 endpoint, 
                 logger=self.logger, 
                 generator_func=generate_stream,
-                aws_config=aws_config
+                provider=provider,
+                provider_config=provider_config
             )
 
             # Pass the entire logger down so conversation/history can use logger.write_json
@@ -102,7 +114,7 @@ class Interface:
             if self.is_remote_mode:
                 self.logger.debug(f"Initialized in remote mode with endpoint: {endpoint}")
             else:
-                self.logger.debug("Initialized in embedded mode")
+                self.logger.debug(f"Initialized in embedded mode with provider: {provider}")
                 
         except Exception as e:
             if hasattr(self, 'logger'):

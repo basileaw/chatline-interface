@@ -15,7 +15,7 @@ def main():
         help='Path component for same-origin server (default: /chat)')
     parser.add_argument('--origin-port',
         type=int,
-        help='Port for same-origin server (default: 8000)')
+        help='Port fora same-origin server (default: 8000)')
     parser.add_argument('--enable-logging',
         action='store_true',
         help='Enable debug logging')

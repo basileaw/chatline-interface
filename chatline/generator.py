@@ -1,232 +1,151 @@
 # generator.py
 
-import boto3, json, time, asyncio, os
-from botocore.config import Config
-from botocore.exceptions import ProfileNotFound, ClientError
-from typing import Any, AsyncGenerator, Dict, Optional
+import asyncio
+from typing import Any, AsyncGenerator, Dict, Optional, List
 
-# Default model ID
-DEFAULT_MODEL_ID = "anthropic.claude-3-5-haiku-20241022-v1:0"
+from .providers import generate_with_provider
 
-# Replace global variables with a client cache dictionary
-_CLIENT_CACHE = {}
-
-def get_bedrock_clients(config: Optional[Dict[str, Any]] = None, logger=None) -> tuple[Any, Any, str]:
-    """
-    Get Bedrock clients with flexible configuration options.
-    
-    Args:
-        config (dict, optional): Override configuration with any of these keys:
-            - region: AWS region for Bedrock (overrides environment variables)
-            - profile_name: AWS profile to use (for local development)
-            - timeout: Request timeout in seconds
-            - max_retries: Maximum retry attempts
-            - endpoint_url: Custom endpoint URL (for testing/VPC endpoints)
-            - model_id: Bedrock model ID to use
-            - aws_access_key_id: Explicit access key (not recommended)
-            - aws_secret_access_key: Explicit secret key (not recommended)
-        logger: Optional logger instance
-    
-    Returns:
-        tuple: (bedrock_client, bedrock_runtime_client, model_id)
-    """
-    # Initialize with empty dict if None
-    config = config or {}
-    
-    # Helper for logging or silently ignoring if no logger
-    def log_debug(msg):
-        if logger:
-            logger.debug(msg)
-            
-    def log_error(msg):
-        if logger:
-            logger.error(msg)
-    
-    # Use a cache key based on the config
-    cache_key = None
-    if config:
-        # Create a cache key from the most important config values that would affect client behavior
-        key_elements = [
-            config.get('region'),
-            config.get('profile_name'),
-            config.get('endpoint_url'),
-            config.get('aws_access_key_id', '')[:4],  # Just use first few chars for security
-            str(config.get('timeout'))
-        ]
-        cache_key = ":".join(str(k) for k in key_elements if k)
-        
-        # Check if we already have clients for this config
-        if cache_key in _CLIENT_CACHE:
-            log_debug(f"Using cached Bedrock clients for config: {cache_key}")
-            return _CLIENT_CACHE[cache_key]
-    
-    # Ensure EC2 metadata service is enabled
-    os.environ['AWS_EC2_METADATA_DISABLED'] = 'false'
-    
-    # Region resolution with priority order
-    region = config.get('region') or os.environ.get('AWS_BEDROCK_REGION') or os.environ.get('AWS_REGION') or os.environ.get('AWS_DEFAULT_REGION', 'us-west-2')
-    
-    # Get the model ID (default is Claude 3.5 Haiku)
-    model_id = config.get('model_id') or os.environ.get('AWS_BEDROCK_MODEL_ID', DEFAULT_MODEL_ID)
-    
-    # Build boto3 config with potential overrides
-    boto_config = Config(
-        region_name=region,
-        retries={'max_attempts': config.get('max_retries', 2)},
-        read_timeout=config.get('timeout', 300),
-        connect_timeout=config.get('timeout', 300)
-    )
-    
-    log_debug(f"Initializing Bedrock clients in region: {region}")
-    log_debug(f"Using model: {model_id}")
-    
-    # Session parameters (only if explicitly provided)
-    session_params = {}
-    if config.get('profile_name'):
-        session_params['profile_name'] = config['profile_name']
-    if config.get('aws_access_key_id') and config.get('aws_secret_access_key'):
-        session_params['aws_access_key_id'] = config['aws_access_key_id']
-        session_params['aws_secret_access_key'] = config['aws_secret_access_key']
-        if config.get('aws_session_token'):
-            session_params['aws_session_token'] = config['aws_session_token']
-    
-    # Client parameters
-    client_params = {'config': boto_config}
-    if config.get('endpoint_url'):
-        client_params['endpoint_url'] = config['endpoint_url']
-    
-    try:
-        # Create session with optional parameters - uses default credential chain
-        session = boto3.Session(**session_params)
-        
-        # Create and verify clients
-        bedrock = session.client('bedrock', **client_params)
-        runtime = session.client('bedrock-runtime', **client_params)
-        
-        # Verify credentials by making a basic call
-        try:
-            sts = session.client('sts')
-            identity = sts.get_caller_identity()
-            log_debug(f"Using credentials for account: {identity['Account']}")
-        except Exception as e:
-            log_debug(f"Warning: Could not verify credentials: {e}")
-        
-        # Store in cache if we have a cache key
-        if cache_key:
-            _CLIENT_CACHE[cache_key] = (bedrock, runtime, model_id)
-            
-        return bedrock, runtime, model_id
-    
-    except Exception as e:
-        log_error(f"Critical error initializing Bedrock clients: {e}")
-        return None, None, model_id
+# Keep the original Bedrock provider as the default for backward compatibility
+DEFAULT_PROVIDER = "bedrock"
 
 async def generate_stream(
-    messages: list[dict[str, str]],
+    messages: List[Dict[str, str]],
     max_gen_len: int = 1024,
-    temperature: float = 0.9,
+    temperature: float = 0.7,
+    provider: str = DEFAULT_PROVIDER,
+    provider_config: Optional[Dict[str, Any]] = None,
     aws_config: Optional[Dict[str, Any]] = None,
-    logger=None
+    logger=None,
+    **kwargs
 ) -> AsyncGenerator[str, None]:
     """
-    Generate streaming responses from Bedrock.
+    Generate streaming responses from the specified provider.
+    
+    This function maintains backward compatibility with the original API
+    while adding support for multiple providers.
     
     Args:
         messages: List of conversation messages
         max_gen_len: Maximum tokens to generate
         temperature: Temperature for generation
-        aws_config: Optional AWS configuration overrides
+        provider: Provider name (e.g., 'bedrock', 'openrouter')
+        provider_config: Provider-specific configuration
+        aws_config: (Legacy) AWS configuration for Bedrock
         logger: Optional logger instance
+        **kwargs: Additional provider-specific parameters
+        
+    Yields:
+        Chunks of the generated response
     """
-    # Helper for logging
-    def log_debug(msg):
-        if logger:
-            logger.debug(msg)
-            
-    def log_error(msg):
-        if logger:
-            logger.error(msg)
+    # For backward compatibility, if aws_config is provided but no provider_config,
+    # use aws_config as the provider_config for Bedrock
+    if provider == "bedrock" and aws_config and not provider_config:
+        provider_config = aws_config
     
-    # Using time.sleep(0) to yield control (as in the original)
-    time.sleep(0)
+    # Prepare the config object
+    config = provider_config or {}
     
-    # Initialize bedrock, runtime, and model_id variables to None
-    current_bedrock, current_runtime, model_id = None, None, DEFAULT_MODEL_ID
+    # Debug logging
+    if logger:
+        logger.debug(f"Using provider: {provider}")
+        # Don't log sensitive information like API keys
+        safe_config = {k: v for k, v in config.items() 
+                      if k not in ('api_key', 'aws_access_key_id', 'aws_secret_access_key')}
+        if safe_config:
+            logger.debug(f"Provider config: {safe_config}")
     
-    # Always try to initialize the clients
-    try:
-        if aws_config:
-            log_debug("Initializing Bedrock clients with custom AWS config")
-            current_bedrock, current_runtime, model_id = get_bedrock_clients(aws_config, logger)
-        else:
-            log_debug("Initializing Bedrock clients with default settings")
-            current_bedrock, current_runtime, model_id = get_bedrock_clients(None, logger)
-    except Exception as e:
-        log_error(f"Error initializing Bedrock clients: {e}")
-    
-    # Check if clients were successfully initialized
-    if current_bedrock is None or current_runtime is None:
-        yield f"data: {{\"choices\": [{{\"delta\": {{\"content\": \"Error: Bedrock client initialization failed.\"}}}}]}}\n\n"
-        yield "data: [DONE]\n\n"
-        return
-    
-    try:
-        response = current_runtime.converse_stream(
-            modelId=model_id,
-            messages=[
-                {"role": m["role"], "content": [{"text": m["content"]}]}
-                for m in messages if m["role"] != "system"
-            ],
-            system=[
-                {"text": m["content"]}
-                for m in messages if m["role"] == "system"
-            ],
-            inferenceConfig={"maxTokens": max_gen_len, "temperature": temperature}
-        )
-        for event in response.get('stream', []):
-            text = event.get('contentBlockDelta', {}).get('delta', {}).get('text', '')
-            if text:
-                chunk = {"choices": [{"delta": {"content": text}}]}
-                yield f"data: {json.dumps(chunk)}\n\n"
-                await asyncio.sleep(0)
-        yield "data: [DONE]\n\n"
-    except Exception as e:
-        log_error(f"Error during generation: {str(e)}")
-        error_message = str(e)
-        # Format error as a valid response chunk
-        error_chunk = {"choices": [{"delta": {"content": f"Error: {error_message}"}}]}
-        yield f"data: {json.dumps(error_chunk)}\n\n"
-        yield "data: [DONE]\n\n"
+    # Call the provider to generate the response
+    async for chunk in generate_with_provider(
+        provider_name=provider,
+        messages=messages,
+        provider_config=config,
+        max_gen_len=max_gen_len,
+        temperature=temperature,
+        logger=logger,
+        **kwargs
+    ):
+        yield chunk
 
 if __name__ == "__main__":
     # For the test script, we can use print statements directly
     import logging
     
     # Setup basic logger for testing
-    test_logger = logging.getLogger("bedrock_test")
+    test_logger = logging.getLogger("provider_test")
     test_logger.setLevel(logging.DEBUG)
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
     test_logger.addHandler(handler)
     
-    async def test_generator() -> None:
+    async def test_default_provider() -> None:
+        """Test the default Bedrock provider."""
         messages = [
             {"role": "user", "content": "Tell me a joke about computers."},
             {"role": "system", "content": "Be helpful and humorous."}
         ]
-        print("\nTesting with default configuration:")
-        async for chunk in generate_stream(messages, logger=test_logger):
-            print(f"\nChunk: {chunk}")
-            try:
-                if chunk.startswith("data: "):
-                    data = json.loads(chunk.replace("data: ", "").strip())
-                    if data != "[DONE]":
-                        print("Parsed content:", data["choices"][0]["delta"]["content"], end="", flush=True)
-            except json.JSONDecodeError:
-                continue
-
-    # Only run test if executed directly
+        print("\nTesting with default provider (Bedrock):")
+        try:
+            async for chunk in generate_stream(messages, logger=test_logger):
+                print(f"\nChunk: {chunk}")
+                try:
+                    if chunk.startswith("data: "):
+                        data = chunk.replace("data: ", "").strip()
+                        if data != "[DONE]":
+                            import json
+                            content = json.loads(data)["choices"][0]["delta"]["content"]
+                            print("Parsed content:", content, end="", flush=True)
+                except:
+                    continue
+        except Exception as e:
+            print(f"Test failed: {e}")
+    
+    async def test_openrouter_provider() -> None:
+        """Test the OpenRouter provider, if API key is available."""
+        import os
+        
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            print("\nSkipping OpenRouter test (no API key found)")
+            return
+            
+        messages = [
+            {"role": "user", "content": "Tell me a joke about computers."},
+            {"role": "system", "content": "Be helpful and humorous."}
+        ]
+        
+        config = {
+            "api_key": api_key,
+            "model": "anthropic/claude-3-haiku-20240307"
+        }
+        
+        print("\nTesting with OpenRouter provider:")
+        try:
+            async for chunk in generate_stream(
+                messages, 
+                provider="openrouter",
+                provider_config=config,
+                logger=test_logger
+            ):
+                print(f"\nChunk: {chunk}")
+                try:
+                    if chunk.startswith("data: "):
+                        data = chunk.replace("data: ", "").strip()
+                        if data != "[DONE]":
+                            import json
+                            content = json.loads(data)["choices"][0]["delta"]["content"]
+                            print("Parsed content:", content, end="", flush=True)
+                except:
+                    continue
+        except Exception as e:
+            print(f"Test failed: {e}")
+    
+    # Run the tests
+    async def run_tests():
+        await test_default_provider()
+        await test_openrouter_provider()
+        
+    # Only run tests if executed directly
     try:
-        asyncio.run(test_generator())
+        asyncio.run(run_tests())
     except Exception as e:
-        print(f"Test failed: {e}")
+        print(f"Tests failed: {e}")
