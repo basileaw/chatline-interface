@@ -288,15 +288,23 @@ class DisplayTerminal:
                                 if cursor_pos < len(input_chars):
                                     self.write("\033[" + str(len(input_chars) - cursor_pos) + "D")
                 # Regular characters - insert at cursor position
-                elif ord(c) >= 32:  # Printable characters
-                    char = c.decode('utf-8')
-                    input_chars.insert(cursor_pos, char)
-                    cursor_pos += 1
-                    # Redraw from cursor to end with consistent styling
-                    self.write(char + "".join(input_chars[cursor_pos:]))
-                    # Move cursor back to correct position if needed
-                    if cursor_pos < len(input_chars):
-                        self.write("\033[" + str(len(input_chars) - cursor_pos) + "D")
+                else:
+                    # Check if it's a standard ASCII character (0-127)
+                    try:
+                        # Only process ASCII characters (0-127) which are valid for single-byte UTF-8
+                        if len(c) == 1 and 32 <= c[0] < 127:
+                            # Safe to decode ASCII characters
+                            char = c.decode('ascii')
+                            input_chars.insert(cursor_pos, char)
+                            cursor_pos += 1
+                            # Redraw from cursor to end with consistent styling
+                            self.write(char + "".join(input_chars[cursor_pos:]))
+                            # Move cursor back to correct position if needed
+                            if cursor_pos < len(input_chars):
+                                self.write("\033[" + str(len(input_chars) - cursor_pos) + "D")
+                    except (UnicodeDecodeError, TypeError):
+                        # Silently ignore any Unicode errors or other decoding issues
+                        pass
             return ''.join(input_chars)
         finally:
             # Restore terminal settings
