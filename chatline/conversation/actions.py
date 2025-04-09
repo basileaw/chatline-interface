@@ -173,7 +173,7 @@ class ConversationActions:
         Process a normal user message (visible in the terminal).
         """
         scroller = self.animations.create_scroller()
-        await scroller.scroll_up(intro_styled, f"> {user_input}", 0.08)
+        await scroller.scroll_up(intro_styled, f"> {user_input}", 0.035)
 
         raw, styled = await self._process_message(user_input, silent=False)
         self.is_silent = False
