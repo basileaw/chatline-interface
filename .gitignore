@@ -5,3 +5,7 @@ logs/
 *.egg-info/
 .env
 dist/
+.vscode/
+
+test.py
+messages.json

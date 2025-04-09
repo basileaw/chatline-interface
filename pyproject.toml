@@ -21,6 +21,7 @@ boto3 = "*"
 httpx = "*"
 rich = "*"
 prompt-toolkit = "*"
+terminaide = "^0.1.1"
 
 [tool.poetry.group.dev.dependencies]
 fastapi = "*"
