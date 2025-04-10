@@ -6,6 +6,7 @@ logs/
 .env
 dist/
 .vscode/
+.DS_Store
 
 test.py
 messages.json
