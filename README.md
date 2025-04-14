@@ -5,7 +5,7 @@ A lightweight CLI library for building terminal-based LLM chat interfaces with m
 - **Terminal UI**: Rich text formatting with styled quotes, brackets, emphasis, and more
 - **Response Streaming**: Real-time streamed responses with loading animations
 - **State Management**: Conversation history with edit and retry functionality
-- **Multiple Providers**: Run with OpenRouter, AWS Bedrock, or connect to a custom backend
+- **Multiple Providers**: Run with AWS Bedrock, OpenRouter, or connect to a custom backend
 - **Keyboard Shortcuts**: Ctrl+E to edit previous message, Ctrl+R to retry
 
 ![](https://raw.githubusercontent.com/anotherbazeinthewall/chatline-interface/main/demo.gif)
@@ -26,9 +26,9 @@ poetry add chatline
 
 There are two modes: Embedded (with built-in providers) and Remote (requires response generation endpoint).
 
-### Embedded Mode with OpenRouter (Default)
+### Embedded Mode with AWS Bedrock (Default)
 
-The easiest way to get started is to use the embedded generator with OpenRouter: (Just make sure to set your OPENROUTER_API_KEY environment variable first)
+The easiest way to get started is to use the embedded generator with AWS Bedrock (the default provider):
 
 ```python
 from chatline import Interface
@@ -40,25 +40,18 @@ chat.start()
 
 For more customization:
 
-
 ```python
 from chatline import Interface
 
-# Initialize with embedded mode with OpenRouter configuration
+# Initialize with AWS Bedrock (default provider)
 chat = Interface(
-    provider="openrouter",  # Optional: this is the default
+    provider="bedrock",  # Optional: this is the default
     provider_config={
-        "model": "anthropic/claude-3-opus", 
-        "temperature": 0.7, 
-        "top_p": 0.9, 
-        "frequency_penalty": 0.5, 
-        "presence_penalty": 0.5,
-        "timeout": 60 
-    },
-
-    # Logging Configuration
-    logging_enabled=True,  # Enable detailed logging
-    log_file="logs/chatline_debug.log",  # Output file for logs
+        "region": "us-west-2",  
+        "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0", 
+        "profile_name": "development", 
+        "timeout": 120  
+    }
 )
 
 # Add optional welcome message
@@ -74,21 +67,23 @@ chat.start([
 ])
 ```
 
-### Embedded Mode with AWS Bedrock
+### Embedded Mode with OpenRouter
 
-You can also use AWS Bedrock as your provider: (as long as you're okay stocking to Anthropic models)
+You can also use OpenRouter as your provider: (Just make sure to set your OPENROUTER_API_KEY environment variable first)
 
 ```python
 from chatline import Interface
 
-# Initialize with Bedrock provider
+# Initialize with OpenRouter provider
 chat = Interface(
-    provider="bedrock",
+    provider="openrouter",
     provider_config={
-        "region": "us-west-2",  
-        "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0", 
-        "profile_name": "development", 
-        "timeout": 120  
+        "model": "deepseek/deepseek-chat-v3-0324", 
+        "temperature": 0.7, 
+        "top_p": 0.9, 
+        "frequency_penalty": 0.5, 
+        "presence_penalty": 0.5,
+        "timeout": 60 
     }
 )
 
@@ -157,4 +152,4 @@ if __name__ == "__main__":
 
 ## Acknowledgements
 
-Chatline was built with plenty of LLM assistance, particularly from (Anthropic)[https://github.com/anthropics], (Mistral)[https://github.com/mistralai] and (Continue.dev)[https://github.com/continuedev/continue]. 
+Chatline was built with plenty of LLM assistance, particularly from [Anthropic](https://github.com/anthropics), [Mistral](https://github.com/mistralai) and [Continue.dev](https://github.com/continuedev/continue).
