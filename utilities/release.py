@@ -1,102 +1,208 @@
-# utilities/release.py
+# release.py
 
-import os
 import sys
+import time
+import requests
 import argparse
 import subprocess
-from getpass import getpass
-from subprocess import CalledProcessError
+from rich import box
+from pathlib import Path
+from rich.panel import Panel
+from rich.console import Console
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("type", choices=["patch", "minor", "major"], help="Version type to release")
-    return parser.parse_args()
+console = Console()
 
-def run_command(cmd, description, exit_on_error=True, env=None):
-    print(f"Executing: {' '.join(cmd)}")
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, env=env)
-        if result.stdout.strip():
-            print(result.stdout.strip())
-        return result
-    except CalledProcessError as e:
-        print(f"Error during {description}")
-        print(f"Command: {' '.join(cmd)}")
-        print(f"Exit code: {e.returncode}")
-        if e.stdout:
-            print("Standard output:")
-            print(e.stdout)
-        if e.stderr:
-            print("Standard error:")
-            print(e.stderr)
-        if exit_on_error:
-            print(f"\nAborting release process due to error in {description}")
-            # Cleanup: reset version if we failed after version bump
-            if description == "git commit":
-                subprocess.run(["git", "checkout", "pyproject.toml"], capture_output=True)
-                print("Reset pyproject.toml to previous state")
-            sys.exit(e.returncode)
-        else:
-            print(f"\nContinuing despite error in {description}")
-            return None
+def run(cmd, check=True):
+    result = subprocess.run(cmd, text=True, capture_output=True)
+    if check and result.returncode != 0:
+        raise subprocess.CalledProcessError(
+            returncode=result.returncode,
+            cmd=cmd,
+            output=result.stdout,
+            stderr=result.stderr
+        )
+    return result.stdout.strip()
 
-def check_unstaged_changes():
-    result = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
-    if result.stdout.strip():
-        print("Error: There are unstaged changes in the repository:")
-        print(result.stdout)
-        print("Please commit or stash these changes before running the release process.")
+def wait_for_pypi(package_name, expected_version, max_retries=12, interval=5):
+    spinner = "|/-\\"
+    idx = 0
+    repo_url = run(["git", "config", "--get", "remote.origin.url"]).strip()
+    # Convert SSH URL to HTTPS if necessary
+    if repo_url.startswith("git@github.com:"):
+        repo_url = repo_url.replace("git@github.com:", "https://github.com/")
+    if repo_url.endswith(".git"):
+        repo_url = repo_url[:-4]
+    actions_url = f"{repo_url}/actions"
+
+    console.print(f"Waiting for version {expected_version} to appear on PyPI...")
+    
+    for _ in range(max_retries):
+        for _ in range(4):  # 4 ticks per interval
+            print(f"\rPolling PyPI {spinner[idx]}", end="", flush=True)
+            idx = (idx + 1) % len(spinner)
+            time.sleep(interval / 4)
+            
+        try:
+            response = requests.get(f"https://pypi.org/pypi/{package_name}/json", timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                latest_version = data["info"]["version"]
+                if latest_version == expected_version:
+                    print("\r", end="")  # Clear the spinner line
+                    console.print(f"[bold green]✓ Version {expected_version} successfully published to PyPI!")
+                    return
+        except requests.exceptions.RequestException:
+            pass
+    
+    print("\r", end="")  # Clear the spinner line
+    console.print(f"[bold red]✗ Timed out waiting for version {expected_version} on PyPI.")
+    console.print(f"[bold blue]Check progress at: {actions_url}")
+
+def confirm_proceed(package_name, current_version, new_version, dry_run):
+    actions = [
+        "Bump version in pyproject.toml",
+        "Commit version bump",
+        "Create git tag",
+        "Push commit and tag to origin"
+    ]
+    
+    if not dry_run:
+        actions.extend([
+            "Trigger GitHub Action to publish to PyPI",
+            "Poll PyPI to confirm publication"
+        ])
+    else:
+        actions.append("(Dry run mode, no changes will be made)")
+    
+    confirmation_text = "\n".join([
+        f"Package name: {package_name}",
+        f"Current version: {current_version}",
+        f"New version: {new_version}",
+        f"Dry run: {'Yes' if dry_run else 'No'}",
+        f"Actions to be performed:",
+        "\n".join(f" - {action}" for action in actions)
+    ])
+    
+    # Create a panel with a tighter width - 60 characters or content width, whichever is smaller
+    panel_width = min(60, max(len(line) for line in confirmation_text.split('\n')))
+    
+    console.print(Panel(
+        confirmation_text, 
+        title="Release Details", 
+        border_style="green",
+        box=box.ROUNDED,
+        width=panel_width,
+        expand=False
+    ))
+    
+    # Custom single-key confirmation prompt
+    console.print("Proceed? (Y/n): ", end="")
+    # Use python's built-in input but only check the first character
+    response = input().strip().lower()
+    return not response or response[0] != 'n'
+
+def check_publish_workflow_exists(workflow_path=None):
+    if workflow_path is None:
+        workflow_path = ".github/workflows/publish.yml"
+    workflow_file = Path(workflow_path)
+    if not workflow_file.is_file():
+        console.print(f"[bold red]Error: publish workflow not found at {workflow_path}.")
+        console.print(f"[bold red]Ensure your GitHub Action is set up before releasing.")
         sys.exit(1)
 
+def get_package_name():
+    try:
+        # Try to extract package name from pyproject.toml
+        if Path("pyproject.toml").exists():
+            content = Path("pyproject.toml").read_text()
+            # Look for name = "package_name" in pyproject.toml
+            for line in content.split("\n"):
+                if line.strip().startswith("name = "):
+                    # Extract the package name from quotes
+                    name = line.split("=")[1].strip()
+                    name = name.strip('"').strip("'")
+                    return name
+    except Exception as e:
+        console.print(f"[bold red]Error extracting package name from pyproject.toml: {e}")
+        
+    # If automatic detection fails, prompt the user
+    return console.input("Enter the package name: ").strip()
+
 def main():
-    args = parse_args()
-    print("Starting Release Process")
+    parser = argparse.ArgumentParser(description="Bump version, commit, tag, push, and poll PyPI.")
+    parser.add_argument("type", choices=["patch", "minor", "major"], help="Version bump type.")
+    parser.add_argument("--dry-run", action="store_true", help="Simulate without making changes.")
+    parser.add_argument("--package-name", help="Override the package name (auto-detected from pyproject.toml by default).")
+    parser.add_argument("--workflow-path", help="Path to the GitHub publish workflow (default: .github/workflows/publish.yml).")
+    parser.add_argument("--skip-pypi-check", action="store_true", help="Skip checking PyPI for the new version.")
+    args = parser.parse_args()
 
-    # Check for unstaged changes
-    print("Checking for unstaged changes...")
-    check_unstaged_changes()
+    dry_run = args.dry_run
+    package_name = args.package_name or get_package_name()
 
-    # Get current version before making any changes
-    current_version = run_command(["poetry", "version", "-s"], "version check").stdout.strip()
-    run_command(["poetry", "version", args.type], "version update")
-    version_result = run_command(["poetry", "version", "-s"], "version retrieval")
-    version = version_result.stdout.strip()
-    tag = f"v{version}"
-    print(f"New version: {version}")
+    # Check publish workflow exists
+    check_publish_workflow_exists(args.workflow_path)
 
-    print("Git Operations")
-    run_command(["git", "add", "pyproject.toml"], "git add")
-    run_command(["git", "commit", "-m", f"release {version}"], "git commit")
-    run_command(["git", "tag", tag], "git tag")
+    # Check clean git state
+    status = run(["git", "status", "--porcelain"], check=False)
+    if status:
+        console.print("[bold red]Error: Repository has uncommitted changes. Commit or stash them first.")
+        sys.exit(1)
 
-    push_result = run_command(["git", "push"], "git push", exit_on_error=False)
-    tags_result = run_command(["git", "push", "origin", tag], "git push tag", exit_on_error=False)
+    old_commit = run(["git", "rev-parse", "HEAD"])
+    current_version = run(["poetry", "version", "-s"])
 
-    if not push_result or not tags_result:
-        print("Git push operations failed. You may need to manually push commits and tags.")
-        print(f"You can do this with:\n git push\n git push origin {tag}")
-        proceed = input("\nDo you want to continue with package publishing anyway? (y/n): ")
+    if dry_run:
+        new_version = "<new-version>"
     else:
-        proceed = input("\nDo you want to continue with package publishing? (y/n): ")
+        version_output = run(["poetry", "version", args.type, "--dry-run"])
+        new_version = version_output.split()[-1]
 
-    if proceed.lower() != 'y':
-        print("Aborting release process.")
-        return
+    if not confirm_proceed(package_name, current_version, new_version, dry_run):
+        console.print("[bold red]Aborted by user.")
+        sys.exit(0)
 
-    print("PyPI Publishing")
-    print("Please enter your PyPI token (input will be hidden):")
-    token = getpass()
-    env = os.environ.copy()
-    env["POETRY_PYPI_TOKEN_PYPI"] = token
+    version_cmd = ["poetry", "version", args.type]
+    commit_message = f"release {new_version}"
+    tag_name = f"v{new_version}"
 
     try:
-        run_command(["poetry", "publish", "--build"], "poetry publish", exit_on_error=True, env=env)
-        print(f"Successfully released version {version}!")
-    except Exception as e:
-        print(f"Error during package publishing: {str(e)}")
-    finally:
-        if "POETRY_PYPI_TOKEN_PYPI" in os.environ:
-            del os.environ["POETRY_PYPI_TOKEN_PYPI"]
+        if dry_run:
+            console.print(f"[bold yellow][DRY-RUN] Would run: {' '.join(version_cmd)}")
+            console.print(f"[bold yellow][DRY-RUN] Would run: poetry lock")
+            console.print(f"[bold yellow][DRY-RUN] Would git add pyproject.toml poetry.lock")
+            console.print(f"[bold yellow][DRY-RUN] Would commit with message: '{commit_message}'")
+            console.print(f"[bold yellow][DRY-RUN] Would create git tag: '{tag_name}'")
+            console.print(f"[bold yellow][DRY-RUN] Would push commit and tag to origin")
+        else:
+            run(version_cmd)
+            new_version = run(["poetry", "version", "-s"])
+            # Add poetry lock step
+            console.print("Updating poetry.lock file...")
+            run(["poetry", "lock"])
+            # Add both files to git
+            run(["git", "add", "pyproject.toml", "poetry.lock"])
+            run(["git", "commit", "-m", commit_message])
+            run(["git", "tag", tag_name])
+            console.print(f"Pushing commit and tag '{tag_name}' to origin...")
+            run(["git", "push", "origin", "HEAD"])
+            run(["git", "push", "origin", tag_name])
+            if not args.skip_pypi_check:
+                wait_for_pypi(package_name, new_version)
+
+    except subprocess.CalledProcessError as e:
+        console.print("[bold red]Error occurred during release process.")
+        console.print(f"Command: {' '.join(e.cmd)}")
+        if e.output:
+            console.print(f"Output:\n{e.output}")
+        if e.stderr:
+            console.print(f"Error:\n{e.stderr}")
+        if not dry_run:
+            console.print("[yellow]Rolling back changes...")
+            run(["git", "checkout", "pyproject.toml"], check=False)
+            run(["git", "reset", "--hard", old_commit], check=False)
+            run(["git", "tag", "-d", tag_name], check=False)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
