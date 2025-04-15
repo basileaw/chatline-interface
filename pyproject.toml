@@ -2,7 +2,7 @@
 
 [project]
 name = "chatline"
-version = "0.2.0"
+version = "0.2.1"
 description = "A pretty command line interface for LLM chat."
 authors = [
     { name = "Alex Basile", email = "basileaw@gmail.com" },
