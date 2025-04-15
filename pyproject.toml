@@ -1,32 +1,28 @@
 # pyproject.toml
 
 [project]
-name = "chatline"
-version = "0.2.1"
-description = "A pretty command line interface for LLM chat."
-authors = [
-    { name = "Alex Basile", email = "basileaw@gmail.com" },
-]
-readme = "README.md"
-license = "MIT"
-requires-python = ">=3.12"
+authors = [{name = "Alex Basile", email = "basileaw@gmail.com"}]
 dependencies = [
-    "boto3",
-    "httpx",
-    "rich",
-    "prompt-toolkit",
-    "terminaide (>=0.1.6)",
+  "boto3",
+  "httpx",
+  "rich",
+  "prompt-toolkit",
+  "terminaide (>=0.1.6)",
 ]
+description = "A pretty command line interface for LLM chat."
+license = "MIT"
+name = "chatline"
+readme = "README.md"
+requires-python = ">=3.12"
+version = "0.2.1"
 
 [project.optional-dependencies]
 dev = [
-    "fastapi",
-    "uvicorn",
-    "requests>=2.32.3",
+  "fastapi",
+  "uvicorn",
+  "requests>=2.32.3",
 ]
 
 [build-system]
 build-backend = "poetry.core.masonry.api"
-requires = [
-    "poetry-core",
-]
+requires = ["poetry-core"]
