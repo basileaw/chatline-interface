@@ -144,6 +144,7 @@ class ConversationActions:
             self.logger.error(f"Message processing error: {e}", exc_info=True)
             return "", ""
 
+    
     async def introduce_conversation(self, intro_msg: str) -> Tuple[str, str, str]:
         """
         Show a preface panel (if any), then process the first user message silently.
@@ -287,21 +288,20 @@ class ConversationActions:
     def start_conversation(self, messages: List[Dict[str, str]]) -> None:
         """
         Public entry from Interface.start(), with validated messages:
-         - Possibly a system message at index 0
-         - Multiple user/assistant pairs
-         - Must end on user
-         
-        We'll:
-          1) Identify system_msg if present.
-          2) Insert all but the final user message as "hidden" conversation context 
-             (so the LLM sees them, but they're never displayed to the user).
-          3) The final user message is the one we actually feed into _async_conversation_loop
-             so it triggers a live assistant reply.
+        - Possibly a system message at index 0
+        - Multiple user/assistant pairs
+        - Must end on user (unless empty)
         """
         try:
             # Reset local counters for a fresh start
             self.current_turn = 0
             self.history_index = -1
+            
+            # Handle the case of empty messages
+            if not messages:
+                # Just run the conversation loop with empty system and intro messages
+                asyncio.run(self._async_conversation_loop("", ""))
+                return
 
             # 1) Identify system_msg if present at messages[0]
             idx = 0
@@ -314,8 +314,6 @@ class ConversationActions:
             final_user_msg = messages[-1]["content"]
 
             # 2) Insert all hidden pairs from messages[idx:-1]
-            #    (which should strictly alternate user→assistant→user→assistant ... 
-            #     but we'll handle them in pairs for turn numbering)
             hidden_messages = messages[idx:-1]  # everything except the last user
             turn_count = 0
 
@@ -334,21 +332,16 @@ class ConversationActions:
                     # we can handle it or skip. But by prior validation, that shouldn't happen.
                     i += 1
 
-            # We now have all hidden user–assistant pairs stored in self.messages
-            # Let's update our conversation state so the LLM sees them
-            # We'll do a quick async call:
+            # Update our conversation state
             async def _update_history():
-                sys_prompt = self._get_system_prompt()  # possibly empty if we haven't added system yet
+                sys_prompt = self._get_system_prompt()
                 combined = await self.messages.get_messages(sys_prompt)
                 self.history.update_state(messages=combined)
                 self.history_index = self.history.get_latest_state_index()
 
-            # Because we're in a sync function, we can run that:
             asyncio.run(_update_history())
 
-            # 3) Now we run the normal async conversation loop with the final user message
-            #    system_msg is passed if we have one (so the loop can add it as turn 0),
-            #    final_user_msg is the "intro" user turn, which is processed silently.
+            # 3) Run the normal async conversation loop with the final user message
             asyncio.run(self._async_conversation_loop(system_msg, final_user_msg))
 
         except KeyboardInterrupt:

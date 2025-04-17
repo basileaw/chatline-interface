@@ -156,54 +156,44 @@ class Interface:
         """
         Start the conversation with optional messages.
         
-        The messages list can contain:
-        - An optional system message at the start
-        - Zero or more user/assistant pairs
-        - Must end with a user message (so the next reply can be generated)
+        In remote mode with no messages (None), uses a special initialization message
+        that signals to the server to use its default messages.
         
-        Example of a valid messages list:
+        In embedded mode with no messages (None), uses DEFAULT_MESSAGES.
         
-        [
-          {"role": "system", "content": "You're a friendly AI."},
-          {"role": "user", "content": "Hello!"},
-          {"role": "assistant", "content": "Hi there!"},
-          {"role": "user", "content": "What's up?"}
-        ]
-        
-        Args:
-            messages: List of message dictionaries with roles "system", "user", or "assistant".
-                      If None, default_messages will be used.
-        
-        Raises:
-            ValueError: If invalid roles or ordering, or if not ending in user.
+        An explicitly empty array ([]) will bypass defaults in any mode.
         """
+        # Only apply defaults when messages is explicitly None
         if messages is None:
-            self.logger.debug("No messages provided. Using default messages.")
-            messages = DEFAULT_MESSAGES.copy()
+            if hasattr(self, 'is_remote_mode') and self.is_remote_mode:
+                # For remote mode, use a special initialization message
+                messages = [{"role": "user", "content": "___INIT___"}]
+            else:
+                # For embedded mode, use default messages
+                messages = DEFAULT_MESSAGES.copy()
 
-        if not messages:
-            raise ValueError("Messages list cannot be empty")
+        # Only validate message structure if we have non-empty messages
+        if messages:
+            # Ensure final message is from user
+            if messages[-1]["role"] != "user":
+                raise ValueError("Messages must end with a user message.")
 
-        # Ensure final message is from user
-        if messages[-1]["role"] != "user":
-            raise ValueError("Messages must end with a user message.")
+            # Optional: check if the first message is system
+            has_system = (messages[0]["role"] == "system")
 
-        # Optional: check if the first message is system
-        has_system = (messages[0]["role"] == "system")
+            # We'll start validating from the *first non-system* message
+            start_idx = 1 if has_system else 0
 
-        # We'll start validating from the *first non-system* message
-        start_idx = 1 if has_system else 0
+            # Enforce strict alternating from that point on
+            # e.g. user -> assistant -> user -> assistant -> ...
+            for i in range(start_idx, len(messages)):
+                expected = "user" if i % 2 == start_idx % 2 else "assistant"
+                actual = messages[i]["role"]
+                if actual != expected:
+                    raise ValueError(
+                        f"Invalid role order at index {i}. "
+                        f"Expected '{expected}', got '{actual}'."
+                    )
 
-        # Enforce strict alternating from that point on
-        # e.g. user -> assistant -> user -> assistant -> ...
-        for i in range(start_idx, len(messages)):
-            expected = "user" if i % 2 == start_idx % 2 else "assistant"
-            actual = messages[i]["role"]
-            if actual != expected:
-                raise ValueError(
-                    f"Invalid role order at index {i}. "
-                    f"Expected '{expected}', got '{actual}'."
-                )
-
-        # If we pass all checks, proceed:
+        # Start the conversation
         self.conv.actions.start_conversation(messages)
