@@ -92,7 +92,7 @@ chat.start()
 
 ### Remote Mode (Custom Backend)
 
-You can also connect to a custom backend by providing the endpoint URL:
+You can also connect to a custom backend by providing the endpoint URL. Passing an empty array allows for the initial messages to be instantiated on the backend:
 
 ```python
 from chatline import Interface
@@ -101,10 +101,8 @@ from chatline import Interface
 chat = Interface(endpoint="http://localhost:8000/chat")
 
 # Start the conversation with custom system and user messages
-chat.start()
+chat.start([])
 ```
-
-#### Setting Up a Backend Server
 
 You can use generate_stream function (or build your own) in your backend. Here's an example in a FastAPI server:
 
@@ -117,33 +115,39 @@ from chatline import generate_stream
 
 app = FastAPI()
 
-provider_config = {
-    "model": "mistralai/mixtral-8x7b-instruct"
-}
+CONVERSATION_STARTER = [
+    {"role": "system", "content": "The Assistant is an Alien!!!"},
+    {"role": "user", "content": "Introduce yourself to me!"},
+]
 
 @app.post("/chat")
 async def stream_chat(request: Request):
+    # Parse the request body
     body = await request.json()
-    state = body.get('conversation_state', {})
-    messages = state.get('messages', [])
-    
-    # Process the request and update state as needed
-    state['server_turn'] = state.get('server_turn', 0) + 1
-    
-    # Return streaming response with updated state
+
+    # Get conversation state
+    state = body.get("conversation_state", {}) or {}
+
+    # Get messages directly from the request body
+    messages = body.get("messages", [])
+
+    # Filter out any messages with empty content
+    messages = [msg for msg in messages if msg.get("content", "").strip()]
+
+    if not messages:
+        messages = CONVERSATION_STARTER.copy()
+        state["messages"] = messages
+
+    # Return streaming response with state
     headers = {
-        'Content-Type': 'text/event-stream',
-        'X-Conversation-State': json.dumps(state)
+        "Content-Type": "text/event-stream",
+        "X-Conversation-State": json.dumps(state),
     }
-    
+
     return StreamingResponse(
-        generate_stream(
-            messages, 
-            provider="openrouter",
-            provider_config=provider_config
-        ),
+        generate_stream(messages, provider="bedrock"),
         headers=headers,
-        media_type="text/event-stream"
+        media_type="text/event-stream",
     )
 
 if __name__ == "__main__":
