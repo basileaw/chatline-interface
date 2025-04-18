@@ -1,4 +1,5 @@
 # release.py
+
 import sys
 import time
 import requests
@@ -24,50 +25,6 @@ def run(cmd, check=True):
     return result.stdout.strip()
 
 
-def get_version_from_pyproject():
-    """Extract version directly from pyproject.toml file."""
-    with open("pyproject.toml", "r") as f:
-        content = f.read()
-
-    for line in content.split("\n"):
-        if line.strip().startswith("version = "):
-            return line.split("=")[1].strip().strip('"').strip("'")
-
-    raise ValueError("Could not find version in pyproject.toml")
-
-
-def update_version_in_pyproject(version_type):
-    """Update version in pyproject.toml based on version_type (patch, minor, major)."""
-    current_version = get_version_from_pyproject()
-    parts = current_version.split(".")
-
-    if version_type == "patch":
-        parts[2] = str(int(parts[2]) + 1)
-    elif version_type == "minor":
-        parts[1] = str(int(parts[1]) + 1)
-        parts[2] = "0"
-    elif version_type == "major":
-        parts[0] = str(int(parts[0]) + 1)
-        parts[1] = "0"
-        parts[2] = "0"
-
-    new_version = ".".join(parts)
-
-    with open("pyproject.toml", "r") as f:
-        content = f.readlines()
-
-    with open("pyproject.toml", "w") as f:
-        for line in content:
-            if line.strip().startswith("version = "):
-                version_prefix = line.split("=")[0] + "= "
-                quote = '"' if '"' in line else "'"
-                f.write(f"{version_prefix}{quote}{new_version}{quote}\n")
-            else:
-                f.write(line)
-
-    return new_version
-
-
 def wait_for_pypi(package_name, expected_version, max_retries=12, interval=5):
     spinner = "|/-\\"
     idx = 0
@@ -80,6 +37,7 @@ def wait_for_pypi(package_name, expected_version, max_retries=12, interval=5):
     actions_url = f"{repo_url}/actions"
 
     console.print(f"Waiting for version {expected_version} to appear on PyPI...")
+
     for _ in range(max_retries):
         for _ in range(4):  # 4 ticks per interval
             print(f"\rPolling PyPI {spinner[idx]}", end="", flush=True)
@@ -140,6 +98,7 @@ def confirm_proceed(package_name, current_version, new_version, dry_run):
 
     # Create a panel with a tighter width - 60 characters or content width, whichever is smaller
     panel_width = min(60, max(len(line) for line in confirmation_text.split("\n")))
+
     console.print(
         Panel(
             confirmation_text,
@@ -233,62 +192,50 @@ def main():
         sys.exit(1)
 
     old_commit = run(["git", "rev-parse", "HEAD"])
+    current_version = run(["poetry", "version", "-s"])
 
-    # Get current version from pyproject.toml
-    current_version = get_version_from_pyproject()
-
-    # Calculate new version
     if dry_run:
-        parts = current_version.split(".")
-        if args.type == "patch":
-            parts[2] = str(int(parts[2]) + 1)
-        elif args.type == "minor":
-            parts[1] = str(int(parts[1]) + 1)
-            parts[2] = "0"
-        elif args.type == "major":
-            parts[0] = str(int(parts[0]) + 1)
-            parts[1] = "0"
-            parts[2] = "0"
-        new_version = ".".join(parts)
+        new_version = "<new-version>"
     else:
-        new_version = current_version  # Will be updated later
+        version_output = run(["poetry", "version", args.type, "--dry-run"])
+        new_version = version_output.split()[-1]
 
     if not confirm_proceed(package_name, current_version, new_version, dry_run):
         console.print("[bold red]Aborted by user.")
         sys.exit(0)
 
+    version_cmd = ["poetry", "version", args.type]
     commit_message = f"release {new_version}"
     tag_name = f"v{new_version}"
 
     try:
         if dry_run:
+            console.print(f"[bold yellow][DRY-RUN] Would run: {' '.join(version_cmd)}")
+            console.print(f"[bold yellow][DRY-RUN] Would run: poetry lock")
             console.print(
-                f"[bold yellow][DRY-RUN] Would update version from {current_version} to {new_version} in pyproject.toml"
+                f"[bold yellow][DRY-RUN] Would git add pyproject.toml poetry.lock"
             )
-            console.print(f"[bold yellow][DRY-RUN] Would git add pyproject.toml")
             console.print(
                 f"[bold yellow][DRY-RUN] Would commit with message: '{commit_message}'"
             )
             console.print(f"[bold yellow][DRY-RUN] Would create git tag: '{tag_name}'")
             console.print(f"[bold yellow][DRY-RUN] Would push commit and tag to origin")
         else:
-            # Update the version in pyproject.toml
-            new_version = update_version_in_pyproject(args.type)
-            console.print(
-                f"Updated version from {current_version} to {new_version} in pyproject.toml"
-            )
-
-            # Commit the changes
-            run(["git", "add", "pyproject.toml"])
+            run(version_cmd)
+            new_version = run(["poetry", "version", "-s"])
+            # Add poetry lock step
+            console.print("Updating poetry.lock file...")
+            run(["poetry", "lock"])
+            # Add both files to git
+            run(["git", "add", "pyproject.toml", "poetry.lock"])
             run(["git", "commit", "-m", commit_message])
             run(["git", "tag", tag_name])
-
             console.print(f"Pushing commit and tag '{tag_name}' to origin...")
             run(["git", "push", "origin", "HEAD"])
             run(["git", "push", "origin", tag_name])
-
             if not args.skip_pypi_check:
                 wait_for_pypi(package_name, new_version)
+
     except subprocess.CalledProcessError as e:
         console.print("[bold red]Error occurred during release process.")
         console.print(f"Command: {' '.join(e.cmd)}")
@@ -296,7 +243,6 @@ def main():
             console.print(f"Output:\n{e.output}")
         if e.stderr:
             console.print(f"Error:\n{e.stderr}")
-
         if not dry_run:
             console.print("[yellow]Rolling back changes...")
             run(["git", "checkout", "pyproject.toml"], check=False)
