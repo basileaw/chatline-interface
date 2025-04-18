@@ -52,6 +52,39 @@ class ConversationActions:
         """Handle conversation state updates from a remote provider."""
         if self.logger:
             self.logger.debug("Received state update from backend")
+        
+        # CRITICAL FIX: Ensure messages from state are properly incorporated into local tracking
+        if "messages" in new_state and new_state["messages"]:
+            state_messages = new_state["messages"]
+            current_messages = self.messages.messages
+            
+            # If we have fewer messages locally than in the state, update from state
+            if len(state_messages) > len(current_messages):
+                # Clear existing messages to avoid duplication
+                self.messages.messages.clear()
+                
+                # Add messages from state with proper turn numbering
+                turn = 0
+                for msg in state_messages:
+                    role = msg["role"]
+                    content = msg["content"]
+                    
+                    # System message is turn 0, user/assistant pairs share turn numbers
+                    if role == "system":
+                        self.messages.add_message(role, content, 0)
+                    else:
+                        # For user/assistant messages, increment turn for user messages
+                        if role == "user":
+                            turn += 1
+                        self.messages.add_message(role, content, turn)
+                
+                # Update current turn counter
+                self.current_turn = turn
+                
+                if self.logger:
+                    self.logger.debug(f"Updated internal message tracking from state: {len(state_messages)} messages")
+        
+        # Original code: Update the state in the history
         self.history.update_state(**new_state)
 
     def _wrap_terminal_style(self, text: str, width: int) -> str:

@@ -26,6 +26,18 @@ class RemoteStream:
             if self.logger:
                 self.logger.debug(f"Starting remote stream request with {len(messages)} messages")
 
+            # CRITICAL FIX: Ensure we include all messages from state if present
+            # This is crucial when the server injects system prompt and initial user message
+            if state and "messages" in state and state["messages"]:
+                state_messages = state["messages"]
+                
+                # If the state has more messages than our current list, use those
+                # This helps preserve server-injected system prompts and initial messages
+                if len(state_messages) > len(messages):
+                    messages = state_messages
+                    if self.logger:
+                        self.logger.debug(f"Using complete messages from state: {len(messages)} messages")
+
             payload = {
                 'messages': messages,
                 'conversation_state': state
