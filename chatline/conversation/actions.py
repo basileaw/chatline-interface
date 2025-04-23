@@ -3,8 +3,10 @@
 from typing import List, Tuple, Dict, Any
 import asyncio
 
+
 class ConversationActions:
     """Manages conversation flow and actions."""
+
     def __init__(self, display, stream, history, messages, preface, logger):
         self.display = display
         self.terminal = display.terminal
@@ -16,19 +18,19 @@ class ConversationActions:
         self.messages = messages
         self.preface = preface
         self.logger = logger
-        
+
         # UI-specific state
         self.is_silent = False
         self.prompt = ""
         self.last_user_input = ""
         self.preconversation_styled = ""
-        
+
         # Local turn tracking (independent from conversation state)
         self.current_turn = 0
         self.history_index = -1
-        
+
         # Detect remote vs. embedded mode (for generator usage)
-        self.is_remote_mode = hasattr(stream, 'endpoint')
+        self.is_remote_mode = hasattr(stream, "endpoint")
         if self.is_remote_mode:
             self.logger.debug("Using remote mode for message generation")
         else:
@@ -52,23 +54,23 @@ class ConversationActions:
         """Handle conversation state updates from a remote provider."""
         if self.logger:
             self.logger.debug("Received state update from backend")
-        
+
         # CRITICAL FIX: Ensure messages from state are properly incorporated into local tracking
         if "messages" in new_state and new_state["messages"]:
             state_messages = new_state["messages"]
             current_messages = self.messages.messages
-            
+
             # If we have fewer messages locally than in the state, update from state
             if len(state_messages) > len(current_messages):
                 # Clear existing messages to avoid duplication
                 self.messages.messages.clear()
-                
+
                 # Add messages from state with proper turn numbering
                 turn = 0
                 for msg in state_messages:
                     role = msg["role"]
                     content = msg["content"]
-                    
+
                     # System message is turn 0, user/assistant pairs share turn numbers
                     if role == "system":
                         self.messages.add_message(role, content, 0)
@@ -77,13 +79,15 @@ class ConversationActions:
                         if role == "user":
                             turn += 1
                         self.messages.add_message(role, content, turn)
-                
+
                 # Update current turn counter
                 self.current_turn = turn
-                
+
                 if self.logger:
-                    self.logger.debug(f"Updated internal message tracking from state: {len(state_messages)} messages")
-        
+                    self.logger.debug(
+                        f"Updated internal message tracking from state: {len(state_messages)} messages"
+                    )
+
         # Original code: Update the state in the history
         self.history.update_state(**new_state)
 
@@ -98,7 +102,7 @@ class ConversationActions:
             chunk = remaining_text[:width]
             wrapped_chunks.append(chunk)
             remaining_text = remaining_text[width:]
-        return '\n'.join(wrapped_chunks)
+        return "\n".join(wrapped_chunks)
 
     async def _process_message(self, msg: str, silent: bool = False) -> Tuple[str, str]:
         """
@@ -107,7 +111,7 @@ class ConversationActions:
         """
         try:
             self.current_turn += 1
-            
+
             # Add the user message
             self.messages.add_message("user", msg, self.current_turn)
             self.last_user_input = msg
@@ -119,11 +123,10 @@ class ConversationActions:
             self.history_index = self.history.get_latest_state_index()
 
             # Output user text if not silent
-            self.style.set_output_color('GREEN')
+            self.style.set_output_color("GREEN")
             prompt_text = "" if silent else f"> {msg}"
             loader = self.animations.create_dot_loader(
-                prompt=prompt_text,
-                no_animation=silent
+                prompt=prompt_text, no_animation=silent
             )
 
             # Prepare generator call
@@ -137,22 +140,20 @@ class ConversationActions:
                     self.generator(
                         messages=msgs_for_generation,
                         state=current_state,
-                        state_callback=self._handle_state_update
+                        state_callback=self._handle_state_update,
                     )
                 )
             else:
                 # Embedded mode
                 self.logger.debug("Calling embedded generator with messages only")
                 raw, styled = await loader.run_with_loading(
-                    self.generator(
-                        messages=msgs_for_generation
-                    )
+                    self.generator(messages=msgs_for_generation)
                 )
 
             # Store assistant reply
             if raw:
                 self.messages.add_message("assistant", raw, self.current_turn)
-                
+
                 new_state_msgs = await self.messages.get_messages(sys_prompt)
                 self.history.update_state(messages=new_state_msgs)
                 self.history_index = self.history.get_latest_state_index()
@@ -165,7 +166,9 @@ class ConversationActions:
                     elif msg.endswith("."):
                         end_char = "..."
                     prompt_line = f"> {msg.rstrip('?.!')}{end_char}"
-                    wrapped_prompt = self._wrap_terminal_style(prompt_line, self.terminal.width)
+                    wrapped_prompt = self._wrap_terminal_style(
+                        prompt_line, self.terminal.width
+                    )
                     full_styled = f"{wrapped_prompt}\n\n{styled}"
                     return raw, full_styled
                 else:
@@ -177,14 +180,13 @@ class ConversationActions:
             self.logger.error(f"Message processing error: {e}", exc_info=True)
             return "", ""
 
-    
     async def introduce_conversation(self, intro_msg: str) -> Tuple[str, str, str]:
         """
         Show a preface panel (if any), then process the first user message silently.
         Returns (raw_assistant_reply, combined_styled_text, empty_string_for_prompt).
         """
         self.terminal.hide_cursor()
-        
+
         styled_panel = await self.preface.format_content(self.style)
         styled_panel = self.style.append_single_blank_line(styled_panel)
         if styled_panel.strip():
@@ -194,7 +196,7 @@ class ConversationActions:
         raw, assistant_styled = await self._process_message(intro_msg, silent=True)
         full_styled = styled_panel + assistant_styled
         await self.terminal.update_display(full_styled)
-        
+
         self.is_silent = True
         self.prompt = ""
         self.preconversation_styled = styled_panel
@@ -202,12 +204,14 @@ class ConversationActions:
 
         return raw, full_styled, ""
 
-    async def process_user_message(self, user_input: str, intro_styled: str) -> Tuple[str, str, str]:
+    async def process_user_message(
+        self, user_input: str, intro_styled: str
+    ) -> Tuple[str, str, str]:
         """
         Process a normal user message (visible in the terminal).
         """
         scroller = self.animations.create_scroller()
-        await scroller.scroll_up(intro_styled, f"> {user_input}", 0.035)
+        await scroller.scroll_up(intro_styled, f"> {user_input}", 0.02)
 
         raw, styled = await self._process_message(user_input, silent=False)
         self.is_silent = False
@@ -216,21 +220,21 @@ class ConversationActions:
         self.preconversation_styled = ""
         return raw, styled, self.prompt
 
-    async def backtrack_conversation(self, intro_styled: str, is_retry: bool = False) -> Tuple[str, str, str]:
+    async def backtrack_conversation(
+        self, intro_styled: str, is_retry: bool = False
+    ) -> Tuple[str, str, str]:
         """
-        Return to the previous user message, remove that user/assistant pair, 
+        Return to the previous user message, remove that user/assistant pair,
         then re-process or let the user edit it.
         """
         rev_streamer = self.animations.create_reverse_streamer()
         await rev_streamer.reverse_stream(
-            intro_styled,
-            "",
-            preconversation_text=self.preface.styled_content
+            intro_styled, "", preconversation_text=self.preface.styled_content
         )
 
         last_msg = next(
             (m.content for m in reversed(self.messages.messages) if m.role == "user"),
-            None
+            None,
         )
         if not last_msg:
             return "", intro_styled, ""
@@ -243,15 +247,17 @@ class ConversationActions:
                 break
         if user_idx is not None:
             # If next message is assistant, remove both
-            if (user_idx + 1 < len(self.messages.messages)
-                and self.messages.messages[user_idx + 1].role == "assistant"):
-                del self.messages.messages[user_idx:user_idx + 2]
+            if (
+                user_idx + 1 < len(self.messages.messages)
+                and self.messages.messages[user_idx + 1].role == "assistant"
+            ):
+                del self.messages.messages[user_idx : user_idx + 2]
                 self.current_turn -= 1
                 if self.history_index > 0:
                     self.history_index -= 1
                     self.history.restore_state_by_index(self.history_index)
             else:
-                del self.messages.messages[user_idx:user_idx + 1]
+                del self.messages.messages[user_idx : user_idx + 1]
                 self.current_turn -= 1
                 if self.history_index > 0:
                     self.history_index -= 1
@@ -266,8 +272,7 @@ class ConversationActions:
             raw, styled = await self._process_message(last_msg, silent=False)
         else:
             new_input = await self.terminal.get_user_input(
-                default_text=last_msg,
-                add_newline=False
+                default_text=last_msg, add_newline=False
             )
             if not new_input:
                 return "", intro_styled, ""
@@ -280,7 +285,7 @@ class ConversationActions:
 
     async def _async_conversation_loop(self, system_msg: str, intro_msg: str):
         """
-        Main conversation loop: 
+        Main conversation loop:
          - Add system message (turn 0),
          - Process the first user message silently,
          - Then prompt for further input or let user edit.
@@ -329,7 +334,7 @@ class ConversationActions:
             # Reset local counters for a fresh start
             self.current_turn = 0
             self.history_index = -1
-            
+
             # Handle the case of empty messages
             if not messages:
                 # Just run the conversation loop with empty system and intro messages
@@ -354,11 +359,18 @@ class ConversationActions:
             while i < len(hidden_messages):
                 if hidden_messages[i]["role"] == "user":
                     turn_count += 1
-                    self.messages.add_message("user", hidden_messages[i]["content"], turn_count)
+                    self.messages.add_message(
+                        "user", hidden_messages[i]["content"], turn_count
+                    )
                     i += 1
                     # If next is assistant, same turn_count
-                    if i < len(hidden_messages) and hidden_messages[i]["role"] == "assistant":
-                        self.messages.add_message("assistant", hidden_messages[i]["content"], turn_count)
+                    if (
+                        i < len(hidden_messages)
+                        and hidden_messages[i]["role"] == "assistant"
+                    ):
+                        self.messages.add_message(
+                            "assistant", hidden_messages[i]["content"], turn_count
+                        )
                         i += 1
                 else:
                     # If for some reason the next message is "assistant" w/o a user,
