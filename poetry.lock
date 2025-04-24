@@ -56,17 +56,17 @@ lxml = ["lxml"]
 
 [[package]]
 name = "boto3"
-version = "1.38.0"
+version = "1.38.1"
 description = "The AWS SDK for Python"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "boto3-1.38.0-py3-none-any.whl", hash = "sha256:96898facb164b47859d40a4271007824a0a791c3811a7079ce52459d753d4474"},
-    {file = "boto3-1.38.0.tar.gz", hash = "sha256:8b6544eca17e31d1bfd538e5d152b96a68d6c92950352a0cd9679f89d217d53a"},
+    {file = "boto3-1.38.1-py3-none-any.whl", hash = "sha256:f192a4a34885a9e3e970b5ce5e6bec947be0f3fe6c4693b2a737c14407b12a5a"},
+    {file = "boto3-1.38.1.tar.gz", hash = "sha256:988e7fae7fd4d59798f84604d73a3a019c07b048f746c7c40258c0e656473887"},
 ]
 
 [package.dependencies]
-botocore = ">=1.38.0,<1.39.0"
+botocore = ">=1.38.1,<1.39.0"
 jmespath = ">=0.7.1,<2.0.0"
 s3transfer = ">=0.12.0,<0.13.0"
 
@@ -75,13 +75,13 @@ crt = ["botocore[crt] (>=1.21.0,<2.0a0)"]
 
 [[package]]
 name = "botocore"
-version = "1.38.0"
+version = "1.38.1"
 description = "Low-level, data-driven core of boto 3."
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "botocore-1.38.0-py3-none-any.whl", hash = "sha256:f9d58404796a44746d54c4a9318a8970fb4dbcbdc45aa0e75bf528af4213b6b5"},
-    {file = "botocore-1.38.0.tar.gz", hash = "sha256:ac8997291bcfd28d329a779ceda429fbe9f8950ba051429a37ba93cbda025e94"},
+    {file = "botocore-1.38.1-py3-none-any.whl", hash = "sha256:b1673975e3c42d0e2d1804f9f73e88961e95eac371c8f8c0a0d7e661ec3c90c3"},
+    {file = "botocore-1.38.1.tar.gz", hash = "sha256:c2eb42eeaa502f236ba894a65ea7f7241711150cc450b9d59fbbad41e741adc0"},
 ]
 
 [package.dependencies]
@@ -759,13 +759,13 @@ full = ["httpx (>=0.27.0,<0.29.0)", "itsdangerous", "jinja2", "python-multipart 
 
 [[package]]
 name = "terminaide"
-version = "0.2.1"
+version = "0.3.1"
 description = "Serve Python CLI applications in the browser using ttyd"
 optional = false
 python-versions = ">=3.12"
 files = [
-    {file = "terminaide-0.2.1-py3-none-any.whl", hash = "sha256:ad5d956f4c615239c44ec74aeb660323efa901c7580b77be15278b5283f55884"},
-    {file = "terminaide-0.2.1.tar.gz", hash = "sha256:c6b71b3805f4b0430a60843b1b05054913514f0319ae92461a7b5ceecea225db"},
+    {file = "terminaide-0.3.1-py3-none-any.whl", hash = "sha256:600db038307a1985c1b8f7a065b5a7e6bad86de9317350d92b5a5251c187e87c"},
+    {file = "terminaide-0.3.1.tar.gz", hash = "sha256:9177369fa281cddb5c7207ad28a708e5cfd0db925faece49ac082ca8faaa3d37"},
 ]
 
 [package.dependencies]
