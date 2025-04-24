@@ -42,9 +42,14 @@ class StyleEngine:
 
     def get_visible_length(self, text: str) -> int:
         """Return visible text length (ignores ANSI codes and box chars)."""
-        text = re.sub(r'\x1B\[[0-?]*[ -/]*[@-~]', '', text)  # Remove ANSI sequences
-        for c in self.definitions.box_chars:  # Remove box drawing chars
+        # More comprehensive ANSI regex that works better with XTerm.js
+        text = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', text)
+        
+        # Remove box drawing chars
+        for c in self.definitions.box_chars:
             text = text.replace(c, '')
+            
+        # Cache the result to avoid recalculation
         return len(text)
 
     def get_format(self, name: str) -> str:
