@@ -8,7 +8,7 @@ A lightweight CLI library for building terminal-based LLM chat interfaces with m
 - **Multiple Providers**: Run with AWS Bedrock, OpenRouter, or connect to a custom backend
 - **Keyboard Shortcuts**: Ctrl+E to edit previous message, Ctrl+R to retry
 
-![](https://raw.githubusercontent.com/anotherbazeinthewall/chatline-interface/main/demo.gif)
+![](https://raw.githubusercontent.com/bazeindustries/chatline-interface/main/demo.gif)
 
 ## Installation
 
