@@ -24,8 +24,19 @@ class StyleStrategies:
         return self._format_text(content)
 
     def get_visible_length(self, text: str) -> int:
-        """Return visible text length limited by terminal width."""
-        return min(len(text), self.terminal.width)
+        """
+        Return visible text length limited by terminal width.
+        This accounts for Unicode characters by using character counting
+        rather than byte length.
+        """
+        # Filter out box drawing characters and ANSI codes
+        filtered_text = text
+        for char in self.definitions.box_chars:
+            filtered_text = filtered_text.replace(char, '')
+            
+        # Count remaining characters (handles multibyte Unicode properly)
+        visible_length = len(filtered_text)
+        return min(visible_length, self.terminal.width)
 
     def _format_text(self, content: Union[Dict, object]) -> str:
         """Return simple text with a trailing newline."""

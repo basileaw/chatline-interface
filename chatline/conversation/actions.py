@@ -291,12 +291,15 @@ class ConversationActions:
          - Then prompt for further input or let user edit.
         """
         try:
-            # Possibly add the system message as the first turn (turn 0)
+            # FIXED: Check if system message already exists before adding
             if system_msg:
-                self.messages.add_message("system", system_msg, 0)
-                sys_msgs = await self.messages.get_messages()
-                self.history.update_state(messages=sys_msgs)
-                self.history_index = self.history.get_latest_state_index()
+                # Check if we already have a system message
+                has_system = any(m.role == "system" for m in self.messages.messages)
+                if not has_system:
+                    self.messages.add_message("system", system_msg, 0)
+                    sys_msgs = await self.messages.get_messages()
+                    self.history.update_state(messages=sys_msgs)
+                    self.history_index = self.history.get_latest_state_index()
 
             # Process the "intro" user message in silent mode
             _, intro_styled, _ = await self.introduce_conversation(intro_msg)
@@ -346,6 +349,8 @@ class ConversationActions:
             system_msg = ""
             if messages[0]["role"] == "system":
                 system_msg = messages[0]["content"]
+                # CRITICAL FIX: Add system message immediately to self.messages
+                self.messages.add_message("system", system_msg, 0)
                 idx = 1
 
             # The final user message is always the last item
@@ -387,7 +392,8 @@ class ConversationActions:
             asyncio.run(_update_history())
 
             # 3) Run the normal async conversation loop with the final user message
-            asyncio.run(self._async_conversation_loop(system_msg, final_user_msg))
+            # CRITICAL FIX: Always pass empty string for system_msg to avoid duplication
+            asyncio.run(self._async_conversation_loop("", final_user_msg))
 
         except KeyboardInterrupt:
             self.logger.info("User interrupted")

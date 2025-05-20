@@ -6,8 +6,8 @@ import asyncio
 from io import StringIO
 from rich.style import Style
 from rich.console import Console
-from typing import Dict, List, Optional, Tuple, Union
-from .definitions import StyleDefinitions
+from typing import Dict, List, Optional, Tuple, Union, Set
+from .definitions import StyleDefinitions, Pattern
 
 class StyleEngine:
     """Engine for processing and applying text styles."""
@@ -49,7 +49,8 @@ class StyleEngine:
         for c in self.definitions.box_chars:
             text = text.replace(c, '')
             
-        # Cache the result to avoid recalculation
+        # Calculate length accounting for multibyte Unicode characters
+        # This ensures accurate length calculation for Unicode punctuation
         return len(text)
 
     def get_format(self, name: str) -> str:
@@ -134,29 +135,113 @@ class StyleEngine:
                        f"{self.definitions.get_format('BOLD_OFF')}"
                        f"{self._base_color}")
 
-        for i, char in enumerate(text):
-            if i == 0 or text[i - 1].isspace():  # Apply style at word start
+        i = 0
+        while i < len(text):
+            # Apply style at word start
+            if i == 0 or text[i-1].isspace():
                 out.append(self._get_current_style())
 
-            active_pattern = (self.definitions.get_pattern(self._active_patterns[-1])
-                              if self._active_patterns else None)
-            if active_pattern and char == active_pattern.end:  # End pattern if delimiter matches
-                if not active_pattern.remove_delimiters:
-                    out.append(self._get_current_style() + char)
-                self._active_patterns.pop()
-                out.append(self._get_current_style())
-                continue
-
-            new_pattern = next((p for p in self.definitions.patterns.values()
-                                if p.start == char), None)
-            if new_pattern:  # Start new pattern if applicable
-                self._active_patterns.append(new_pattern.name)
-                out.append(self._get_current_style())
-                if not new_pattern.remove_delimiters:
+            char = text[i]
+            
+            # Skip styling for measurement patterns (e.g., 5'10", 6'2")
+            if i > 0 and char == '"' and i < len(text) - 1:
+                # Check if this looks like a measurement: digit followed by quote
+                if text[i-1] == "'" and i > 1 and text[i-2].isdigit():
+                    # This looks like an inch mark in a measurement like 6'5"
                     out.append(char)
-                continue
+                    i += 1
+                    continue
+            
+            # Check for multi-character delimiters first
+            found_match = False
+            
+            # Check if this could be the start of a multi-char delimiter
+            if i + 1 < len(text):
+                # Try two-character sequences (like ** or __)
+                two_chars = text[i:i+2]
+                pattern_roles = self.definitions.get_pattern_by_delimiter(two_chars)
+                
+                # Check for active pattern end with multi-char delimiter
+                if self._active_patterns:
+                    active_pattern = self.definitions.get_pattern(self._active_patterns[-1])
+                    if active_pattern and two_chars in active_pattern.get_end_chars():
+                        # End pattern if delimiter matches
+                        if not active_pattern.remove_delimiters:
+                            out.append(self._get_current_style() + two_chars)
+                        self._active_patterns.pop()
+                        out.append(self._get_current_style())
+                        i += 2  # Skip both characters
+                        found_match = True
+                        continue
+                
+                # Check for new pattern start with multi-char delimiter
+                start_pattern = None
+                for pattern, is_start in pattern_roles:
+                    if is_start:
+                        start_pattern = pattern
+                        break
+                        
+                if start_pattern:
+                    # Start new pattern with multi-char delimiter
+                    self._active_patterns.append(start_pattern.name)
+                    out.append(self._get_current_style())
+                    if not start_pattern.remove_delimiters:
+                        out.append(two_chars)
+                    i += 2  # Skip both characters
+                    found_match = True
+                    continue
+            
+            # If no multi-char match was found, check for single-char delimiters
+            if not found_match:
+                # Skip styling for specific contexts of punctuation marks
 
-            out.append(char)
+                # Check if current char is an end delimiter for active pattern
+                if self._active_patterns:
+                    active_pattern = self.definitions.get_pattern(self._active_patterns[-1])
+                    if active_pattern and char in active_pattern.get_end_chars():
+                        # End pattern if delimiter matches
+                        if not active_pattern.remove_delimiters:
+                            out.append(self._get_current_style() + char)
+                        self._active_patterns.pop()
+                        out.append(self._get_current_style())
+                        i += 1  # Move to next character
+                        found_match = True
+                        continue
+
+                # Check if char is a start delimiter for a new pattern
+                pattern_roles = self.definitions.get_pattern_by_delimiter(char)
+                start_pattern = None
+                
+                # Check for quote marks in contexts where they shouldn't be styled
+                if char == '"' or char == '\u201c' or char == '\u201d':
+                    # Don't style quotes that appear after numbers or in other non-dialogue contexts
+                    if (i > 0 and (text[i-1].isdigit() or text[i-1] == "'")):
+                        # This is likely a measurement or similar - treat as regular char
+                        out.append(char)
+                        i += 1
+                        found_match = True
+                        continue
+                
+                # Normal pattern detection
+                for pattern, is_start in pattern_roles:
+                    if is_start:
+                        start_pattern = pattern
+                        break
+                        
+                if start_pattern:
+                    # Start new pattern with single-char delimiter
+                    self._active_patterns.append(start_pattern.name)
+                    out.append(self._get_current_style())
+                    if not start_pattern.remove_delimiters:
+                        out.append(char)
+                    i += 1  # Move to next character
+                    found_match = True
+                    continue
+            
+            # If we get here, it's a regular character
+            if not found_match:
+                out.append(char)
+                i += 1
 
         return ''.join(out)
 

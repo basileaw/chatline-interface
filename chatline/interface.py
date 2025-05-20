@@ -26,6 +26,7 @@ class Interface:
                  origin_port: Optional[int] = None,
                  logging_enabled: bool = False,
                  log_file: Optional[str] = None,
+                 history_file: Optional[str] = None,
                  aws_config: Optional[Dict[str, Any]] = None,
                  provider: str = DEFAULT_PROVIDER,
                  provider_config: Optional[Dict[str, Any]] = None):
@@ -41,6 +42,8 @@ class Interface:
                          If None, uses default ports.
             logging_enabled: Enable detailed logging.
             log_file: Path to log file. Use "-" for stdout.
+            history_file: Path to conversation history JSON file. If None, defaults to
+                          "conversation_history.json" in the same directory as log_file.
             aws_config: (Legacy) AWS configuration dictionary with keys like:
                         - region: AWS region for Bedrock
                         - profile_name: AWS profile to use
@@ -60,6 +63,7 @@ class Interface:
                               origin_port,
                               logging_enabled,
                               log_file,
+                              history_file,
                               provider,
                               provider_config)
 
@@ -70,13 +74,14 @@ class Interface:
                          origin_port: Optional[int],
                          logging_enabled: bool,
                          log_file: Optional[str],
+                         history_file: Optional[str],
                          provider: str = DEFAULT_PROVIDER,
                          provider_config: Optional[Dict[str, Any]] = None) -> None:
         """
         Internal helper to initialize logger, display, stream, and conversation components.
         """
         try:
-            self.logger = Logger(__name__, logging_enabled, log_file)
+            self.logger = Logger(__name__, logging_enabled, log_file, history_file)
             self.display = Display()
 
             # Handle same-origin case

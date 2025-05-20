@@ -55,7 +55,7 @@ class EmbeddedStream:
             
             async for chunk in generator_func(messages, **generator_kwargs):
                 if self.logger:
-                    self.logger.debug(f"Generated chunk: {chunk[:50]}...")
+                    self.logger.debug(f"Generated chunk: {chunk.rstrip()}")
                 yield chunk
                 
         except Exception as e:
