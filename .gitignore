@@ -10,3 +10,4 @@ dist/
 
 test.py
 messages.json
+.aider*
