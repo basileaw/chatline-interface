@@ -8,7 +8,7 @@ from .preface import ConversationPreface
 class Conversation:
     """Container for conversation components and actions."""
 
-    def __init__(self, display, stream, logger):
+    def __init__(self, display, stream, logger, conclusion_string=None):
         # Provide logger so history can do logger.write_json(...)
         self.history = ConversationHistory(logger=logger)
         self.messages = ConversationMessages()
@@ -19,7 +19,8 @@ class Conversation:
             history=self.history,
             messages=self.messages,
             preface=self.preface,
-            logger=logger
+            logger=logger,
+            conclusion_string=conclusion_string
         )
 
 __all__ = ['Conversation']
