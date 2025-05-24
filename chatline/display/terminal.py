@@ -226,16 +226,20 @@ class DisplayTerminal:
 
         return 1 + additional_lines
 
-    def _read_line_raw(self):
+    def _read_line_raw(self, prompt_prefix: Optional[str] = None, prompt_separator: Optional[str] = None):
         """
         Read a line of input in raw mode with full keyboard shortcut support and arrow key navigation.
         """
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
         try:
+            # Use provided prompt components or fall back to instance variables
+            current_prefix = prompt_prefix if prompt_prefix is not None else self._prompt_prefix
+            current_separator = prompt_separator if prompt_separator is not None else self._prompt_separator
+            
             # Reset text attributes and apply default style before displaying prompt
-            styled_prompt = f"{self._reset_style}{self._default_style}{self._prompt_prefix}{self._prompt_separator}"
-            prompt_len = len(self._prompt_prefix) + len(self._prompt_separator)
+            styled_prompt = f"{self._reset_style}{self._default_style}{current_prefix}{current_separator}"
+            prompt_len = len(current_prefix) + len(current_separator)
             self.write(styled_prompt)
             self.show_cursor()
             # Switch to raw mode
@@ -427,7 +431,12 @@ class DisplayTerminal:
             self.hide_cursor()  # Always hide cursor when done with input
 
     async def get_user_input(
-        self, default_text: str = "", add_newline: bool = True, hide_cursor: bool = True
+        self, 
+        default_text: str = "", 
+        add_newline: bool = True, 
+        hide_cursor: bool = True,
+        prompt_prefix: Optional[str] = None,
+        prompt_separator: Optional[str] = None
     ) -> str:
         """
         Hybrid input system that preserves cursor blinking in normal mode.
@@ -438,6 +447,8 @@ class DisplayTerminal:
             default_text: Pre-filled text for edit mode
             add_newline: Whether to add a newline before prompt
             hide_cursor: Whether to hide cursor after input
+            prompt_prefix: Optional temporary prompt prefix override
+            prompt_separator: Optional temporary prompt separator override
 
         Returns:
             User input string (without prompt)
@@ -451,12 +462,17 @@ class DisplayTerminal:
                 self.write(self._reset_style + self._default_style)
                 # For edit mode: Use full prompt_toolkit capabilities
                 self.show_cursor()
+                
+                # Use provided prompt components or fall back to instance variables
+                current_prefix = prompt_prefix if prompt_prefix is not None else self._prompt_prefix
+                current_separator = prompt_separator if prompt_separator is not None else self._prompt_separator
+                
                 result = await self.prompt_session.prompt_async(
                     FormattedText(
                         [
                             (
                                 "class:prompt",
-                                f"{self._prompt_prefix}{self._prompt_separator}",
+                                f"{current_prefix}{current_separator}",
                             )
                         ]
                     ),
@@ -469,9 +485,12 @@ class DisplayTerminal:
                     self.hide_cursor()
                 return result.strip()
             else:
-                # For standard input, use our custom raw mode handling
+                # For standard input, use our custom raw mode handling with prompt overrides
                 result = await asyncio.get_event_loop().run_in_executor(
-                    None, self._read_line_raw
+                    None, 
+                    self._read_line_raw,
+                    prompt_prefix,
+                    prompt_separator
                 )
                 # Hide cursor is now handled directly in _read_line_raw
                 # Check for special commands
@@ -481,7 +500,10 @@ class DisplayTerminal:
                 while not result.strip():
                     self.write_line()
                     result = await asyncio.get_event_loop().run_in_executor(
-                        None, self._read_line_raw
+                        None, 
+                        self._read_line_raw,
+                        prompt_prefix,
+                        prompt_separator
                     )
                     if result in ["edit", "retry", "exit"]:
                         return result
