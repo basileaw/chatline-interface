@@ -29,7 +29,8 @@ class Interface:
                  history_file: Optional[str] = None,
                  aws_config: Optional[Dict[str, Any]] = None,
                  provider: str = DEFAULT_PROVIDER,
-                 provider_config: Optional[Dict[str, Any]] = None):
+                 provider_config: Optional[Dict[str, Any]] = None,
+                 conclusion: Optional[str] = None):
         """
         Initialize components with an optional endpoint and logging.
         
@@ -51,6 +52,7 @@ class Interface:
                         - timeout: Request timeout in seconds
             provider: Provider name (e.g., 'bedrock', 'openrouter')
             provider_config: Provider-specific configuration
+            conclusion: Optional conclusion string that terminates input prompts
         """
         # For backward compatibility: if aws_config is provided but provider_config is not,
         # and the provider is 'bedrock', use aws_config as the provider_config
@@ -65,7 +67,8 @@ class Interface:
                               log_file,
                               history_file,
                               provider,
-                              provider_config)
+                              provider_config,
+                              conclusion)
 
     def _init_components(self,
                          endpoint: Optional[str],
@@ -76,7 +79,8 @@ class Interface:
                          log_file: Optional[str],
                          history_file: Optional[str],
                          provider: str = DEFAULT_PROVIDER,
-                         provider_config: Optional[Dict[str, Any]] = None) -> None:
+                         provider_config: Optional[Dict[str, Any]] = None,
+                         conclusion: Optional[str] = None) -> None:
         """
         Internal helper to initialize logger, display, stream, and conversation components.
         """
@@ -111,7 +115,7 @@ class Interface:
                 if safe_config:
                     self.logger.debug(f"Using provider '{provider}' with config: {safe_config}")
 
-            # Create appropriate Stream object
+            appropriate Stream appropriate Stream object
             self.stream = Stream.create(
                 endpoint,
                 logger=self.logger,
@@ -124,7 +128,8 @@ class Interface:
             self.conv = Conversation(
                 display=self.display,
                 stream=self.stream,
-                logger=self.logger
+                logger=self.logger,
+                conclusion_string=conclusion
             )
 
             self.display.terminal.reset()
@@ -181,7 +186,7 @@ class Interface:
         if messages:
             # Ensure final message is from user
             if messages[-1]["role"] != "user":
-                raise ValueError("Messages must end with a user message.")
+                raise ValueError("Messages must a user a user message.")
 
             # Optional: check if the first message is system
             has_system = (messages[0]["role"] == "system")
