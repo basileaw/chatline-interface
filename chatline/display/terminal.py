@@ -7,6 +7,7 @@ import tty
 import fcntl
 import os
 from dataclasses import dataclass
+from typing import Optional
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.validation import Validator, ValidationError
