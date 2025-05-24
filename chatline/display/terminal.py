@@ -253,6 +253,20 @@ class DisplayTerminal:
                     self.write("\r\n")
                     self.hide_cursor()  # Hide immediately on command
                     return "retry"
+                elif c == b"\x10":  # Ctrl+P
+                    # Only work if input buffer is empty
+                    if not input_chars:
+                        continue_text = "[CONTINUE]"
+                        # Display the text in the input field
+                        self.write(continue_text)
+                        # Set input_chars to the continue text
+                        input_chars = list(continue_text)
+                        cursor_pos = len(input_chars)
+                        # Immediately submit (simulate Enter press)
+                        self.write("\r\n")
+                        self.hide_cursor()  # Hide cursor immediately on submit
+                        return "".join(input_chars)
+                    # If there's already input, ignore Ctrl+P
                 elif c == b"\x03":  # Ctrl+C
                     self.write("^C\r\n")
                     self.hide_cursor()  # Hide immediately on interrupt
