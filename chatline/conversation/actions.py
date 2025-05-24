@@ -7,7 +7,7 @@ import asyncio
 class ConversationActions:
     """Manages conversation flow and actions."""
 
-    def __init__(self, display, stream, history, messages, preface, logger):
+    def __init__(self, display, stream, history, messages, preface, logger, conclusion_string=None):
         self.display = display
         self.terminal = display.terminal
         self.style = display.style
@@ -18,12 +18,14 @@ class ConversationActions:
         self.messages = messages
         self.preface = preface
         self.logger = logger
+        self.conclusion_string = conclusion_string
 
         # UI-specific state
         self.is_silent = False
         self.prompt = ""
         self.last_user_input = ""
         self.preconversation_styled = ""
+        self.conclusion_triggered = False
 
         # Local turn tracking (independent from conversation state)
         self.current_turn = 0
@@ -158,6 +160,12 @@ class ConversationActions:
                 self.history.update_state(messages=new_state_msgs)
                 self.history_index = self.history.get_latest_state_index()
 
+                # Check for conclusion string
+                if self.conclusion_string:
+                    if self.conclusion_string in raw or self.conclusion_string in styled:
+                        self.conclusion_triggered = True
+                        self.logger.debug(f"Conclusion triggered: {self.conclusion_string}")
+
                 # Build final UI text
                 if not silent:
                     end_char = "..."
@@ -283,6 +291,22 @@ class ConversationActions:
         self.prompt = self.terminal.format_prompt(last_msg)
         return raw, styled, self.prompt
 
+    async def _get_conclusion_mode_input(self) -> str:
+        """Get input while in conclusion mode (hidden prompt, only accepts edit/retry)."""
+        original_prefix = self.terminal._prompt_prefix
+        original_separator = self.terminal._prompt_separator
+        try:
+            self.terminal._prompt_prefix = ""
+            self.terminal._prompt_separator = ""
+            return await self.terminal.get_user_input(
+                add_newline=False,
+                hide_cursor=True,
+                default_text=""
+            )
+        finally:
+            self.terminal._prompt_prefix = original_prefix
+            self.terminal._prompt_separator = original_separator
+
     async def _async_conversation_loop(self, system_msg: str, intro_msg: str):
         """
         Main conversation loop:
@@ -306,19 +330,30 @@ class ConversationActions:
 
             # Now loop for interactive user input
             while True:
-                user_input = await self.terminal.get_user_input()
-                if not user_input:
-                    continue
-
-                cmd = user_input.lower().strip()
-                if cmd in ["edit", "retry"]:
-                    _, intro_styled, _ = await self.backtrack_conversation(
-                        intro_styled, is_retry=(cmd == "retry")
-                    )
+                if self.conclusion_triggered:
+                    # Special handling for conclusion mode
+                    user_input = await self._get_conclusion_mode_input()
+                    if user_input in ["edit", "retry"]:
+                        # Process backtracking
+                        _, intro_styled, _ = await self.backtrack_conversation(
+                            intro_styled, is_retry=(user_input == "retry")
+                        )
+                        self.conclusion_triggered = False  # Reset after edit/retry
                 else:
-                    _, intro_styled, _ = await self.process_user_message(
-                        user_input, intro_styled
-                    )
+                    # Normal input handling
+                    user_input = await self.terminal.get_user_input()
+                    if not user_input:
+                        continue
+
+                    cmd = user_input.lower().strip()
+                    if cmd in ["edit", "retry"]:
+                        _, intro_styled, _ = await self.backtrack_conversation(
+                            intro_styled, is_retry=(cmd == "retry")
+                        )
+                    else:
+                        _, intro_styled, _ = await self.process_user_message(
+                            user_input, intro_styled
+                        )
 
         except Exception as e:
             self.logger.error(f"Critical error: {e}", exc_info=True)
