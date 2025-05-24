@@ -115,7 +115,6 @@ class Interface:
                 if safe_config:
                     self.logger.debug(f"Using provider '{provider}' with config: {safe_config}")
 
-            appropriate Stream appropriate Stream object
             self.stream = Stream.create(
                 endpoint,
                 logger=self.logger,
