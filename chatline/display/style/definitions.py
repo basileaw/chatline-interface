@@ -53,7 +53,8 @@ class StyleDefinitions:
             'BLUE': {'ansi': '\033[38;5;75m', 'rich': 'blue1'},
             'GRAY': {'ansi': '\033[38;5;245m', 'rich': 'gray50'},
             'YELLOW': {'ansi': '\033[38;5;227m', 'rich': 'yellow1'},
-            'WHITE': {'ansi': '\033[38;5;255m', 'rich': 'white'}
+            'WHITE': {'ansi': '\033[38;5;255m', 'rich': 'white'},
+            'PURPLE': {'ansi': '\033[38;5;129m', 'rich': 'purple3'}
         }
         # Default box-drawing characters
         self._default_box_chars = {'─', '│', '╭', '╮', '╯', '╰'}
@@ -115,6 +116,13 @@ class StyleDefinitions:
                 'end': ['**', '__'],
                 'color': None, 
                 'style': ['BOLD'], 
+                'remove_delimiters': True
+            },
+            'highlight': {
+                'start': ['~+'],
+                'end': ['+~'],
+                'color': 'PURPLE',
+                'style': ['BOLD', 'ITALIC'],
                 'remove_delimiters': True
             }
         }
@@ -181,8 +189,6 @@ class StyleDefinitions:
                     pattern_delimiters.setdefault(name, set()).add(end_char)
             
             patterns[name] = pattern
-            
-        return patterns
             
         return patterns
 
