@@ -14,8 +14,23 @@ class AsyncDotLoader:
         self.prompt = prompt.rstrip('.?!')
         self.no_anim = no_animation
 
-        # Set dot character based on prompt ending.
-        self.dot_char = '.' if prompt.endswith('.') or not prompt.endswith(('?','!')) else prompt[-1]
+        # # DEBUG: Print what we received
+        # print(f"DEBUG: AsyncDotLoader received prompt: '{prompt}'")
+        # print(f"DEBUG: After rstrip: '{self.prompt}'")
+
+        # Check if prompt is fully enclosed in square brackets
+        self._is_bracketed = self._detect_bracketed_message(self.prompt)
+        # print(f"DEBUG: Is bracketed: {self._is_bracketed}")
+        
+        if self._is_bracketed:
+            # Extract bracket content and determine animation character
+            self._bracket_content, self._animation_char = self._parse_bracketed_message(self.prompt)
+        else:
+            # Use original logic for non-bracketed messages
+            self._bracket_content = None
+            # Set dot character based on prompt ending.
+            self._animation_char = '.' if prompt.endswith('.') or not prompt.endswith(('?','!')) else prompt[-1]
+
         self.dots = int(prompt.endswith(('.', '?', '!')))
 
         # Initialize animation state.
@@ -23,6 +38,53 @@ class AsyncDotLoader:
         self.animation_task = None
         self.resolved = False
         self._stored_messages = []
+
+    def _detect_bracketed_message(self, prompt: str) -> bool:
+        """Detect if message is fully enclosed in square brackets."""
+        stripped = prompt.strip()
+        
+        # Handle case where prompt includes "> " prefix
+        if stripped.startswith('> '):
+            stripped = stripped[2:].strip()
+        
+        return len(stripped) >= 2 and stripped.startswith('[') and stripped.endswith(']')
+
+    def _parse_bracketed_message(self, prompt: str) -> Tuple[str, str]:
+        """
+        Parse bracketed message to extract content and animation character.
+        
+        Returns:
+            Tuple of (bracket_content_without_brackets, animation_character)
+        """
+        stripped = prompt.strip()
+        
+        # Handle case where prompt includes "> " prefix
+        if stripped.startswith('> '):
+            stripped = stripped[2:].strip()
+        
+        # Remove the outer brackets
+        inner_content = stripped[1:-1]
+        
+        # Check the last character of the inner content for punctuation
+        if inner_content and inner_content[-1] in '.?!':
+            animation_char = inner_content[-1]
+        else:
+            animation_char = '.'
+            
+        return inner_content, animation_char
+
+    def _construct_prompt_with_dots(self) -> str:
+        """Construct the prompt with appropriate dot placement."""
+        if self._is_bracketed:
+            # For bracketed messages, put dots inside the brackets
+            # Need to preserve the "> " prefix if it exists
+            if self.prompt.startswith('> '):
+                return f"> [{self._bracket_content}{self._animation_char * self.dots}]"
+            else:
+                return f"[{self._bracket_content}{self._animation_char * self.dots}]"
+        else:
+            # For non-bracketed messages, use original behavior
+            return f"{self.prompt}{self._animation_char * self.dots}"
 
     async def _animate(self):
         """Run dot animation until complete."""
@@ -42,8 +104,11 @@ class AsyncDotLoader:
 
     async def _write_loading_state(self):
         """Update display with current loading state."""
+        # Construct the full prompt with dots
+        full_prompt = self._construct_prompt_with_dots()
+        
         # Calculate how many lines our text takes based on terminal width
-        total_length = len(self.prompt) + self.dots  # Length of prompt plus current dots
+        total_length = len(full_prompt)
         lines_needed = (total_length + self.terminal.width - 1) // self.terminal.width
         
         # Move up to the start of our wrapped text block
@@ -51,7 +116,7 @@ class AsyncDotLoader:
             self.terminal.write(f"\033[{lines_needed - 1}A")
         
         # Clear and write from the beginning
-        self.terminal.write(f"\r\033[J{self.prompt}{self.dot_char * self.dots}")
+        self.terminal.write(f"\r\033[J{full_prompt}")
         await self._yield()
 
     async def _handle_message_chunk(self, chunk, first_chunk) -> Tuple[str, str]:
