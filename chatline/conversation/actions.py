@@ -2,12 +2,25 @@
 
 from typing import List, Tuple, Dict, Any
 import asyncio
+import sys
+import termios
+import tty
+import os
 
 
 class ConversationActions:
     """Manages conversation flow and actions."""
 
-    def __init__(self, display, stream, history, messages, preface, logger, conclusion_string=None):
+    def __init__(
+        self,
+        display,
+        stream,
+        history,
+        messages,
+        preface,
+        logger,
+        conclusion_string=None,
+    ):
         self.display = display
         self.terminal = display.terminal
         self.style = display.style
@@ -162,9 +175,15 @@ class ConversationActions:
 
                 # Check for conclusion string
                 if self.conclusion_string:
-                    if self.conclusion_string in raw or self.conclusion_string in styled:
+                    if (
+                        self.conclusion_string in raw
+                        or self.conclusion_string in styled
+                    ):
                         self.conclusion_triggered = True
-                        self.logger.debug(f"Conclusion triggered: {self.conclusion_string}")
+                        self.terminal.hide_cursor()  # Ensure cursor is hidden
+                        self.logger.debug(
+                            f"Conclusion triggered: {self.conclusion_string}"
+                        )
 
                 # Build final UI text
                 if not silent:
@@ -291,21 +310,50 @@ class ConversationActions:
         self.prompt = self.terminal.format_prompt(last_msg)
         return raw, styled, self.prompt
 
-    async def _get_conclusion_mode_input(self) -> str:
-        """Get input while in conclusion mode (hidden prompt, only accepts edit/retry)."""
-        original_prefix = self.terminal._prompt_prefix
-        original_separator = self.terminal._prompt_separator
+    def _read_line_raw_conclusion_mode(self) -> str:
+        """
+        Special raw input mode for conclusion state.
+        No prompt, no cursor, no text input - only keyboard shortcuts.
+        """
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
         try:
-            self.terminal._prompt_prefix = ""
-            self.terminal._prompt_separator = ""
-            return await self.terminal.get_user_input(
-                add_newline=False,
-                hide_cursor=True,
-                default_text=""
-            )
+            # Ensure cursor is hidden
+            self.terminal.hide_cursor()
+
+            # Switch to raw mode
+            tty.setraw(fd, termios.TCSANOW)
+
+            while True:
+                c = os.read(fd, 1)
+
+                # Only handle the allowed shortcuts
+                if c == b"\x05":  # Ctrl+E
+                    self.terminal.write("\r\n")
+                    return "edit"
+                elif c == b"\x12":  # Ctrl+R
+                    self.terminal.write("\r\n")
+                    return "retry"
+                elif c == b"\x03":  # Ctrl+C
+                    self.terminal.write("^C\r\n")
+                    raise KeyboardInterrupt()
+                elif c == b"\x04":  # Ctrl+D
+                    self.terminal.write("\r\n")
+                    return "exit"
+                # Ignore all other input including Ctrl+P and regular characters
+
         finally:
-            self.terminal._prompt_prefix = original_prefix
-            self.terminal._prompt_separator = original_separator
+            # Restore terminal settings
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            self.terminal.hide_cursor()
+
+    async def _get_conclusion_mode_input(self) -> str:
+        """Get input while in conclusion mode (no prompt, no cursor, only shortcuts)."""
+        # Use the raw input method directly with hidden prompt
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, self._read_line_raw_conclusion_mode
+        )
+        return result
 
     async def _async_conversation_loop(self, system_msg: str, intro_msg: str):
         """
@@ -331,6 +379,8 @@ class ConversationActions:
             # Now loop for interactive user input
             while True:
                 if self.conclusion_triggered:
+                    # Ensure cursor is hidden before entering conclusion mode
+                    self.terminal.hide_cursor()
                     # Special handling for conclusion mode
                     user_input = await self._get_conclusion_mode_input()
                     if user_input in ["edit", "retry"]:
