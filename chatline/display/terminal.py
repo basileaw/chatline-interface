@@ -9,11 +9,6 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-from prompt_toolkit import PromptSession
-from prompt_toolkit.validation import Validator, ValidationError
-from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.key_binding import KeyBindings
-
 
 @dataclass
 class TerminalSize:
@@ -27,10 +22,8 @@ class DisplayTerminal:
     """Low-level terminal operations and I/O."""
 
     def __init__(self):
-        """Initialize terminal state and key bindings."""
+        """Initialize terminal state."""
         self._cursor_visible = True
-        self._is_edit_mode = False
-        self._setup_key_bindings()
         # Use a visually distinct prompt separator that makes it clear where user input begins
         self._prompt_prefix = "> "
         self._prompt_separator = ""  # Visual separator between prompt and input area
@@ -99,95 +92,10 @@ class DisplayTerminal:
 
     async def pre_initialize_prompt_toolkit(self):
         """
-        Silently pre-initialize prompt toolkit components without showing the cursor.
+        This method is no longer needed since we're using raw mode for all input.
+        Kept for backward compatibility but does nothing.
         """
-        try:
-            # Save the original stdout
-            original_stdout = sys.stdout
-
-            # First, ensure cursor is hidden before we do anything
-            self._cursor_visible = False
-            sys.stdout.write("\033[?25l")  # Hide cursor
-            sys.stdout.flush()
-
-            # Redirect stdout to /dev/null (or NUL on Windows)
-            null_device = open(os.devnull, "w")
-            sys.stdout = null_device
-
-            # Create a temporary PromptSession with the same configuration
-            # but isolated from our main session
-            temp_kb = KeyBindings()
-            temp_session = PromptSession(
-                key_bindings=temp_kb, complete_while_typing=False
-            )
-
-            try:
-                # Create a background task that will cancel the prompt after a brief delay
-                async def cancel_after_delay(task):
-                    await asyncio.sleep(0.0)
-                    task.cancel()
-
-                # Start the temporary prompt session
-                prompt_task = asyncio.create_task(
-                    temp_session.prompt_async(
-                        message="", default="", validate_while_typing=False
-                    )
-                )
-
-                # Create cancellation task
-                cancel_task = asyncio.create_task(cancel_after_delay(prompt_task))
-
-                # Wait for either completion or cancellation
-                await asyncio.gather(prompt_task, cancel_task, return_exceptions=True)
-
-            except (asyncio.CancelledError, Exception):
-                # Expected - we're forcing cancellation
-                pass
-
-        except Exception as e:
-            pass
-        finally:
-            # Restore the original stdout
-            if "original_stdout" in locals():
-                sys.stdout = original_stdout
-
-            # Close the null device if it was opened
-            if "null_device" in locals():
-                null_device.close()
-
-            # Ensure cursor remains hidden after restoration
-            self._cursor_visible = False
-            sys.stdout.write("\033[?25l")  # Hide cursor again
-            sys.stdout.flush()
-
-            # Also clear the screen after stdout is restored
-            sys.stdout.write("\033[2J\033[H")  # Clear and home
-            sys.stdout.flush()
-
-    class NonEmptyValidator(Validator):
-        def validate(self, document):
-            if not document.text.strip():
-                raise ValidationError(message="", cursor_position=0)
-
-    def _setup_key_bindings(self) -> None:
-        """Setup key shortcuts: Ctrl-E for edit, Ctrl-R for retry."""
-        kb = KeyBindings()
-
-        @kb.add("c-e")
-        def _(event):
-            if not self._is_edit_mode:
-                event.current_buffer.text = "edit"
-                event.app.exit(result=event.current_buffer.text)
-
-        @kb.add("c-r")
-        def _(event):
-            if not self._is_edit_mode:
-                event.current_buffer.text = "retry"
-                event.app.exit(result=event.current_buffer.text)
-
-        self.prompt_session = PromptSession(
-            key_bindings=kb, complete_while_typing=False
-        )
+        pass
 
     @property
     def width(self) -> int:
@@ -300,10 +208,16 @@ class DisplayTerminal:
         self,
         prompt_prefix: Optional[str] = None,
         prompt_separator: Optional[str] = None,
+        default_text: str = "",
     ):
         """
         Read a line of input in raw mode with full keyboard shortcut support and arrow key navigation.
         Now with Unicode support, better escape sequence handling, and improved multi-line editing.
+
+        Args:
+            prompt_prefix: Optional prompt prefix override
+            prompt_separator: Optional prompt separator override
+            default_text: Pre-filled text for edit mode
         """
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
@@ -548,9 +462,20 @@ class DisplayTerminal:
 
             # Switch to raw mode
             tty.setraw(fd, termios.TCSANOW)
-            input_chars = []
-            cursor_pos = 0  # Position in the input buffer (0 = start)
+
+            # Initialize input buffer with default text if provided
+            if default_text:
+                input_chars = list(default_text)
+                cursor_pos = len(input_chars)  # Position cursor at end
+            else:
+                input_chars = []
+                cursor_pos = 0
+
             selection_start = None  # Start of selection (None = no selection)
+
+            # If we have default text, display it
+            if default_text:
+                redraw_input(input_chars, cursor_pos, styled_prompt, prompt_len)
 
             while True:
                 c = read_utf8_char()
@@ -930,9 +855,7 @@ class DisplayTerminal:
         prompt_separator: Optional[str] = None,
     ) -> str:
         """
-        Hybrid input system that preserves cursor blinking in normal mode.
-        For edit mode (default_text is provided): Uses prompt_toolkit's full capabilities.
-        For normal input: Uses raw mode with custom input handling for shortcuts.
+        Unified input system using raw mode for both normal and edit modes.
 
         Args:
             default_text: Pre-filled text for edit mode
@@ -946,63 +869,38 @@ class DisplayTerminal:
         """
         if add_newline:
             self.write_line()
-        self._is_edit_mode = bool(default_text)
+
         try:
-            if default_text:
-                # Reset styling before prompt
-                self.write(self._reset_style + self._default_style)
-                # For edit mode: Use full prompt_toolkit capabilities
-                self.show_cursor()
+            # Always use our custom raw mode handling
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                self._read_line_raw,
+                prompt_prefix,
+                prompt_separator,
+                default_text,  # Pass default text to raw mode handler
+            )
 
-                # Use provided prompt components or fall back to instance variables
-                current_prefix = (
-                    prompt_prefix if prompt_prefix is not None else self._prompt_prefix
-                )
-                current_separator = (
-                    prompt_separator
-                    if prompt_separator is not None
-                    else self._prompt_separator
-                )
+            # Check for special commands
+            if result in ["edit", "retry", "exit"]:
+                return result
 
-                result = await self.prompt_session.prompt_async(
-                    FormattedText(
-                        [
-                            (
-                                "class:prompt",
-                                f"{current_prefix}{current_separator}",
-                            )
-                        ]
-                    ),
-                    default=default_text,
-                    validator=self.NonEmptyValidator(),
-                    validate_while_typing=False,
-                )
-                # Hide cursor IMMEDIATELY after input is received, before any processing
-                if hide_cursor:
-                    self.hide_cursor()
-                return result.strip()
-            else:
-                # For standard input, use our custom raw mode handling with prompt overrides
+            # Validate non-empty input
+            while not result.strip():
+                self.write_line()
                 result = await asyncio.get_event_loop().run_in_executor(
-                    None, self._read_line_raw, prompt_prefix, prompt_separator
+                    None,
+                    self._read_line_raw,
+                    prompt_prefix,
+                    prompt_separator,
+                    "",  # No default text for retry
                 )
-                # Hide cursor is now handled directly in _read_line_raw
-                # Check for special commands
                 if result in ["edit", "retry", "exit"]:
                     return result
-                # Handle empty input validation
-                while not result.strip():
-                    self.write_line()
-                    result = await asyncio.get_event_loop().run_in_executor(
-                        None, self._read_line_raw, prompt_prefix, prompt_separator
-                    )
-                    if result in ["edit", "retry", "exit"]:
-                        return result
-                return result.strip()
+
+            return result.strip()
         finally:
             # Reset styling before exiting
             self.write(self._reset_style)
-            self._is_edit_mode = False
             if hide_cursor:
                 self.hide_cursor()  # Ensure cursor is hidden even if an exception occurs
 
