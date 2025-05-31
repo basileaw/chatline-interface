@@ -347,7 +347,9 @@ class DisplayTerminal:
         def read_escape_sequence():
             """Read and parse a complete escape sequence."""
             seq = os.read(fd, 1)
-            if seq != b"[":
+            if seq == b"\x7f":  # Option+Delete
+                return b"\x1b\x7f"
+            elif seq != b"[":
                 return b"\x1b" + seq  # Not a CSI sequence
 
             # Read the rest of the sequence
@@ -378,6 +380,34 @@ class DisplayTerminal:
                 else:
                     width += 1
             return width
+
+        def is_word_char(char):
+            """Check if character is part of a word (alphanumeric or underscore)."""
+            return char.isalnum() or char == "_"
+
+        def move_word_forward(input_chars, cursor_pos):
+            """Move cursor forward by one word, macOS style."""
+            # Skip current word
+            while cursor_pos < len(input_chars) and is_word_char(
+                input_chars[cursor_pos]
+            ):
+                cursor_pos += 1
+            # Skip spaces and punctuation until next word
+            while cursor_pos < len(input_chars) and not is_word_char(
+                input_chars[cursor_pos]
+            ):
+                cursor_pos += 1
+            return cursor_pos
+
+        def move_word_backward(input_chars, cursor_pos):
+            """Move cursor backward by one word, macOS style."""
+            # Skip spaces and punctuation before current position
+            while cursor_pos > 0 and not is_word_char(input_chars[cursor_pos - 1]):
+                cursor_pos -= 1
+            # Skip to beginning of current word
+            while cursor_pos > 0 and is_word_char(input_chars[cursor_pos - 1]):
+                cursor_pos -= 1
+            return cursor_pos
 
         def redraw_input(
             input_chars, cursor_pos, styled_prompt, prompt_len, selection_start=None
@@ -575,6 +605,20 @@ class DisplayTerminal:
                 elif c == b"\x1b":  # Escape sequence
                     seq = read_escape_sequence()
 
+                    # Handle Option+Delete first
+                    if seq == b"\x1b\x7f":  # Option+Delete (delete word backward)
+                        if cursor_pos > 0:
+                            # Find start of current/previous word
+                            new_pos = move_word_backward(input_chars, cursor_pos)
+                            # Delete characters between new position and current position
+                            del input_chars[new_pos:cursor_pos]
+                            cursor_pos = new_pos
+                            selection_start = None
+                            redraw_input(
+                                input_chars, cursor_pos, styled_prompt, prompt_len
+                            )
+                        continue
+
                     # Parse common sequences
                     if seq == b"\x1b[A":  # Up arrow
                         pass  # History not implemented
@@ -612,6 +656,35 @@ class DisplayTerminal:
                             else:
                                 # Simple move - ensure blinking is on
                                 self.write("\033[D\033[?12h")
+                    # Option+Arrow word navigation (macOS standard)
+                    elif (
+                        seq == b"\x1bb"
+                    ):  # Option+Left (backward word) - alternate sequence
+                        # Move to previous word boundary
+                        while cursor_pos > 0 and input_chars[cursor_pos - 1].isspace():
+                            cursor_pos -= 1
+                        while (
+                            cursor_pos > 0 and not input_chars[cursor_pos - 1].isspace()
+                        ):
+                            cursor_pos -= 1
+                        selection_start = None  # Clear selection
+                        redraw_input(input_chars, cursor_pos, styled_prompt, prompt_len)
+                    elif (
+                        seq == b"\x1bf"
+                    ):  # Option+Right (forward word) - alternate sequence
+                        # Move to next word boundary
+                        while (
+                            cursor_pos < len(input_chars)
+                            and not input_chars[cursor_pos].isspace()
+                        ):
+                            cursor_pos += 1
+                        while (
+                            cursor_pos < len(input_chars)
+                            and input_chars[cursor_pos].isspace()
+                        ):
+                            cursor_pos += 1
+                        selection_start = None  # Clear selection
+                        redraw_input(input_chars, cursor_pos, styled_prompt, prompt_len)
                     elif seq == b"\x1b[1;2C":  # Shift+Right arrow
                         if cursor_pos < len(input_chars):
                             if selection_start is None:
@@ -692,44 +765,56 @@ class DisplayTerminal:
                             redraw_input(
                                 input_chars, cursor_pos, styled_prompt, prompt_len
                             )
+                    elif (
+                        seq == b"\x1b[1;3C" or seq == b"\x1bf"
+                    ):  # Option+Right (forward word)
+                        cursor_pos = move_word_forward(input_chars, cursor_pos)
+                        selection_start = None  # Clear selection
+                        redraw_input(input_chars, cursor_pos, styled_prompt, prompt_len)
+                    elif (
+                        seq == b"\x1b[1;3D" or seq == b"\x1bb"
+                    ):  # Option+Left (backward word)
+                        cursor_pos = move_word_backward(input_chars, cursor_pos)
+                        selection_start = None  # Clear selection
+                        redraw_input(input_chars, cursor_pos, styled_prompt, prompt_len)
+                    elif (
+                        seq == b"\x1b[1;4C"
+                    ):  # Option+Shift+Right (select word forward)
+                        if selection_start is None:
+                            selection_start = cursor_pos
+                        cursor_pos = move_word_forward(input_chars, cursor_pos)
+                        redraw_input(
+                            input_chars,
+                            cursor_pos,
+                            styled_prompt,
+                            prompt_len,
+                            selection_start,
+                        )
+                    elif (
+                        seq == b"\x1b[1;4D"
+                    ):  # Option+Shift+Left (select word backward)
+                        if selection_start is None:
+                            selection_start = cursor_pos
+                        cursor_pos = move_word_backward(input_chars, cursor_pos)
+                        redraw_input(
+                            input_chars,
+                            cursor_pos,
+                            styled_prompt,
+                            prompt_len,
+                            selection_start,
+                        )
                     elif seq == b"\x1b[1;5C":  # Ctrl+Right (word forward)
-                        # Move to next word boundary
-                        while (
-                            cursor_pos < len(input_chars)
-                            and not input_chars[cursor_pos].isspace()
-                        ):
-                            cursor_pos += 1
-                        while (
-                            cursor_pos < len(input_chars)
-                            and input_chars[cursor_pos].isspace()
-                        ):
-                            cursor_pos += 1
+                        cursor_pos = move_word_forward(input_chars, cursor_pos)
                         selection_start = None  # Clear selection
                         redraw_input(input_chars, cursor_pos, styled_prompt, prompt_len)
                     elif seq == b"\x1b[1;5D":  # Ctrl+Left (word backward)
-                        # Move to previous word boundary
-                        while cursor_pos > 0 and input_chars[cursor_pos - 1].isspace():
-                            cursor_pos -= 1
-                        while (
-                            cursor_pos > 0 and not input_chars[cursor_pos - 1].isspace()
-                        ):
-                            cursor_pos -= 1
+                        cursor_pos = move_word_backward(input_chars, cursor_pos)
                         selection_start = None  # Clear selection
                         redraw_input(input_chars, cursor_pos, styled_prompt, prompt_len)
                     elif seq == b"\x1b[1;6C":  # Ctrl+Shift+Right (select word forward)
                         if selection_start is None:
                             selection_start = cursor_pos
-                        # Move to next word boundary
-                        while (
-                            cursor_pos < len(input_chars)
-                            and not input_chars[cursor_pos].isspace()
-                        ):
-                            cursor_pos += 1
-                        while (
-                            cursor_pos < len(input_chars)
-                            and input_chars[cursor_pos].isspace()
-                        ):
-                            cursor_pos += 1
+                        cursor_pos = move_word_forward(input_chars, cursor_pos)
                         redraw_input(
                             input_chars,
                             cursor_pos,
@@ -740,13 +825,7 @@ class DisplayTerminal:
                     elif seq == b"\x1b[1;6D":  # Ctrl+Shift+Left (select word backward)
                         if selection_start is None:
                             selection_start = cursor_pos
-                        # Move to previous word boundary
-                        while cursor_pos > 0 and input_chars[cursor_pos - 1].isspace():
-                            cursor_pos -= 1
-                        while (
-                            cursor_pos > 0 and not input_chars[cursor_pos - 1].isspace()
-                        ):
-                            cursor_pos -= 1
+                        cursor_pos = move_word_backward(input_chars, cursor_pos)
                         redraw_input(
                             input_chars,
                             cursor_pos,
