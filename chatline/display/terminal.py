@@ -41,6 +41,50 @@ class DisplayTerminal:
         self._current_buffer = ""
         self._last_size = self.get_size()
 
+        # Selection styling - can be customized per terminal
+        # Default: matches common cursor highlighting
+        self._selection_style = self._detect_selection_style()
+
+    def _detect_selection_style(self):
+        """Detect the best selection style for the current terminal."""
+        term = os.environ.get("TERM", "")
+        colorterm = os.environ.get("COLORTERM", "")
+
+        # For modern terminals with true color support
+        if "truecolor" in colorterm or "24bit" in colorterm:
+            # Use a blue selection similar to many modern terminals
+            return {
+                "start": "\033[48;2;82;139;255m\033[38;2;255;255;255m",
+                "end": "\033[0m",
+            }
+        # For 256 color terminals
+        elif "256" in term:
+            # Use white bg/black fg for dark terminals, or blue bg/white fg
+            return {
+                "start": "\033[48;5;67m\033[38;5;255m",  # Blue bg, white fg
+                "end": "\033[0m",
+            }
+        else:
+            # Fallback to reverse video
+            return {"start": "\033[7m", "end": "\033[27m"}
+
+    def set_selection_style(self, bg_color=None, fg_color=None):
+        """
+        Manually set selection colors to match your terminal's cursor.
+
+        Args:
+            bg_color: Background color (e.g., '48;5;255' for 256-color white,
+                     '48;2;82;139;255' for RGB blue)
+            fg_color: Foreground color (e.g., '38;5;232' for 256-color black)
+        """
+        if bg_color and fg_color:
+            self._selection_style = {
+                "start": f"\033[{bg_color}m\033[{fg_color}m",
+                "end": "\033[0m",
+            }
+        elif bg_color:
+            self._selection_style = {"start": f"\033[{bg_color}m", "end": "\033[0m"}
+
     async def pre_initialize_prompt_toolkit(self):
         """
         Silently pre-initialize prompt toolkit components without showing the cursor.
@@ -227,217 +271,522 @@ class DisplayTerminal:
 
         return 1 + additional_lines
 
-    def _read_line_raw(self, prompt_prefix: Optional[str] = None, prompt_separator: Optional[str] = None):
+    def _read_line_raw(
+        self,
+        prompt_prefix: Optional[str] = None,
+        prompt_separator: Optional[str] = None,
+    ):
         """
         Read a line of input in raw mode with full keyboard shortcut support and arrow key navigation.
+        Now with Unicode support, better escape sequence handling, and improved multi-line editing.
         """
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
+
+        # For reading UTF-8 characters
+        utf8_buffer = bytearray()
+
+        def read_utf8_char():
+            """Read a complete UTF-8 character from input."""
+            # Read first byte
+            first_byte = os.read(fd, 1)
+            if not first_byte:
+                return None
+
+            # Check if it's ASCII (0xxxxxxx)
+            if first_byte[0] & 0x80 == 0:
+                return first_byte
+
+            # Determine number of bytes in UTF-8 sequence
+            if first_byte[0] & 0xE0 == 0xC0:  # 110xxxxx - 2 bytes
+                num_bytes = 2
+            elif first_byte[0] & 0xF0 == 0xE0:  # 1110xxxx - 3 bytes
+                num_bytes = 3
+            elif first_byte[0] & 0xF8 == 0xF0:  # 11110xxx - 4 bytes
+                num_bytes = 4
+            else:
+                # Invalid UTF-8 start byte, return as-is
+                return first_byte
+
+            # Read remaining bytes
+            result = first_byte
+            for _ in range(num_bytes - 1):
+                next_byte = os.read(fd, 1)
+                if not next_byte or (next_byte[0] & 0xC0) != 0x80:
+                    # Invalid continuation byte
+                    return first_byte  # Return just the first byte
+                result += next_byte
+
+            return result
+
+        def read_escape_sequence():
+            """Read and parse a complete escape sequence."""
+            seq = os.read(fd, 1)
+            if seq != b"[":
+                return b"\x1b" + seq  # Not a CSI sequence
+
+            # Read the rest of the sequence
+            chars = b"["
+            while True:
+                c = os.read(fd, 1)
+                if not c:
+                    break
+                chars += c
+                # Check if we've reached the end of the sequence
+                if c[0] >= 0x40 and c[0] <= 0x7E:  # @ through ~
+                    break
+
+            return b"\x1b" + chars
+
+        def get_display_width(text: str) -> int:
+            """Get the display width of text, accounting for wide characters."""
+            # This is a simplified version - ideally would use wcwidth
+            width = 0
+            for char in text:
+                # Simple heuristic: CJK characters are width 2
+                if (
+                    "\u4e00" <= char <= "\u9fff"
+                    or "\u3040" <= char <= "\u309f"
+                    or "\u30a0" <= char <= "\u30ff"
+                ):
+                    width += 2
+                else:
+                    width += 1
+            return width
+
+        def redraw_input(
+            input_chars, cursor_pos, styled_prompt, prompt_len, selection_start=None
+        ):
+            """Redraw the entire input, handling multi-line properly."""
+            current_input = "".join(input_chars)
+
+            # Calculate line information
+            total_chars = prompt_len + get_display_width(current_input[:cursor_pos])
+            cursor_line = total_chars // self.width
+            cursor_col = total_chars % self.width
+
+            # Move to start of input area
+            self.write("\r")
+            if cursor_line > 0:
+                self.write(f"\033[{cursor_line}A")
+
+            # Clear all lines
+            total_lines = self._calculate_line_count(current_input, prompt_len)
+            for i in range(total_lines):
+                self.write("\r\033[K")
+                if i < total_lines - 1:
+                    self.write("\033[1B")
+
+            # Go back to first line
+            if total_lines > 1:
+                self.write(f"\033[{total_lines - 1}A")
+
+            # Write the prompt
+            self.write("\r" + styled_prompt)
+
+            # Write the content with selection highlighting
+            if selection_start is not None and selection_start != cursor_pos:
+                # Determine selection bounds
+                sel_start = min(selection_start, cursor_pos)
+                sel_end = max(selection_start, cursor_pos)
+
+                # Write text in three parts: before selection, selection, after selection
+                before = "".join(input_chars[:sel_start])
+                selected = "".join(input_chars[sel_start:sel_end])
+                after = "".join(input_chars[sel_end:])
+
+                self.write(before)
+                # Use the terminal's selection style
+                self.write(
+                    self._selection_style["start"]
+                    + selected
+                    + self._selection_style["end"]
+                )
+                self.write(after)
+            else:
+                # No selection, write normally
+                self.write(current_input)
+
+            # Position cursor correctly
+            if cursor_pos < len(input_chars):
+                # Calculate where cursor should be
+                chars_to_cursor = prompt_len + get_display_width(
+                    current_input[:cursor_pos]
+                )
+                target_line = chars_to_cursor // self.width
+                target_col = chars_to_cursor % self.width
+
+                # Move to start
+                self.write("\r")
+
+                # Move to correct line
+                if target_line > 0:
+                    self.write(f"\033[{target_line}B")
+
+                # Move to correct column
+                if target_col > 0:
+                    self.write(f"\033[{target_col}C")
+
+        def get_selected_text(input_chars, selection_start, cursor_pos):
+            """Get the currently selected text."""
+            if selection_start is None:
+                return ""
+            start = min(selection_start, cursor_pos)
+            end = max(selection_start, cursor_pos)
+            return "".join(input_chars[start:end])
+
+        def delete_selection(input_chars, selection_start, cursor_pos):
+            """Delete selected text and return new cursor position."""
+            if selection_start is None:
+                return input_chars, cursor_pos
+
+            start = min(selection_start, cursor_pos)
+            end = max(selection_start, cursor_pos)
+
+            # Remove selected characters
+            new_chars = input_chars[:start] + input_chars[end:]
+            return new_chars, start
+
         try:
             # Use provided prompt components or fall back to instance variables
-            current_prefix = prompt_prefix if prompt_prefix is not None else self._prompt_prefix
-            current_separator = prompt_separator if prompt_separator is not None else self._prompt_separator
-            
+            current_prefix = (
+                prompt_prefix if prompt_prefix is not None else self._prompt_prefix
+            )
+            current_separator = (
+                prompt_separator
+                if prompt_separator is not None
+                else self._prompt_separator
+            )
+
             # Reset text attributes and apply default style before displaying prompt
             styled_prompt = f"{self._reset_style}{self._default_style}{current_prefix}{current_separator}"
             prompt_len = len(current_prefix) + len(current_separator)
             self.write(styled_prompt)
             self.show_cursor()
+
             # Switch to raw mode
             tty.setraw(fd, termios.TCSANOW)
             input_chars = []
             cursor_pos = 0  # Position in the input buffer (0 = start)
+            selection_start = None  # Start of selection (None = no selection)
+
             while True:
-                c = os.read(fd, 1)
+                c = read_utf8_char()
+                if not c:
+                    continue
+
                 # Handle special control sequences
                 if c == b"\x05":  # Ctrl+E
                     self.write("\r\n")
-                    self.hide_cursor()  # Hide immediately on command
+                    self.hide_cursor()
                     return "edit"
                 elif c == b"\x12":  # Ctrl+R
                     self.write("\r\n")
-                    self.hide_cursor()  # Hide immediately on command
+                    self.hide_cursor()
                     return "retry"
                 elif c == b"\x10":  # Ctrl+P
                     # Only work if input buffer is empty
                     if not input_chars:
                         continue_text = "[CONTINUE]"
-                        # Display the text in the input field
                         self.write(continue_text)
-                        # Set input_chars to the continue text
                         input_chars = list(continue_text)
                         cursor_pos = len(input_chars)
-                        # Immediately submit (simulate Enter press)
                         self.write("\r\n")
-                        self.hide_cursor()  # Hide cursor immediately on submit
+                        self.hide_cursor()
                         return "".join(input_chars)
-                    # If there's already input, ignore Ctrl+P
                 elif c == b"\x03":  # Ctrl+C
                     self.write("^C\r\n")
-                    self.hide_cursor()  # Hide immediately on interrupt
+                    self.hide_cursor()
                     raise KeyboardInterrupt()
                 elif c == b"\x04":  # Ctrl+D
                     if not input_chars:
                         self.write("\r\n")
-                        self.hide_cursor()  # Hide immediately on exit
+                        self.hide_cursor()
                         return "exit"
-                # Handle standard terminal editing functions
                 elif c in (b"\r", b"\n"):  # Enter
                     self.write("\r\n")
-                    self.hide_cursor()  # Hide cursor IMMEDIATELY when Enter is pressed
+                    self.hide_cursor()
                     break
                 elif c == b"\x7f":  # Backspace
-                    if cursor_pos > 0:  # Only if cursor isn't at beginning
-                        # Before modifying text, calculate current line count
-                        current_input = "".join(input_chars)
-                        current_lines = self._calculate_line_count(
-                            current_input, prompt_len
+                    if selection_start is not None and selection_start != cursor_pos:
+                        # Delete selection
+                        input_chars, cursor_pos = delete_selection(
+                            input_chars, selection_start, cursor_pos
                         )
-
-                        # Remove the character at cursor_pos - 1
+                        selection_start = None
+                        redraw_input(input_chars, cursor_pos, styled_prompt, prompt_len)
+                    elif cursor_pos > 0:
                         input_chars.pop(cursor_pos - 1)
                         cursor_pos -= 1
-
-                        # Get new text after deletion
-                        new_input = "".join(input_chars)
-
-                        # For multi-line input, we need special handling
-                        if current_lines > 1:
-                            # Move to beginning of the first line
-                            self.write("\r")
-
-                            # Move up to the first line if needed
-                            if current_lines > 1:
-                                self.write(f"\033[{current_lines - 1}A")
-
-                            # Clear all lines that might have content
-                            for i in range(current_lines):
-                                # Move to beginning of line and clear to end
-                                self.write("\r\033[K")
-
-                                # Move down one line (except for the last line)
-                                if i < current_lines - 1:
-                                    self.write("\033[1B")
-
-                            # Return to first line
-                            if current_lines > 1:
-                                self.write(f"\033[{current_lines - 1}A")
-
-                            # Redraw the entire input with styling
-                            self.write(styled_prompt + new_input)
-
-                            # Calculate new cursor position
-                            new_lines = self._calculate_line_count(
-                                new_input, prompt_len
-                            )
-                            new_total_len = prompt_len + len(new_input)
-
-                            # Position cursor at correct position
-                            if cursor_pos < len(input_chars):
-                                # Calculate cursor coordinates
-                                chars_to_cursor = prompt_len + cursor_pos
-                                cursor_line = min(
-                                    new_lines - 1, chars_to_cursor // self.width
-                                )
-                                cursor_col = chars_to_cursor % self.width
-
-                                # First go back to beginning
-                                self.write("\r")
-
-                                # Move to cursor line
-                                if cursor_line > 0:
-                                    self.write(f"\033[{cursor_line}B")
-
-                                # Move to cursor column
-                                if cursor_col > 0:
-                                    self.write(f"\033[{cursor_col}C")
-                        else:
-                            # Original simple case for single line
-                            self.write("\r" + styled_prompt + new_input + " " + "\b")
-
-                            # Move cursor back to correct position
-                            if cursor_pos < len(input_chars):
-                                self.write(
-                                    "\033[" + str(len(input_chars) - cursor_pos) + "D"
-                                )
+                        redraw_input(input_chars, cursor_pos, styled_prompt, prompt_len)
                 elif c == b"\x1b":  # Escape sequence
-                    seq = os.read(fd, 1)
-                    if seq == b"[":  # CSI sequence
-                        code = os.read(fd, 1)
-                        if code == b"A":  # Up arrow - history (not implemented)
-                            pass
-                        elif code == b"B":  # Down arrow - history (not implemented)
-                            pass
-                        elif code == b"C":  # Right arrow - move cursor right
-                            if cursor_pos < len(input_chars):
-                                cursor_pos += 1
-                                self.write("\033[C")  # Move cursor right
-                        elif code == b"D":  # Left arrow - move cursor left
-                            if cursor_pos > 0:
-                                cursor_pos -= 1
-                                self.write("\033[D")  # Move cursor left
-                        elif code == b"H":  # Home - move to beginning
-                            self.write("\r" + styled_prompt)
+                    seq = read_escape_sequence()
+
+                    # Parse common sequences
+                    if seq == b"\x1b[A":  # Up arrow
+                        pass  # History not implemented
+                    elif seq == b"\x1b[B":  # Down arrow
+                        pass  # History not implemented
+                    elif seq == b"\x1b[C":  # Right arrow
+                        if cursor_pos < len(input_chars):
+                            cursor_pos += 1
+                            selection_start = None  # Clear selection
+                            redraw_input(
+                                input_chars, cursor_pos, styled_prompt, prompt_len
+                            )
+                    elif seq == b"\x1b[D":  # Left arrow
+                        if cursor_pos > 0:
+                            cursor_pos -= 1
+                            selection_start = None  # Clear selection
+                            redraw_input(
+                                input_chars, cursor_pos, styled_prompt, prompt_len
+                            )
+                    elif seq == b"\x1b[1;2C":  # Shift+Right arrow
+                        if cursor_pos < len(input_chars):
+                            if selection_start is None:
+                                selection_start = cursor_pos
+                            cursor_pos += 1
+                            redraw_input(
+                                input_chars,
+                                cursor_pos,
+                                styled_prompt,
+                                prompt_len,
+                                selection_start,
+                            )
+                    elif seq == b"\x1b[1;2D":  # Shift+Left arrow
+                        if cursor_pos > 0:
+                            if selection_start is None:
+                                selection_start = cursor_pos
+                            cursor_pos -= 1
+                            redraw_input(
+                                input_chars,
+                                cursor_pos,
+                                styled_prompt,
+                                prompt_len,
+                                selection_start,
+                            )
+                    elif seq == b"\x1b[1;2H":  # Shift+Home - select to beginning
+                        if cursor_pos > 0:
+                            if selection_start is None:
+                                selection_start = cursor_pos
                             cursor_pos = 0
-                        elif code == b"F":  # End - move to end
-                            # Move to end of line
-                            if cursor_pos < len(input_chars):
-                                self.write(
-                                    "\033[" + str(len(input_chars) - cursor_pos) + "C"
-                                )
-                                cursor_pos = len(input_chars)
-                        elif (
-                            code == b"3" and os.read(fd, 1) == b"~"
-                        ):  # Handle delete key
-                            if cursor_pos < len(input_chars):
-                                # Remove character at cursor position
-                                input_chars.pop(cursor_pos)
-                                # Redraw from cursor to end
-                                self.write(
-                                    "".join(input_chars[cursor_pos:]) + " " + "\b"
-                                )
-                                # Move cursor back to correct position
-                                if cursor_pos < len(input_chars):
-                                    self.write(
-                                        "\033["
-                                        + str(len(input_chars) - cursor_pos)
-                                        + "D"
-                                    )
-                # Regular characters - insert at cursor position
+                            redraw_input(
+                                input_chars,
+                                cursor_pos,
+                                styled_prompt,
+                                prompt_len,
+                                selection_start,
+                            )
+                    elif seq == b"\x1b[1;2F":  # Shift+End - select to end
+                        if cursor_pos < len(input_chars):
+                            if selection_start is None:
+                                selection_start = cursor_pos
+                            cursor_pos = len(input_chars)
+                            redraw_input(
+                                input_chars,
+                                cursor_pos,
+                                styled_prompt,
+                                prompt_len,
+                                selection_start,
+                            )
+                    elif seq == b"\x1b[H" or seq == b"\x1b[1~":  # Home
+                        if cursor_pos > 0:
+                            cursor_pos = 0
+                            selection_start = None  # Clear selection
+                            redraw_input(
+                                input_chars, cursor_pos, styled_prompt, prompt_len
+                            )
+                    elif seq == b"\x1b[F" or seq == b"\x1b[4~":  # End
+                        if cursor_pos < len(input_chars):
+                            cursor_pos = len(input_chars)
+                            selection_start = None  # Clear selection
+                            redraw_input(
+                                input_chars, cursor_pos, styled_prompt, prompt_len
+                            )
+                    elif seq == b"\x1b[3~":  # Delete
+                        if (
+                            selection_start is not None
+                            and selection_start != cursor_pos
+                        ):
+                            # Delete selection
+                            input_chars, cursor_pos = delete_selection(
+                                input_chars, selection_start, cursor_pos
+                            )
+                            selection_start = None
+                            redraw_input(
+                                input_chars, cursor_pos, styled_prompt, prompt_len
+                            )
+                        elif cursor_pos < len(input_chars):
+                            input_chars.pop(cursor_pos)
+                            redraw_input(
+                                input_chars, cursor_pos, styled_prompt, prompt_len
+                            )
+                    elif seq == b"\x1b[1;5C":  # Ctrl+Right (word forward)
+                        # Move to next word boundary
+                        while (
+                            cursor_pos < len(input_chars)
+                            and not input_chars[cursor_pos].isspace()
+                        ):
+                            cursor_pos += 1
+                        while (
+                            cursor_pos < len(input_chars)
+                            and input_chars[cursor_pos].isspace()
+                        ):
+                            cursor_pos += 1
+                        selection_start = None  # Clear selection
+                        redraw_input(input_chars, cursor_pos, styled_prompt, prompt_len)
+                    elif seq == b"\x1b[1;5D":  # Ctrl+Left (word backward)
+                        # Move to previous word boundary
+                        while cursor_pos > 0 and input_chars[cursor_pos - 1].isspace():
+                            cursor_pos -= 1
+                        while (
+                            cursor_pos > 0 and not input_chars[cursor_pos - 1].isspace()
+                        ):
+                            cursor_pos -= 1
+                        selection_start = None  # Clear selection
+                        redraw_input(input_chars, cursor_pos, styled_prompt, prompt_len)
+                    elif seq == b"\x1b[1;6C":  # Ctrl+Shift+Right (select word forward)
+                        if selection_start is None:
+                            selection_start = cursor_pos
+                        # Move to next word boundary
+                        while (
+                            cursor_pos < len(input_chars)
+                            and not input_chars[cursor_pos].isspace()
+                        ):
+                            cursor_pos += 1
+                        while (
+                            cursor_pos < len(input_chars)
+                            and input_chars[cursor_pos].isspace()
+                        ):
+                            cursor_pos += 1
+                        redraw_input(
+                            input_chars,
+                            cursor_pos,
+                            styled_prompt,
+                            prompt_len,
+                            selection_start,
+                        )
+                    elif seq == b"\x1b[1;6D":  # Ctrl+Shift+Left (select word backward)
+                        if selection_start is None:
+                            selection_start = cursor_pos
+                        # Move to previous word boundary
+                        while cursor_pos > 0 and input_chars[cursor_pos - 1].isspace():
+                            cursor_pos -= 1
+                        while (
+                            cursor_pos > 0 and not input_chars[cursor_pos - 1].isspace()
+                        ):
+                            cursor_pos -= 1
+                        redraw_input(
+                            input_chars,
+                            cursor_pos,
+                            styled_prompt,
+                            prompt_len,
+                            selection_start,
+                        )
+                    elif seq == b"\x1b[1;2A":  # Shift+Up - select to beginning
+                        if cursor_pos > 0:
+                            if selection_start is None:
+                                selection_start = cursor_pos
+                            cursor_pos = 0
+                            redraw_input(
+                                input_chars,
+                                cursor_pos,
+                                styled_prompt,
+                                prompt_len,
+                                selection_start,
+                            )
+                    elif seq == b"\x1b[1;2B":  # Shift+Down - select to end
+                        if cursor_pos < len(input_chars):
+                            if selection_start is None:
+                                selection_start = cursor_pos
+                            cursor_pos = len(input_chars)
+                            redraw_input(
+                                input_chars,
+                                cursor_pos,
+                                styled_prompt,
+                                prompt_len,
+                                selection_start,
+                            )
                 else:
-                    # Check if it's a standard ASCII character (0-127)
+                    # Regular character input
                     try:
-                        # Only process ASCII characters (0-127) which are valid for single-byte UTF-8
-                        if len(c) == 1 and 32 <= c[0] < 127:
-                            # Safe to decode ASCII characters
-                            char = c.decode("ascii")
+                        char = c.decode("utf-8")
+                        # Handle Ctrl+A (select all)
+                        if c == b"\x01":  # Ctrl+A
+                            if len(input_chars) > 0:
+                                selection_start = 0
+                                cursor_pos = len(input_chars)
+                                redraw_input(
+                                    input_chars,
+                                    cursor_pos,
+                                    styled_prompt,
+                                    prompt_len,
+                                    selection_start,
+                                )
+                        # Handle Ctrl+X (cut)
+                        elif c == b"\x18":  # Ctrl+X
+                            if (
+                                selection_start is not None
+                                and selection_start != cursor_pos
+                            ):
+                                # Note: In a real implementation, you'd copy to clipboard here
+                                # For now, just delete the selection
+                                input_chars, cursor_pos = delete_selection(
+                                    input_chars, selection_start, cursor_pos
+                                )
+                                selection_start = None
+                                redraw_input(
+                                    input_chars, cursor_pos, styled_prompt, prompt_len
+                                )
+                        # Filter out control characters except tab
+                        elif ord(char) >= 32 or char == "\t":
+                            # If there's a selection, delete it first
+                            if (
+                                selection_start is not None
+                                and selection_start != cursor_pos
+                            ):
+                                input_chars, cursor_pos = delete_selection(
+                                    input_chars, selection_start, cursor_pos
+                                )
+                                selection_start = None
+
                             input_chars.insert(cursor_pos, char)
                             cursor_pos += 1
-                            # Redraw from cursor to end with consistent styling
-                            self.write(char + "".join(input_chars[cursor_pos:]))
-                            # Move cursor back to correct position if needed
-                            if cursor_pos < len(input_chars):
-                                self.write(
-                                    "\033[" + str(len(input_chars) - cursor_pos) + "D"
+
+                            # For multi-line support, redraw entire input
+                            if len("".join(input_chars)) + prompt_len > self.width:
+                                redraw_input(
+                                    input_chars, cursor_pos, styled_prompt, prompt_len
                                 )
-                    except (UnicodeDecodeError, TypeError):
-                        # Silently ignore any Unicode errors or other decoding issues
+                            else:
+                                # Simple case - just write the character
+                                self.write(char)
+                                if cursor_pos < len(input_chars):
+                                    # Redraw rest of line
+                                    self.write("".join(input_chars[cursor_pos:]))
+                                    # Move cursor back
+                                    for _ in range(len(input_chars) - cursor_pos):
+                                        self.write("\033[D")
+                    except UnicodeDecodeError:
+                        # Skip invalid UTF-8 sequences
                         pass
+
             return "".join(input_chars)
+
         finally:
             # Restore terminal settings
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
             # Reset styling before exiting
             self.write(self._reset_style)
-            self.hide_cursor()  # Always hide cursor when done with input
+            self.hide_cursor()
 
     async def get_user_input(
-        self, 
-        default_text: str = "", 
-        add_newline: bool = True, 
+        self,
+        default_text: str = "",
+        add_newline: bool = True,
         hide_cursor: bool = True,
         prompt_prefix: Optional[str] = None,
-        prompt_separator: Optional[str] = None
+        prompt_separator: Optional[str] = None,
     ) -> str:
         """
         Hybrid input system that preserves cursor blinking in normal mode.
@@ -463,11 +812,17 @@ class DisplayTerminal:
                 self.write(self._reset_style + self._default_style)
                 # For edit mode: Use full prompt_toolkit capabilities
                 self.show_cursor()
-                
+
                 # Use provided prompt components or fall back to instance variables
-                current_prefix = prompt_prefix if prompt_prefix is not None else self._prompt_prefix
-                current_separator = prompt_separator if prompt_separator is not None else self._prompt_separator
-                
+                current_prefix = (
+                    prompt_prefix if prompt_prefix is not None else self._prompt_prefix
+                )
+                current_separator = (
+                    prompt_separator
+                    if prompt_separator is not None
+                    else self._prompt_separator
+                )
+
                 result = await self.prompt_session.prompt_async(
                     FormattedText(
                         [
@@ -488,10 +843,7 @@ class DisplayTerminal:
             else:
                 # For standard input, use our custom raw mode handling with prompt overrides
                 result = await asyncio.get_event_loop().run_in_executor(
-                    None, 
-                    self._read_line_raw,
-                    prompt_prefix,
-                    prompt_separator
+                    None, self._read_line_raw, prompt_prefix, prompt_separator
                 )
                 # Hide cursor is now handled directly in _read_line_raw
                 # Check for special commands
@@ -501,10 +853,7 @@ class DisplayTerminal:
                 while not result.strip():
                     self.write_line()
                     result = await asyncio.get_event_loop().run_in_executor(
-                        None, 
-                        self._read_line_raw,
-                        prompt_prefix,
-                        prompt_separator
+                        None, self._read_line_raw, prompt_prefix, prompt_separator
                     )
                     if result in ["edit", "retry", "exit"]:
                         return result
@@ -582,3 +931,4 @@ class DisplayTerminal:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit: show cursor."""
         self.show_cursor()
+        return False  # Don't suppress exceptions
