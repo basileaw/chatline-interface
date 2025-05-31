@@ -45,6 +45,32 @@ class DisplayTerminal:
         # Default: matches common cursor highlighting
         self._selection_style = self._detect_selection_style()
 
+        # Detect if we're in a web terminal for optimizations
+        self._is_web_terminal = self._detect_web_terminal()
+
+    def _detect_web_terminal(self):
+        """Detect if running in a web-based terminal."""
+        # Check for common web terminal indicators
+        term = os.environ.get("TERM", "")
+        # Check for ttyd, xterm.js, or other web terminal indicators
+        web_indicators = ["xterm-256color", "xterm-color"]
+        is_web = term in web_indicators
+
+        # Also check for specific environment variables that web terminals might set
+        if os.environ.get("TERMINAIDE", ""):
+            is_web = True
+
+        return is_web
+
+    def set_web_terminal_mode(self, enabled: bool = True):
+        """
+        Enable or disable web terminal optimizations.
+
+        Args:
+            enabled: Whether to enable web terminal mode
+        """
+        self._is_web_terminal = enabled
+
     def _detect_selection_style(self):
         """Detect the best selection style for the current terminal."""
         term = os.environ.get("TERM", "")
@@ -217,7 +243,12 @@ class DisplayTerminal:
             self._was_blinking = True
             # Standard hide cursor sequence
             self._cursor_visible = False
-            sys.stdout.write("\033[?25l")
+            # For web terminals, ensure the hide command is sent with high priority
+            if self._is_web_terminal:
+                # Force immediate hiding with multiple methods
+                sys.stdout.write("\033[?25l\033[?1c")
+            else:
+                sys.stdout.write("\033[?25l")
             sys.stdout.flush()
 
     def reset(self) -> None:
@@ -357,7 +388,7 @@ class DisplayTerminal:
         def redraw_input(
             input_chars, cursor_pos, styled_prompt, prompt_len, selection_start=None
         ):
-            """Redraw the entire input, handling multi-line properly."""
+            """Redraw the entire input, handling multi-line properly with optimized rendering."""
             current_input = "".join(input_chars)
 
             # Calculate line information
@@ -365,24 +396,22 @@ class DisplayTerminal:
             cursor_line = total_chars // self.width
             cursor_col = total_chars % self.width
 
-            # Move to start of input area
-            self.write("\r")
-            if cursor_line > 0:
-                self.write(f"\033[{cursor_line}A")
-
-            # Clear all lines
+            # Calculate total lines needed
             total_lines = self._calculate_line_count(current_input, prompt_len)
-            for i in range(total_lines):
-                self.write("\r\033[K")
-                if i < total_lines - 1:
-                    self.write("\033[1B")
 
-            # Go back to first line
-            if total_lines > 1:
-                self.write(f"\033[{total_lines - 1}A")
+            # Build the entire output in a single buffer to minimize flashing
+            output_buffer = []
+
+            # Move to start of input area
+            output_buffer.append("\r")
+            if cursor_line > 0:
+                output_buffer.append(f"\033[{cursor_line}A")
+
+            # Clear from cursor position to end of screen (more efficient than line-by-line)
+            output_buffer.append("\033[0J")
 
             # Write the prompt
-            self.write("\r" + styled_prompt)
+            output_buffer.append(styled_prompt)
 
             # Write the content with selection highlighting
             if selection_start is not None and selection_start != cursor_pos:
@@ -395,19 +424,19 @@ class DisplayTerminal:
                 selected = "".join(input_chars[sel_start:sel_end])
                 after = "".join(input_chars[sel_end:])
 
-                self.write(before)
+                output_buffer.append(before)
                 # Use the terminal's selection style
-                self.write(
+                output_buffer.append(
                     self._selection_style["start"]
                     + selected
                     + self._selection_style["end"]
                 )
-                self.write(after)
+                output_buffer.append(after)
             else:
                 # No selection, write normally
-                self.write(current_input)
+                output_buffer.append(current_input)
 
-            # Position cursor correctly
+            # Calculate final cursor position
             if cursor_pos < len(input_chars):
                 # Calculate where cursor should be
                 chars_to_cursor = prompt_len + get_display_width(
@@ -416,16 +445,39 @@ class DisplayTerminal:
                 target_line = chars_to_cursor // self.width
                 target_col = chars_to_cursor % self.width
 
-                # Move to start
-                self.write("\r")
+                # Calculate relative movement from end of text
+                chars_after_cursor = get_display_width(current_input[cursor_pos:])
+                if chars_after_cursor > 0:
+                    # Move back from end of text
+                    output_buffer.append(f"\033[{chars_after_cursor}D")
 
-                # Move to correct line
-                if target_line > 0:
-                    self.write(f"\033[{target_line}B")
+                # Additional positioning if we need to go up lines
+                current_end_line = (
+                    prompt_len + get_display_width(current_input)
+                ) // self.width
+                if target_line < current_end_line:
+                    lines_up = current_end_line - target_line
+                    output_buffer.append(f"\033[{lines_up}A")
+                    # Adjust horizontal position
+                    output_buffer.append(f"\r\033[{target_col}C")
 
-                # Move to correct column
-                if target_col > 0:
-                    self.write(f"\033[{target_col}C")
+            # Write everything in a single operation
+            self.write("".join(output_buffer))
+
+        def optimized_char_insert(
+            input_chars, cursor_pos, char, styled_prompt, prompt_len
+        ):
+            """Optimized character insertion for single-line cases."""
+            # For simple single-line cases, just insert the character without full redraw
+            remaining_text = "".join(input_chars[cursor_pos:])
+
+            # Build output in single buffer
+            output = [char]
+            if remaining_text:
+                output.append(remaining_text)
+                output.append(f"\033[{len(remaining_text)}D")
+
+            self.write("".join(output))
 
         def get_selected_text(input_chars, selection_start, cursor_pos):
             """Get the currently selected text."""
@@ -531,16 +583,32 @@ class DisplayTerminal:
                         if cursor_pos < len(input_chars):
                             cursor_pos += 1
                             selection_start = None  # Clear selection
-                            redraw_input(
-                                input_chars, cursor_pos, styled_prompt, prompt_len
-                            )
+                            # For web terminals or multi-line text, do full redraw
+                            # Otherwise, just move cursor
+                            if (
+                                self._is_web_terminal
+                                or (prompt_len + len("".join(input_chars))) > self.width
+                            ):
+                                redraw_input(
+                                    input_chars, cursor_pos, styled_prompt, prompt_len
+                                )
+                            else:
+                                self.write("\033[C")
                     elif seq == b"\x1b[D":  # Left arrow
                         if cursor_pos > 0:
                             cursor_pos -= 1
                             selection_start = None  # Clear selection
-                            redraw_input(
-                                input_chars, cursor_pos, styled_prompt, prompt_len
-                            )
+                            # For web terminals or multi-line text, do full redraw
+                            # Otherwise, just move cursor
+                            if (
+                                self._is_web_terminal
+                                or (prompt_len + len("".join(input_chars))) > self.width
+                            ):
+                                redraw_input(
+                                    input_chars, cursor_pos, styled_prompt, prompt_len
+                                )
+                            else:
+                                self.write("\033[D")
                     elif seq == b"\x1b[1;2C":  # Shift+Right arrow
                         if cursor_pos < len(input_chars):
                             if selection_start is None:
@@ -753,20 +821,26 @@ class DisplayTerminal:
                             input_chars.insert(cursor_pos, char)
                             cursor_pos += 1
 
-                            # For multi-line support, redraw entire input
-                            if len("".join(input_chars)) + prompt_len > self.width:
+                            # For single-line cases without selection, use optimized insertion
+                            current_text = "".join(input_chars)
+                            if (
+                                len(current_text) + prompt_len <= self.width
+                                and selection_start is None
+                                and not self._is_web_terminal
+                            ):
+                                # Use optimized character insertion
+                                optimized_char_insert(
+                                    input_chars,
+                                    cursor_pos - 1,
+                                    char,
+                                    styled_prompt,
+                                    prompt_len,
+                                )
+                            else:
+                                # For multi-line or web terminal, use full redraw
                                 redraw_input(
                                     input_chars, cursor_pos, styled_prompt, prompt_len
                                 )
-                            else:
-                                # Simple case - just write the character
-                                self.write(char)
-                                if cursor_pos < len(input_chars):
-                                    # Redraw rest of line
-                                    self.write("".join(input_chars[cursor_pos:]))
-                                    # Move cursor back
-                                    for _ in range(len(input_chars) - cursor_pos):
-                                        self.write("\033[D")
                     except UnicodeDecodeError:
                         # Skip invalid UTF-8 sequences
                         pass
