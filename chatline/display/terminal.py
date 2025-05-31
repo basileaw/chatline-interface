@@ -73,26 +73,12 @@ class DisplayTerminal:
 
     def _detect_selection_style(self):
         """Detect the best selection style for the current terminal."""
-        term = os.environ.get("TERM", "")
-        colorterm = os.environ.get("COLORTERM", "")
-
-        # For modern terminals with true color support
-        if "truecolor" in colorterm or "24bit" in colorterm:
-            # Use a blue selection similar to many modern terminals
-            return {
-                "start": "\033[48;2;82;139;255m\033[38;2;255;255;255m",
-                "end": "\033[0m",
-            }
-        # For 256 color terminals
-        elif "256" in term:
-            # Use white bg/black fg for dark terminals, or blue bg/white fg
-            return {
-                "start": "\033[48;5;67m\033[38;5;255m",  # Blue bg, white fg
-                "end": "\033[0m",
-            }
-        else:
-            # Fallback to reverse video
-            return {"start": "\033[7m", "end": "\033[27m"}
+        # Use reverse video (swaps foreground/background) to match cursor appearance
+        # This makes selection look like cursor - background becomes foreground
+        return {
+            "start": "\033[7m",  # Reverse video on
+            "end": "\033[27m",  # Reverse video off
+        }
 
     def set_selection_style(self, bg_color=None, fg_color=None):
         """
@@ -432,9 +418,15 @@ class DisplayTerminal:
                     + self._selection_style["end"]
                 )
                 output_buffer.append(after)
+
+                # Stop cursor blinking when text is selected
+                output_buffer.append("\033[?12l")  # Disable cursor blinking
             else:
                 # No selection, write normally
                 output_buffer.append(current_input)
+
+                # Resume cursor blinking when no selection
+                output_buffer.append("\033[?12h")  # Enable cursor blinking
 
             # Calculate final cursor position
             if cursor_pos < len(input_chars):
@@ -593,7 +585,8 @@ class DisplayTerminal:
                                     input_chars, cursor_pos, styled_prompt, prompt_len
                                 )
                             else:
-                                self.write("\033[C")
+                                # Simple move - ensure blinking is on
+                                self.write("\033[C\033[?12h")
                     elif seq == b"\x1b[D":  # Left arrow
                         if cursor_pos > 0:
                             cursor_pos -= 1
@@ -608,7 +601,8 @@ class DisplayTerminal:
                                     input_chars, cursor_pos, styled_prompt, prompt_len
                                 )
                             else:
-                                self.write("\033[D")
+                                # Simple move - ensure blinking is on
+                                self.write("\033[D\033[?12h")
                     elif seq == b"\x1b[1;2C":  # Shift+Right arrow
                         if cursor_pos < len(input_chars):
                             if selection_start is None:
