@@ -273,20 +273,28 @@ class DisplayTerminal:
         if not text:
             return 1
 
-        total_length = prompt_len + len(text)
-        term_width = self.get_size().columns
+        # Use get_display_width for accurate width calculation (handles wide chars)
+        # Note: We need to define get_display_width at class level if used here
+        display_width = 0
+        for char in text:
+            # Simple heuristic: CJK characters are width 2
+            if (
+                "\u4e00" <= char <= "\u9fff"
+                or "\u3040" <= char <= "\u309f"
+                or "\u30a0" <= char <= "\u30ff"
+            ):
+                display_width += 2
+            else:
+                display_width += 1
 
-        # First line has the prompt taking up space
-        first_line_chars = term_width - prompt_len
+        total_length = prompt_len + display_width
 
-        if total_length <= term_width:
+        # Calculate lines needed
+        if total_length <= self.width:
             return 1
 
-        # Calculate remaining lines after first line
-        remaining_chars = max(0, total_length - first_line_chars)
-        additional_lines = (remaining_chars + term_width - 1) // term_width
-
-        return 1 + additional_lines
+        # Calculate how many lines we need
+        return (total_length + self.width - 1) // self.width
 
     def _read_line_raw(
         self,
@@ -374,29 +382,23 @@ class DisplayTerminal:
         def redraw_input(
             input_chars, cursor_pos, styled_prompt, prompt_len, selection_start=None
         ):
-            """Redraw the entire input, handling multi-line properly with optimized rendering."""
+            """Redraw the entire input, handling multi-line properly with saved cursor position."""
             current_input = "".join(input_chars)
 
-            # Calculate line information
-            total_chars = prompt_len + get_display_width(current_input[:cursor_pos])
-            cursor_line = total_chars // self.width
-            cursor_col = total_chars % self.width
-
-            # Calculate total lines needed
+            # Calculate total lines needed for the current input
             total_lines = self._calculate_line_count(current_input, prompt_len)
 
-            # Build the entire output in a single buffer to minimize flashing
+            # Build the entire output in a single buffer
             output_buffer = []
 
-            # Move to start of input area
-            output_buffer.append("\r")
-            if cursor_line > 0:
-                output_buffer.append(f"\033[{cursor_line}A")
+            # Restore to the saved cursor position (start of input area)
+            output_buffer.append("\033[u")  # Restore saved cursor position
 
-            # Clear from cursor position to end of screen (more efficient than line-by-line)
+            # Clear from this position to end of screen
+            # This ensures we clean up any previous input completely
             output_buffer.append("\033[0J")
 
-            # Write the prompt
+            # Now we're at the exact start of the input area, write the prompt
             output_buffer.append(styled_prompt)
 
             # Write the content with selection highlighting
@@ -411,7 +413,6 @@ class DisplayTerminal:
                 after = "".join(input_chars[sel_end:])
 
                 output_buffer.append(before)
-                # Use the terminal's selection style
                 output_buffer.append(
                     self._selection_style["start"]
                     + selected
@@ -420,48 +421,46 @@ class DisplayTerminal:
                 output_buffer.append(after)
 
                 # Stop cursor blinking when text is selected
-                output_buffer.append("\033[?12l")  # Disable cursor blinking
+                output_buffer.append("\033[?12l")
             else:
                 # No selection, write normally
                 output_buffer.append(current_input)
 
                 # Resume cursor blinking when no selection
-                output_buffer.append("\033[?12h")  # Enable cursor blinking
+                output_buffer.append("\033[?12h")
 
-            # Calculate final cursor position
-            if cursor_pos < len(input_chars):
-                # Calculate where cursor should be
+            # Now position cursor at the correct location
+            # We need to calculate where the cursor should be from the start of input
+            if cursor_pos <= len(input_chars):
+                # Calculate the absolute position from start of input
                 chars_to_cursor = prompt_len + get_display_width(
                     current_input[:cursor_pos]
                 )
-                target_line = chars_to_cursor // self.width
-                target_col = chars_to_cursor % self.width
 
-                # Calculate relative movement from end of text
-                chars_after_cursor = get_display_width(current_input[cursor_pos:])
-                if chars_after_cursor > 0:
-                    # Move back from end of text
-                    output_buffer.append(f"\033[{chars_after_cursor}D")
+                # Determine which line and column the cursor should be on
+                cursor_line = chars_to_cursor // self.width
+                cursor_col = chars_to_cursor % self.width
 
-                # Additional positioning if we need to go up lines
-                current_end_line = (
-                    prompt_len + get_display_width(current_input)
-                ) // self.width
-                if target_line < current_end_line:
-                    lines_up = current_end_line - target_line
-                    output_buffer.append(f"\033[{lines_up}A")
-                    # Adjust horizontal position
-                    output_buffer.append(f"\r\033[{target_col}C")
+                # Restore to saved position again to calculate from known point
+                output_buffer.append("\033[u")  # Restore to start of input
+
+                # Move to the target line
+                if cursor_line > 0:
+                    output_buffer.append(
+                        f"\033[{cursor_line}B"
+                    )  # Move down cursor_line lines
+
+                # Move to the target column
+                output_buffer.append(f"\033[{cursor_col}C")  # Move right to column
 
             # Write everything in a single operation
             self.write("".join(output_buffer))
 
-        def optimized_char_insert(
-            input_chars, cursor_pos, char, styled_prompt, prompt_len
-        ):
+        def optimized_char_insert(input_chars, cursor_pos, char):
             """Optimized character insertion for single-line cases."""
             # For simple single-line cases, just insert the character without full redraw
-            remaining_text = "".join(input_chars[cursor_pos:])
+            # cursor_pos here is the position where char was just inserted
+            remaining_text = "".join(input_chars[cursor_pos + 1 :])
 
             # Build output in single buffer
             output = [char]
@@ -505,6 +504,15 @@ class DisplayTerminal:
             # Reset text attributes and apply default style before displaying prompt
             styled_prompt = f"{self._reset_style}{self._default_style}{current_prefix}{current_separator}"
             prompt_len = len(current_prefix) + len(current_separator)
+
+            # Ensure we're starting with a clean line
+            self.write("\r\033[K")  # Move to start of line and clear it
+
+            # Save the cursor position BEFORE writing the prompt
+            # This is our "home" position for the input area
+            self.write("\033[s")  # Save cursor position
+
+            # Now write the prompt
             self.write(styled_prompt)
             self.show_cursor()
 
@@ -562,6 +570,7 @@ class DisplayTerminal:
                     elif cursor_pos > 0:
                         input_chars.pop(cursor_pos - 1)
                         cursor_pos -= 1
+                        # Always use full redraw for backspace to avoid issues
                         redraw_input(input_chars, cursor_pos, styled_prompt, prompt_len)
                 elif c == b"\x1b":  # Escape sequence
                     seq = read_escape_sequence()
@@ -812,29 +821,14 @@ class DisplayTerminal:
                                 )
                                 selection_start = None
 
+                            # Insert the character into our buffer
                             input_chars.insert(cursor_pos, char)
                             cursor_pos += 1
 
-                            # For single-line cases without selection, use optimized insertion
-                            current_text = "".join(input_chars)
-                            if (
-                                len(current_text) + prompt_len <= self.width
-                                and selection_start is None
-                                and not self._is_web_terminal
-                            ):
-                                # Use optimized character insertion
-                                optimized_char_insert(
-                                    input_chars,
-                                    cursor_pos - 1,
-                                    char,
-                                    styled_prompt,
-                                    prompt_len,
-                                )
-                            else:
-                                # For multi-line or web terminal, use full redraw
-                                redraw_input(
-                                    input_chars, cursor_pos, styled_prompt, prompt_len
-                                )
+                            # Always use full redraw for consistency with saved cursor position
+                            redraw_input(
+                                input_chars, cursor_pos, styled_prompt, prompt_len
+                            )
                     except UnicodeDecodeError:
                         # Skip invalid UTF-8 sequences
                         pass
