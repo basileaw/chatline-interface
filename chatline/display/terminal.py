@@ -813,6 +813,15 @@ class DisplayTerminal:
                                 redraw_input(
                                     input_chars, cursor_pos, styled_prompt, prompt_len
                                 )
+                        # Handle space on empty buffer as [CONTINUE] (alternative to Ctrl+P)
+                        elif char == " " and not input_chars:
+                            continue_text = "[CONTINUE]"
+                            self.write(continue_text)
+                            input_chars = list(continue_text)
+                            cursor_pos = len(input_chars)
+                            self.write("\r\n")
+                            self.hide_cursor()
+                            return "".join(input_chars)
                         # Filter out control characters except tab
                         elif ord(char) >= 32 or char == "\t":
                             # If there's a selection, delete it first
