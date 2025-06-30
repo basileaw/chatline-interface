@@ -79,7 +79,7 @@ class OpenRouterProvider(BaseProvider):
         if self.title:
             headers["X-Title"] = self.title
         
-        # Prepare request payload
+        # Build base request with defaults
         request_data = {
             "messages": messages,
             "stream": True,
@@ -91,12 +91,16 @@ class OpenRouterProvider(BaseProvider):
         if self.model:
             request_data["model"] = self.model
         
-        # Add additional parameters if provided
-        for param in ['top_p', 'presence_penalty', 'frequency_penalty']:
+        # Override any defaults with provider_config values
+        # This ensures provider_config always takes precedence
+        for key, value in self.config.items():
+            if key not in ['api_key', 'model', 'referer', 'title', 'timeout']:
+                request_data[key] = value
+        
+        # Finally, override with any kwargs (highest priority)
+        for param in ['temperature', 'max_tokens', 'top_p', 'presence_penalty', 'frequency_penalty']:
             if param in kwargs:
                 request_data[param] = kwargs[param]
-            elif param in self.config:
-                request_data[param] = self.config[param]
         
         self._log_debug(f"Making request to OpenRouter API")
         self._log_debug(f"Request data: {json.dumps({k: v for k, v in request_data.items() if k != 'messages'})}")
