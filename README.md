@@ -51,14 +51,13 @@ chat = Interface(
         "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0", 
         "profile_name": "development", 
         "timeout": 120  
+    },
+    preface={
+        "text": "Welcome",
+        "title": "My App", 
+        "border_color": "green"
     }
 )
-
-# Add optional welcome message
-chat.preface(
-    "Welcome", 
-    title="My App", 
-    border_color="green")
 
 # Start the conversation with custom system and user messages
 chat.start([

@@ -31,11 +31,13 @@ def main():
         origin_path=args.origin_path,
         origin_port=args.origin_port,
         logging_enabled=args.enable_logging,
-        log_file=args.log_file
+        log_file=args.log_file,
+        preface={
+            "text": "Welcome to ChatLine",
+            "title": "Baze, Inc.",
+            "border_color": "dim yellow"
+        }
     )
-    
-    # Add a welcome message
-    chat.preface("Welcome to ChatLine", title="Baze, Inc.", border_color="dim yellow")
     
     # Start the conversation with default messages
     # In embedded mode, library defaults will be used

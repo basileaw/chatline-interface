@@ -1,6 +1,6 @@
 # interface.py
 
-from typing import Dict, Optional, List, Any
+from typing import Dict, Optional, List, Any, Union
 import socket
 
 from .logger import Logger
@@ -30,6 +30,7 @@ class Interface:
                  aws_config: Optional[Dict[str, Any]] = None,
                  provider: str = DEFAULT_PROVIDER,
                  provider_config: Optional[Dict[str, Any]] = None,
+                 preface: Optional[Union[str, Dict[str, Any]]] = None,
                  conclusion: Optional[str] = None):
         """
         Initialize components with an optional endpoint and logging.
@@ -52,6 +53,7 @@ class Interface:
                         - timeout: Request timeout in seconds
             provider: Provider name (e.g., 'bedrock', 'openrouter')
             provider_config: Provider-specific configuration
+            preface: Optional preface content (string or dict with text, title, border_color, display_type)
             conclusion: Optional conclusion string that terminates input prompts
         """
         # For backward compatibility: if aws_config is provided but provider_config is not,
@@ -68,6 +70,7 @@ class Interface:
                               history_file,
                               provider,
                               provider_config,
+                              preface,
                               conclusion)
 
     def _init_components(self,
@@ -80,6 +83,7 @@ class Interface:
                          history_file: Optional[str],
                          provider: str = DEFAULT_PROVIDER,
                          provider_config: Optional[Dict[str, Any]] = None,
+                         preface: Optional[Union[str, Dict[str, Any]]] = None,
                          conclusion: Optional[str] = None) -> None:
         """
         Internal helper to initialize logger, display, stream, and conversation components.
@@ -131,6 +135,26 @@ class Interface:
                 conclusion_string=conclusion
             )
 
+            # Initialize preface if provided
+            if preface:
+                if isinstance(preface, str):
+                    # Simple string case
+                    self.conv.preface.add_content(text=preface, border_color="green")
+                elif isinstance(preface, dict):
+                    # Dict case - validate and extract
+                    text = preface.get("text")
+                    if not text:
+                        raise ValueError("preface dict must contain 'text' key")
+                    
+                    self.conv.preface.add_content(
+                        text=text,
+                        title=preface.get("title"),
+                        border_color=preface.get("border_color", "green"),
+                        display_type=preface.get("display_type", "panel")
+                    )
+                else:
+                    raise TypeError("preface must be string or dict")
+
             self.display.terminal.reset()
 
             # Track mode
@@ -145,21 +169,6 @@ class Interface:
                 self.logger.error(f"Init error: {e}")
             raise
 
-    def preface(self,
-                text: str,
-                title: Optional[str] = None,
-                border_color: Optional[str] = None,
-                display_type: str = "panel") -> None:
-        """
-        Display a "preface" panel (optionally titled/bordered) before
-        starting the conversation.
-        """
-        self.conv.preface.add_content(
-            text=text,
-            title=title,
-            border_color=border_color,
-            display_type=display_type
-        )
 
     def start(self, messages: Optional[List[Dict[str, str]]] = None) -> None:
         """
