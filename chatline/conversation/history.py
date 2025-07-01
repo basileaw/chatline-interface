@@ -24,29 +24,28 @@ class ConversationState:
         Convert the state to a dictionary for serialization.
         
         This returns a dictionary containing:
-        - messages: The formatted messages array
-        - Any backend-added fields from custom_fields
+        - Any backend-added fields from custom_fields (in original order)
+        - messages: The formatted messages array (last)
         
         Note that frontend-specific tracking (like turn counter) is not included.
         """
-        # Start with just the messages
-        result = {
-            "messages": []
-        }
+        # Add custom fields in their original order
+        result = {}
+        for key, value in self.custom_fields.items():
+            result[key] = value
         
-        # Format messages array
+        # Add messages last
+        messages = []
         for m in self.messages:
             if isinstance(m, dict):
-                result["messages"].append(m)
+                messages.append(m)
             else:
-                result["messages"].append({
+                messages.append({
                     "role": m.role, 
                     "content": m.content
                 })
         
-        # Add any custom fields from the backend
-        for key, value in self.custom_fields.items():
-            result[key] = value
+        result["messages"] = messages
         
         return result
 
@@ -83,11 +82,15 @@ class ConversationHistory:
     This creates a clean separation between frontend tracking and state data.
     """
 
-    def __init__(self, logger=None):
+    def __init__(self, logger=None, interface_config=None):
         self.current_state = ConversationState()
         self.state_history: List[dict] = []  # Array-based history instead of dict
         self.logger = logger
         self._creation_time = datetime.now().isoformat()
+        
+        # Store interface configuration in custom_fields
+        if interface_config:
+            self.current_state.custom_fields.update(interface_config)
 
     def create_state_snapshot(self) -> dict:
         """Create a dictionary representation of the current state."""

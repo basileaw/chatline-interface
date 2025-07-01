@@ -11,6 +11,7 @@ from .conversation import Conversation
 from .generator import generate_stream, DEFAULT_PROVIDER
 
 
+
 class Interface:
     """
     Main entry point that assembles our Display, Stream, and Conversation.
@@ -19,23 +20,11 @@ class Interface:
     ends on a user message.
     """
 
-    def __init__(self,
-                 endpoint: Optional[str] = None,
-                 use_same_origin: bool = False,
-                 origin_path: str = "/chat",
-                 origin_port: Optional[int] = None,
-                 logging_enabled: bool = False,
-                 log_file: Optional[str] = None,
-                 history_file: Optional[str] = None,
-                 aws_config: Optional[Dict[str, Any]] = None,
-                 provider: str = DEFAULT_PROVIDER,
-                 provider_config: Optional[Dict[str, Any]] = None,
-                 preface: Optional[Union[str, Dict[str, Any]]] = None,
-                 conclusion: Optional[str] = None):
+    def __init__(self, **kwargs):
         """
         Initialize components with an optional endpoint and logging.
         
-        Args:
+        Keyword Args:
             endpoint: URL endpoint for remote mode. If None and use_same_origin is False, 
                       embedded mode is used.
             use_same_origin: If True, attempts to determine server origin automatically.
@@ -56,6 +45,26 @@ class Interface:
             preface: Optional preface content (string or dict with text, title, border_color, display_type)
             conclusion: Optional conclusion string that terminates input prompts
         """
+        # Build interface config with explicitly passed parameters in their original order
+        # kwargs preserves the order the user wrote the parameters in Python 3.7+
+        interface_config = {}
+        for key, value in kwargs.items():
+            interface_config[key] = value
+        
+        # Extract values with defaults
+        endpoint = kwargs.get('endpoint', None)
+        use_same_origin = kwargs.get('use_same_origin', False)
+        origin_path = kwargs.get('origin_path', "/chat")
+        origin_port = kwargs.get('origin_port', None)
+        logging_enabled = kwargs.get('logging_enabled', False)
+        log_file = kwargs.get('log_file', None)
+        history_file = kwargs.get('history_file', None)
+        aws_config = kwargs.get('aws_config', None)
+        provider = kwargs.get('provider', DEFAULT_PROVIDER)
+        provider_config = kwargs.get('provider_config', None)
+        preface = kwargs.get('preface', None)
+        conclusion = kwargs.get('conclusion', None)
+        
         # For backward compatibility: if aws_config is provided but provider_config is not,
         # and the provider is 'bedrock', use aws_config as the provider_config
         if provider == "bedrock" and aws_config and not provider_config:
@@ -71,7 +80,8 @@ class Interface:
                               provider,
                               provider_config,
                               preface,
-                              conclusion)
+                              conclusion,
+                              interface_config)
 
     def _init_components(self,
                          endpoint: Optional[str],
@@ -84,7 +94,8 @@ class Interface:
                          provider: str = DEFAULT_PROVIDER,
                          provider_config: Optional[Dict[str, Any]] = None,
                          preface: Optional[Union[str, Dict[str, Any]]] = None,
-                         conclusion: Optional[str] = None) -> None:
+                         conclusion: Optional[str] = None,
+                         interface_config: Optional[Dict[str, Any]] = None) -> None:
         """
         Internal helper to initialize logger, display, stream, and conversation components.
         """
@@ -107,17 +118,28 @@ class Interface:
                     self.logger.error(f"Failed to determine origin: {e}")
                     # Continue with embedded mode if we can't determine the endpoint
 
-            # Log (safe) provider config
-            if provider_config and self.logger:
-                safe_config = {
-                    k: v for k, v in provider_config.items()
+            # Use passed interface configuration and add filtered provider config
+            final_interface_config = interface_config.copy() if interface_config else {}
+            
+            # Add filtered provider config (remove secrets) if it was explicitly passed
+            if 'provider_config' in final_interface_config and final_interface_config['provider_config']:
+                original_provider_config = final_interface_config['provider_config']
+                safe_provider_config = {
+                    k: v for k, v in original_provider_config.items()
                     if k not in (
                         'api_key', 'aws_access_key_id',
                         'aws_secret_access_key', 'aws_session_token'
                     )
                 }
-                if safe_config:
-                    self.logger.debug(f"Using provider '{provider}' with config: {safe_config}")
+                if safe_provider_config:
+                    final_interface_config['provider_config'] = safe_provider_config
+                else:
+                    # Remove provider_config if it only contained secrets
+                    del final_interface_config['provider_config']
+                    
+                # Log (safe) provider config
+                if self.logger and safe_provider_config:
+                    self.logger.debug(f"Using provider '{provider}' with config: {safe_provider_config}")
 
             self.stream = Stream.create(
                 endpoint,
@@ -132,7 +154,8 @@ class Interface:
                 display=self.display,
                 stream=self.stream,
                 logger=self.logger,
-                conclusion_string=conclusion
+                conclusion_string=conclusion,
+                interface_config=final_interface_config
             )
 
             # Initialize preface if provided
