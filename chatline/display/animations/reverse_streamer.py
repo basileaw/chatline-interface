@@ -83,13 +83,6 @@ class ReverseStreamer:
         force_full_clear: bool = False,
     ) -> None:
         """Clear screen and update display with content and optional preserved message."""
-        # Use full screen clearing for punctuation animation
-        if force_full_clear:
-            self.terminal.clear_screen()
-        else:
-            # Move cursor to home position rather than clearing screen each time
-            self.terminal.write("\033[H")
-
         # Build full output content first
         output = ""
         if preserved_msg:
@@ -100,11 +93,21 @@ class ReverseStreamer:
         if content:
             output += content
 
-        # Write the full content in one go
-        self.terminal.write(output)
-
-        if not force_full_clear:
-            # Clear from cursor to end of screen (rather than full clear)
+        # Check if content might exceed terminal height
+        lines = output.split('\n') if output else []
+        content_exceeds_height = len(lines) > (self.terminal.height - 1)
+        
+        # Always use full clear if content exceeds height or when explicitly requested
+        if force_full_clear or content_exceeds_height:
+            self.terminal.clear_screen()
+            # Write the full content
+            self.terminal.write(output)
+        else:
+            # Move cursor to home position for smaller content
+            self.terminal.write("\033[H")
+            # Write the full content
+            self.terminal.write(output)
+            # Clear from cursor to end of screen
             self.terminal.write("\033[J")
 
         # Reset formatting

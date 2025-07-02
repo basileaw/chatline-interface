@@ -61,10 +61,19 @@ class Scroller:
         current_width = self.terminal.width
         lines = self._handle_text(styled_lines, width=current_width)
         
+        # Limit lines to what can fit on screen to prevent duplication
+        max_lines = self.terminal.height - 1  # Reserve one line for prompt
+        if len(lines) > max_lines:
+            # Show only the last portion that fits on screen
+            lines = lines[-max_lines:]
+        
         for i in range(len(lines) + 1):
             self.terminal.clear_screen()
-            # Write remaining lines.
-            for ln in lines[i:]:
+            # Write remaining lines that fit on screen
+            remaining_lines = lines[i:]
+            if len(remaining_lines) > max_lines:
+                remaining_lines = remaining_lines[-max_lines:]
+            for ln in remaining_lines:
                 self.terminal.write(ln, newline=True)
             # Write prompt with reset formatting.
             self.terminal.write(self.style.get_format('RESET') + prompt)
