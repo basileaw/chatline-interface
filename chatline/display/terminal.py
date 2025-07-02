@@ -158,6 +158,44 @@ class DisplayTerminal:
             sys.stdout.flush()
         self._current_buffer = ""
 
+    def _content_exceeds_screen(self) -> bool:
+        """Check if current buffer content exceeds screen height."""
+        if not self._current_buffer:
+            return False
+        lines = self._current_buffer.split('\n')
+        # Reserve 2 lines for prompt and input
+        return len(lines) > (self.height - 2)
+
+    def _isolate_input_display(self) -> None:
+        """
+        Isolate input display by showing only the last visible lines.
+        This establishes a predictable cursor state before input operations.
+        """
+        if not self._current_buffer:
+            return
+        
+        # Get clean content without trailing newlines
+        content = self._current_buffer.rstrip('\n')
+        lines = content.split('\n') if content else []
+        max_visible = self.height - 2  # Reserve 2 lines for prompt and input
+        
+        if len(lines) > max_visible:
+            # Extract only the lines that can fit on screen
+            visible_lines = lines[-max_visible:]
+        else:
+            visible_lines = lines
+        
+        # Clear screen completely and redisplay only visible content
+        self.clear_screen()
+        for line in visible_lines:
+            self.write(line, newline=True)
+        
+        # Add exactly one spacing line (same as write_line() would do)
+        self.write("", newline=True)
+        
+        # Update buffer to match what's actually on screen now
+        self._current_buffer = '\n'.join(visible_lines) + '\n'
+
     def write(self, text: str = "", newline: bool = False) -> None:
         """Write text to stdout; append newline if requested."""
         try:
@@ -879,6 +917,11 @@ class DisplayTerminal:
         if add_newline:
             self.write_line()
 
+        # CRITICAL FIX: Isolate input display when content exceeds screen height
+        # This establishes predictable cursor state before input operations
+        if self._content_exceeds_screen():
+            self._isolate_input_display()
+
         try:
             # Always use our custom raw mode handling
             result = await asyncio.get_event_loop().run_in_executor(
@@ -938,12 +981,24 @@ class DisplayTerminal:
         """
         Clear screen and update display with content and optional prompt.
         Uses double-buffering approach to minimize flicker.
+        Handles content that exceeds terminal height by showing only the last visible portion.
         """
         # Hide cursor during update, unless specified otherwise
         if not preserve_cursor:
             self.hide_cursor()
         # Prepare next screen buffer
         new_buffer = self._prepare_display_update(content, prompt)
+        
+        # Handle content that exceeds terminal height
+        if new_buffer:
+            lines = new_buffer.split('\n')
+            max_lines = self.height - 1  # Reserve one line for cursor/prompt
+            
+            if len(lines) > max_lines:
+                # Show only the last portion that fits on screen
+                visible_lines = lines[-max_lines:]
+                new_buffer = '\n'.join(visible_lines)
+        
         # Check if terminal size changed
         current_size = self.get_size()
         if (
