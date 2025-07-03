@@ -223,6 +223,12 @@ class ConversationActions:
         raw, assistant_styled = await self._process_message(intro_msg, silent=True)
         full_styled = styled_panel + assistant_styled
         
+        # Check if full response exceeds screen height and set flag for future clearing
+        lines = full_styled.split('\n')
+        max_lines = self.terminal.height - 1  # Reserve one line for cursor/prompt
+        if len(lines) > max_lines:
+            self.terminal._had_long_content = True
+        
         # Force scrollback clear to remove duplicate preface from initial display
         self.terminal.clear_screen_and_scrollback()
         self.terminal.write(full_styled)
@@ -244,6 +250,14 @@ class ConversationActions:
         await scroller.scroll_up(intro_styled, f"> {user_input}", 0.02)
 
         raw, styled = await self._process_message(user_input, silent=False)
+        
+        # Check if the full response content exceeds screen height and set flag for future clearing
+        full_content = intro_styled + styled
+        lines = full_content.split('\n')
+        max_lines = self.terminal.height - 1  # Reserve one line for cursor/prompt
+        if len(lines) > max_lines:
+            self.terminal._had_long_content = True
+        
         self.is_silent = False
         self.prompt = self.terminal.format_prompt(user_input)
         self.preface.clear()
