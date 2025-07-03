@@ -68,7 +68,7 @@ class Scroller:
             lines = lines[-max_lines:]
         
         for i in range(len(lines) + 1):
-            self.terminal.clear_screen()
+            self.terminal.clear_screen_smart()
             # Write remaining lines that fit on screen
             remaining_lines = lines[i:]
             if len(remaining_lines) > max_lines:

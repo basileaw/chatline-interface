@@ -34,6 +34,8 @@ class DisplayTerminal:
         # Screen buffer for smoother rendering
         self._current_buffer = ""
         self._last_size = self.get_size()
+        # Track if previous content exceeded terminal height to force full clear
+        self._had_long_content = False
 
         # Selection styling - can be customized per terminal
         # Default: matches common cursor highlighting
@@ -158,6 +160,22 @@ class DisplayTerminal:
             sys.stdout.write("\033[2J\033[H")
             sys.stdout.flush()
         self._current_buffer = ""
+
+    def clear_screen_and_scrollback(self) -> None:
+        """Clear the terminal screen, scrollback buffer, and reset cursor position."""
+        if self._is_terminal():
+            # Clear scrollback buffer (3J) then clear screen (2J) and home cursor (H)
+            sys.stdout.write("\033[3J\033[2J\033[H")
+            sys.stdout.flush()
+        self._current_buffer = ""
+
+    def clear_screen_smart(self) -> None:
+        """Smart clear: use scrollback clearing if we had long content, otherwise normal clear."""
+        if self._had_long_content:
+            self.clear_screen_and_scrollback()
+            self._had_long_content = False  # Reset after strong clear
+        else:
+            self.clear_screen()
 
     def _content_exceeds_screen(self) -> bool:
         """Check if current buffer content exceeds screen height."""
@@ -1012,11 +1030,14 @@ class DisplayTerminal:
         new_buffer = self._prepare_display_update(content, prompt)
         
         # Handle content that exceeds terminal height
+        content_exceeds_height = False
         if new_buffer:
             lines = new_buffer.split('\n')
             max_lines = self.height - 1  # Reserve one line for cursor/prompt
             
             if len(lines) > max_lines:
+                content_exceeds_height = True
+                self._had_long_content = True  # Remember we had long content
                 # Show only the last portion that fits on screen
                 visible_lines = lines[-max_lines:]
                 new_buffer = '\n'.join(visible_lines)
@@ -1026,18 +1047,28 @@ class DisplayTerminal:
         if (
             current_size.columns != self._last_size.columns
             or current_size.lines != self._last_size.lines
+            or content_exceeds_height
         ):
-            # Terminal size changed, do a full clear
-            self.clear_screen()
+            # Terminal size changed or content exceeds height - do a full clear
+            if content_exceeds_height:
+                # Use stronger clearing to remove scrollback when dealing with long content
+                self.clear_screen_and_scrollback()
+            else:
+                # Normal clear for size changes
+                self.clear_screen()
             self._last_size = current_size
         else:
             # Just move cursor to home position
             sys.stdout.write("\033[H")
         # Write the buffer directly
         sys.stdout.write(new_buffer)
-        # Clear any remaining content from previous display
-        # This uses ED (Erase in Display) with parameter 0 to clear from cursor to end of screen
-        sys.stdout.write("\033[0J")
+        # Clear any remaining content from previous display (only for partial clear case)
+        # We only reach here if we didn't do a full clear above
+        if (current_size.columns == self._last_size.columns and 
+            current_size.lines == self._last_size.lines and 
+            not content_exceeds_height):
+            # This uses ED (Erase in Display) with parameter 0 to clear from cursor to end of screen
+            sys.stdout.write("\033[0J")
         sys.stdout.flush()
         # Update our current buffer
         self._current_buffer = new_buffer
