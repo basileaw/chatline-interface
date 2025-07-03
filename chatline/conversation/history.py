@@ -23,29 +23,28 @@ class ConversationState:
         """
         Convert the state to a dictionary for serialization.
         
-        This returns a dictionary containing:
-        - Any backend-added fields from custom_fields (in original order)
-        - messages: The formatted messages array (last)
+        This returns a dictionary containing all fields from custom_fields
+        in their original order, including messages if present.
         
         Note that frontend-specific tracking (like turn counter) is not included.
         """
-        # Add custom fields in their original order
+        # Process all custom fields in their original order
         result = {}
         for key, value in self.custom_fields.items():
-            result[key] = value
-        
-        # Add messages last
-        messages = []
-        for m in self.messages:
-            if isinstance(m, dict):
-                messages.append(m)
+            if key == "messages":
+                # Format messages if this is the messages field
+                messages = []
+                for m in self.messages:
+                    if isinstance(m, dict):
+                        messages.append(m)
+                    else:
+                        messages.append({
+                            "role": m.role, 
+                            "content": m.content
+                        })
+                result[key] = messages
             else:
-                messages.append({
-                    "role": m.role, 
-                    "content": m.content
-                })
-        
-        result["messages"] = messages
+                result[key] = value
         
         return result
 

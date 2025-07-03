@@ -20,15 +20,13 @@ class Interface:
     ends on a user message.
     """
 
-    def __init__(self, messages: Optional[List[Dict[str, str]]] = None, **kwargs):
+    def __init__(self, **kwargs):
         """
         Initialize components with messages and configuration.
         
-        Args:
+        Keyword Args:
             messages: Initial conversation messages. If None, defaults will be used based on mode.
                      Empty list ([]) bypasses defaults entirely.
-        
-        Keyword Args:
             endpoint: URL endpoint for remote mode. If None and use_same_origin is False, 
                       embedded mode is used.
             use_same_origin: If True, attempts to determine server origin automatically.
@@ -56,6 +54,7 @@ class Interface:
             interface_config[key] = value
         
         # Extract values with defaults
+        messages = kwargs.get('messages', None)
         endpoint = kwargs.get('endpoint', None)
         use_same_origin = kwargs.get('use_same_origin', False)
         origin_path = kwargs.get('origin_path', "/chat")
