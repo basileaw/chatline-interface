@@ -216,20 +216,16 @@ class ConversationActions:
 
         styled_panel = await self.preface.format_content(self.style)
         styled_panel = self.style.append_single_blank_line(styled_panel)
-        
+        if styled_panel.strip():
+            await self.terminal.update_display(styled_panel, preserve_cursor=False)
+
         # First user message is always silent => user text never shown
         raw, assistant_styled = await self._process_message(intro_msg, silent=True)
         full_styled = styled_panel + assistant_styled
         
-        # Ensure we clear any scrollback from streaming, then display final content
-        # Force scrollback clearing for first response to prevent duplication
-        self.terminal._had_long_content = True
+        # Use smart clearing logic like subsequent responses do to preserve scrollback
         self.terminal.clear_screen_smart()
-        
-        if styled_panel.strip():
-            self.terminal.write(full_styled)
-        else:
-            self.terminal.write(assistant_styled)
+        self.terminal.write(full_styled)
         
         self.is_silent = True
         self.prompt = ""
