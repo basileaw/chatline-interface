@@ -59,11 +59,28 @@ chat = Interface(
     }
 )
 
-# Start the conversation with custom system and user messages
-chat.start([
-    {"role": "system", "content": "You are a friendly AI assistant that specializes in code generation."},
-    {"role": "user", "content": "Can you help me with a Python project?"}
-])
+# Initialize with custom system and user messages
+chat = Interface(
+    messages=[
+        {"role": "system", "content": "You are a friendly AI assistant that specializes in code generation."},
+        {"role": "user", "content": "Can you help me with a Python project?"}
+    ],
+    provider="bedrock",  # Optional: this is the default
+    provider_config={
+        "region": "us-west-2",  
+        "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0", 
+        "profile_name": "development", 
+        "timeout": 120  
+    },
+    preface={
+        "text": "Welcome",
+        "title": "My App", 
+        "border_color": "green"
+    }
+)
+
+# Start the conversation
+chat.start()
 ```
 
 ### Embedded Mode with OpenRouter
@@ -96,11 +113,14 @@ You can also connect to a custom backend by providing the endpoint URL. Passing 
 ```python
 from chatline import Interface
 
-# Initialize with remote mode
-chat = Interface(endpoint="http://localhost:8000/chat")
+# Initialize with remote mode and empty messages (backend will provide defaults)
+chat = Interface(
+    messages=[],
+    endpoint="http://localhost:8000/chat"
+)
 
-# Start the conversation with custom system and user messages
-chat.start([])
+# Start the conversation
+chat.start()
 ```
 
 You can use generate_stream function (or build your own) in your backend. Here's an example in a FastAPI server:

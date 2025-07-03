@@ -20,9 +20,13 @@ class Interface:
     ends on a user message.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, messages: Optional[List[Dict[str, str]]] = None, **kwargs):
         """
-        Initialize components with an optional endpoint and logging.
+        Initialize components with messages and configuration.
+        
+        Args:
+            messages: Initial conversation messages. If None, defaults will be used based on mode.
+                     Empty list ([]) bypasses defaults entirely.
         
         Keyword Args:
             endpoint: URL endpoint for remote mode. If None and use_same_origin is False, 
@@ -70,6 +74,9 @@ class Interface:
         if provider == "bedrock" and aws_config and not provider_config:
             provider_config = aws_config
 
+        # Store messages and validate them
+        self.messages = self._prepare_messages(messages, endpoint)
+
         self._init_components(endpoint,
                               use_same_origin,
                               origin_path,
@@ -82,6 +89,51 @@ class Interface:
                               preface,
                               conclusion,
                               interface_config)
+
+    def _prepare_messages(self, messages: Optional[List[Dict[str, str]]], endpoint: Optional[str]) -> List[Dict[str, str]]:
+        """
+        Prepare and validate messages for the conversation.
+        
+        Args:
+            messages: Input messages or None for defaults
+            endpoint: Whether we're in remote mode (for default handling)
+            
+        Returns:
+            Validated messages list
+        """
+        # Only apply defaults when messages is explicitly None
+        if messages is None:
+            if endpoint is not None:
+                # For remote mode, use a special initialization message
+                messages = [{"role": "user", "content": "___INIT___"}]
+            else:
+                # For embedded mode, use default messages
+                messages = DEFAULT_MESSAGES.copy()
+
+        # Only validate message structure if we have non-empty messages
+        if messages:
+            # Ensure final message is from user
+            if messages[-1]["role"] != "user":
+                raise ValueError("Messages must end with a user message.")
+
+            # Optional: check if the first message is system
+            has_system = (messages[0]["role"] == "system")
+
+            # We'll start validating from the *first non-system* message
+            start_idx = 1 if has_system else 0
+
+            # Enforce strict alternating from that point on
+            # e.g. user -> assistant -> user -> assistant -> ...
+            for i in range(start_idx, len(messages)):
+                expected = "user" if i % 2 == start_idx % 2 else "assistant"
+                actual = messages[i]["role"]
+                if actual != expected:
+                    raise ValueError(
+                        f"Invalid role order at index {i}. "
+                        f"Expected '{expected}', got '{actual}'."
+                    )
+
+        return messages
 
     def _init_components(self,
                          endpoint: Optional[str],
@@ -193,48 +245,9 @@ class Interface:
             raise
 
 
-    def start(self, messages: Optional[List[Dict[str, str]]] = None) -> None:
+    def start(self) -> None:
         """
-        Start the conversation with optional messages.
-        
-        In remote mode with no messages (None), uses a special initialization message
-        that signals to the server to use its default messages.
-        
-        In embedded mode with no messages (None), uses DEFAULT_MESSAGES.
-        
-        An explicitly empty array ([]) will bypass defaults in any mode.
+        Start the conversation using the messages provided during initialization.
         """
-        # Only apply defaults when messages is explicitly None
-        if messages is None:
-            if hasattr(self, 'is_remote_mode') and self.is_remote_mode:
-                # For remote mode, use a special initialization message
-                messages = [{"role": "user", "content": "___INIT___"}]
-            else:
-                # For embedded mode, use default messages
-                messages = DEFAULT_MESSAGES.copy()
-
-        # Only validate message structure if we have non-empty messages
-        if messages:
-            # Ensure final message is from user
-            if messages[-1]["role"] != "user":
-                raise ValueError("Messages must a user a user message.")
-
-            # Optional: check if the first message is system
-            has_system = (messages[0]["role"] == "system")
-
-            # We'll start validating from the *first non-system* message
-            start_idx = 1 if has_system else 0
-
-            # Enforce strict alternating from that point on
-            # e.g. user -> assistant -> user -> assistant -> ...
-            for i in range(start_idx, len(messages)):
-                expected = "user" if i % 2 == start_idx % 2 else "assistant"
-                actual = messages[i]["role"]
-                if actual != expected:
-                    raise ValueError(
-                        f"Invalid role order at index {i}. "
-                        f"Expected '{expected}', got '{actual}'."
-                    )
-
-        # Start the conversation
-        self.conv.actions.start_conversation(messages)
+        # Start the conversation with our prepared messages
+        self.conv.actions.start_conversation(self.messages)
