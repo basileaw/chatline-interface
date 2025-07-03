@@ -223,8 +223,8 @@ class ConversationActions:
         raw, assistant_styled = await self._process_message(intro_msg, silent=True)
         full_styled = styled_panel + assistant_styled
         
-        # Use smart clearing logic like subsequent responses do to preserve scrollback
-        self.terminal.clear_screen_smart()
+        # Force scrollback clear to remove duplicate preface from initial display
+        self.terminal.clear_screen_and_scrollback()
         self.terminal.write(full_styled)
         
         self.is_silent = True
