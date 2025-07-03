@@ -137,8 +137,9 @@ class BedrockProvider(BaseProvider):
     async def generate_stream(
         self,
         messages: list,
-        max_gen_len: int = 4096,
+        model: Optional[str] = None,
         temperature: float = 0.9,
+        max_gen_len: int = 4096,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
         """
@@ -146,8 +147,9 @@ class BedrockProvider(BaseProvider):
 
         Args:
             messages: List of conversation messages
-            max_gen_len: Maximum tokens to generate
+            model: Model identifier (takes precedence over provider_config)
             temperature: Temperature for generation
+            max_gen_len: Maximum tokens to generate
             **kwargs: Additional keyword arguments (unused)
 
         Yields:
@@ -161,6 +163,9 @@ class BedrockProvider(BaseProvider):
             self.bedrock_client, self.runtime_client, self.model_id = (
                 self.get_bedrock_clients()
             )
+        
+        # Use provided model or fall back to config/default
+        model_id = model or self.config.get("model_id") or self.model_id
 
         # Check if clients were successfully initialized
         if self.bedrock_client is None or self.runtime_client is None:
@@ -170,7 +175,7 @@ class BedrockProvider(BaseProvider):
 
         try:
             response = self.runtime_client.converse_stream(
-                modelId=self.model_id,
+                modelId=model_id,
                 messages=[
                     {"role": m["role"], "content": [{"text": m["content"]}]}
                     for m in messages

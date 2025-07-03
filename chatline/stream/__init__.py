@@ -14,7 +14,8 @@ class Stream:
     @classmethod 
     def create(cls, endpoint: Optional[str] = None, logger=None, 
                generator_func=None, aws_config: Optional[Dict[str, Any]] = None,
-               provider: str = "openrouter", provider_config: Optional[Dict[str, Any]] = None) -> 'Stream':
+               provider: str = "openrouter", model: Optional[str] = None,
+               temperature: Optional[float] = None, provider_config: Optional[Dict[str, Any]] = None) -> 'Stream':
         """
         Create appropriate stream handler based on endpoint presence.
         
@@ -24,6 +25,8 @@ class Stream:
             generator_func: Generator function for embedded mode
             aws_config: (Legacy) AWS configuration for embedded mode
             provider: Provider name for embedded mode
+            model: Model identifier
+            temperature: Sampling temperature (0.0 to 1.0)
             provider_config: Provider-specific configuration
             
         Returns:
@@ -41,6 +44,8 @@ class Stream:
             logger=logger, 
             generator_func=generator_func, 
             provider=provider,
+            model=model,
+            temperature=temperature,
             provider_config=provider_config
         )
 

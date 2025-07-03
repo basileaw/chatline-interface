@@ -6,7 +6,8 @@ class EmbeddedStream:
     """Handler for local embedded message streams."""
     
     def __init__(self, logger=None, generator_func=None, 
-                 provider: str = "bedrock", 
+                 provider: str = "bedrock", model: Optional[str] = None,
+                 temperature: Optional[float] = None,
                  provider_config: Optional[Dict[str, Any]] = None) -> None:
         """
         Initialize embedded stream with generator and configuration.
@@ -15,12 +16,16 @@ class EmbeddedStream:
             logger: Optional logger instance
             generator_func: Async generator function for message generation
             provider: Provider name to use
+            model: Model identifier
+            temperature: Sampling temperature (0.0 to 1.0)
             provider_config: Provider-specific configuration dictionary
         """
         self.logger = logger
         self._last_error: Optional[str] = None
         self.generator = generator_func
         self.provider = provider
+        self.model = model
+        self.temperature = temperature
         self.provider_config = provider_config or {}
         
         if self.logger:
@@ -45,9 +50,11 @@ class EmbeddedStream:
                 if state:
                     self.logger.debug(f"Current conversation state: turn={state.get('turn_number', 0)}")
             
-            # Pass messages, provider, provider_config, and additional kwargs to generator
+            # Pass messages, provider, model, temperature, provider_config, and additional kwargs to generator
             generator_kwargs = {
                 "provider": self.provider,
+                "model": self.model,
+                "temperature": self.temperature,
                 "provider_config": self.provider_config,
                 "logger": self.logger,
                 **kwargs

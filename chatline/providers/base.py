@@ -36,6 +36,8 @@ class BaseProvider(ABC):
     async def generate_stream(
         self,
         messages: list,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """
@@ -43,6 +45,8 @@ class BaseProvider(ABC):
         
         Args:
             messages: List of conversation messages
+            model: Model identifier (takes precedence over provider_config)
+            temperature: Sampling temperature (0.0 to 1.0)
             **kwargs: Additional provider-specific parameters
             
         Yields:

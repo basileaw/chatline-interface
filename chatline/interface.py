@@ -43,6 +43,8 @@ class Interface:
                         - model_id: Bedrock model ID
                         - timeout: Request timeout in seconds
             provider: Provider name (e.g., 'bedrock', 'openrouter')
+            model: Model identifier (e.g., 'anthropic/claude-3.7-sonnet', 'anthropic.claude-3-5-haiku-20241022-v1:0')
+            temperature: Sampling temperature (0.0 to 1.0)
             provider_config: Provider-specific configuration
             preface: Optional preface content (string or dict with text, title, border_color, display_type)
             conclusion: Optional conclusion string that terminates input prompts
@@ -64,6 +66,8 @@ class Interface:
         history_file = kwargs.get('history_file', None)
         aws_config = kwargs.get('aws_config', None)
         provider = kwargs.get('provider', DEFAULT_PROVIDER)
+        model = kwargs.get('model', None)
+        temperature = kwargs.get('temperature', None)
         provider_config = kwargs.get('provider_config', None)
         preface = kwargs.get('preface', None)
         conclusion = kwargs.get('conclusion', None)
@@ -84,6 +88,8 @@ class Interface:
                               log_file,
                               history_file,
                               provider,
+                              model,
+                              temperature,
                               provider_config,
                               preface,
                               conclusion,
@@ -143,6 +149,8 @@ class Interface:
                          log_file: Optional[str],
                          history_file: Optional[str],
                          provider: str = DEFAULT_PROVIDER,
+                         model: Optional[str] = None,
+                         temperature: Optional[float] = None,
                          provider_config: Optional[Dict[str, Any]] = None,
                          preface: Optional[Union[str, Dict[str, Any]]] = None,
                          conclusion: Optional[str] = None,
@@ -197,6 +205,8 @@ class Interface:
                 logger=self.logger,
                 generator_func=generate_stream,
                 provider=provider,
+                model=model,
+                temperature=temperature,
                 provider_config=provider_config
             )
 

@@ -14,6 +14,7 @@ async def generate_stream(
     max_gen_len: int = 4096,
     temperature: float = 0.7,
     provider: str = DEFAULT_PROVIDER,
+    model: Optional[str] = None,
     provider_config: Optional[Dict[str, Any]] = None,
     aws_config: Optional[Dict[str, Any]] = None,
     logger=None,
@@ -30,6 +31,7 @@ async def generate_stream(
         max_gen_len: Maximum tokens to generate
         temperature: Temperature for generation
         provider: Provider name (e.g., 'bedrock', 'openrouter')
+        model: Model identifier (takes precedence over provider_config)
         provider_config: Provider-specific configuration
         aws_config: (Legacy) AWS configuration for Bedrock
         logger: Optional logger instance
@@ -62,6 +64,7 @@ async def generate_stream(
     async for chunk in generate_with_provider(
         provider_name=provider,
         messages=messages,
+        model=model,
         provider_config=config,
         max_gen_len=max_gen_len,
         temperature=temperature,

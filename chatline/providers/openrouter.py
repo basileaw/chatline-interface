@@ -57,8 +57,9 @@ class OpenRouterProvider(BaseProvider):
     async def generate_stream(
         self,
         messages: List[Dict[str, str]],
-        max_gen_len: int = 4096,
+        model: Optional[str] = None,
         temperature: float = 0.7,
+        max_gen_len: int = 4096,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
         """
@@ -66,8 +67,9 @@ class OpenRouterProvider(BaseProvider):
 
         Args:
             messages: List of conversation messages
-            max_gen_len: Maximum tokens to generate
+            model: Model identifier (takes precedence over provider_config)
             temperature: Temperature for generation
+            max_gen_len: Maximum tokens to generate
             **kwargs: Additional parameters
 
         Yields:
@@ -96,9 +98,11 @@ class OpenRouterProvider(BaseProvider):
             "temperature": temperature,
         }
 
-        # Only add model if explicitly specified
-        if self.model:
-            request_data["model"] = self.model
+        # Use provided model or fall back to config/default
+        # Priority: direct parameter > config > environment variable
+        use_model = model or self.config.get("model") or self.model
+        if use_model:
+            request_data["model"] = use_model
 
         # Override any defaults with provider_config values
         # This ensures provider_config always takes precedence

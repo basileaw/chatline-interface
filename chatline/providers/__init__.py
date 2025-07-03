@@ -78,6 +78,7 @@ def get_provider(
 async def generate_with_provider(
     provider_name: str,
     messages: list,
+    model: Optional[str] = None,
     provider_config: Optional[Dict[str, Any]] = None,
     **kwargs
 ) -> AsyncGenerator[str, None]:
@@ -87,6 +88,7 @@ async def generate_with_provider(
     Args:
         provider_name: Provider identifier
         messages: List of conversation messages
+        model: Model identifier (takes precedence over provider_config)
         provider_config: Provider-specific configuration
         **kwargs: Additional keyword arguments to pass to the provider
         
@@ -94,7 +96,7 @@ async def generate_with_provider(
         Chunks of the generated response
     """
     provider = get_provider(provider_name, provider_config, kwargs.get("logger"))
-    async for chunk in provider.generate_stream(messages, **kwargs):
+    async for chunk in provider.generate_stream(messages, model=model, **kwargs):
         yield chunk
 
 # Import BaseProvider here to avoid circular imports

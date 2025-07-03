@@ -46,9 +46,10 @@ from chatline import Interface
 # Initialize with AWS Bedrock (default provider)
 chat = Interface(
     provider="bedrock",  # Optional: this is the default
+    model="anthropic.claude-3-5-haiku-20241022-v1:0",
+    temperature=0.7,
     provider_config={
         "region": "us-west-2",  
-        "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0", 
         "profile_name": "development", 
         "timeout": 120  
     },
@@ -66,9 +67,10 @@ chat = Interface(
         {"role": "user", "content": "Can you help me with a Python project?"}
     ],
     provider="bedrock",  # Optional: this is the default
+    model="anthropic.claude-3-5-haiku-20241022-v1:0",
+    temperature=0.7,
     provider_config={
         "region": "us-west-2",  
-        "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0", 
         "profile_name": "development", 
         "timeout": 120  
     },
@@ -93,9 +95,9 @@ from chatline import Interface
 # Initialize with OpenRouter provider
 chat = Interface(
     provider="openrouter",
+    model="deepseek/deepseek-chat-v3-0324",
+    temperature=0.7,
     provider_config={
-        "model": "deepseek/deepseek-chat-v3-0324", 
-        "temperature": 0.7, 
         "top_p": 0.9, 
         "frequency_penalty": 0.5, 
         "presence_penalty": 0.5,
