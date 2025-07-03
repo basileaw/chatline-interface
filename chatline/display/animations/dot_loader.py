@@ -5,6 +5,7 @@ import json
 import time
 from typing import Tuple
 
+
 class AsyncDotLoader:
     """Async dot-loading animation for streaming responses."""
     def __init__(self, style, terminal, prompt="", no_animation=False):
@@ -89,6 +90,7 @@ class AsyncDotLoader:
     async def _animate(self):
         """Run dot animation until complete."""
         try:
+            
             while not self.animation_complete.is_set():
                 await self._write_loading_state()
                 await asyncio.sleep(0.4)

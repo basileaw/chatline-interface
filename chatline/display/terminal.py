@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+
 @dataclass
 class TerminalSize:
     """Terminal dimensions."""
@@ -187,11 +188,26 @@ class DisplayTerminal:
         
         # Clear screen completely and redisplay only visible content
         self.clear_screen()
+        
         for line in visible_lines:
             self.write(line, newline=True)
         
-        # Add exactly one spacing line (same as write_line() would do)
-        self.write("", newline=True)
+        # Check what the last line ends with
+        should_add_spacing = True
+        if visible_lines:
+            last_line = visible_lines[-1]
+            # Check if last line is only ANSI escape sequences (no visible content)
+            import re
+            # Remove all ANSI escape sequences and check if anything remains
+            clean_line = re.sub(r'\x1b\[[0-9;]*[mGKHfABCDsuJlh]', '', last_line)
+            should_add_spacing = bool(clean_line.strip())
+            
+        
+        # Add spacing line only if the last line has actual content
+        if should_add_spacing:
+            self.write("", newline=True)
+        else:
+            pass
         
         # Update buffer to match what's actually on screen now
         self._current_buffer = '\n'.join(visible_lines) + '\n'
@@ -203,10 +219,12 @@ class DisplayTerminal:
             if newline:
                 sys.stdout.write("\n")
             sys.stdout.flush()
+            
             # Update our buffer with the content
             self._current_buffer += text
             if newline:
                 self._current_buffer += "\n"
+                
         except IOError:
             pass  # Ignore pipe errors
 
@@ -914,12 +932,16 @@ class DisplayTerminal:
         Returns:
             User input string (without prompt)
         """
-        if add_newline:
+        # CRITICAL FIX: Avoid double spacing when content exceeds screen
+        # Check if isolation will be needed before adding newline
+        will_isolate = self._content_exceeds_screen()
+        
+        if add_newline and not will_isolate:
             self.write_line()
 
-        # CRITICAL FIX: Isolate input display when content exceeds screen height
+        # Isolate input display when content exceeds screen height
         # This establishes predictable cursor state before input operations
-        if self._content_exceeds_screen():
+        if will_isolate:
             self._isolate_input_display()
 
         try:
