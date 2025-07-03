@@ -11,5 +11,3 @@ dist/
 test.py
 messages.json
 .aider*
-
-CLAUDE.md
