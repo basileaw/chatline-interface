@@ -294,6 +294,9 @@ class DisplayTerminal:
             default_text: Pre-filled text for edit mode
         """
         fd = sys.stdin.fileno()
+        if not self._is_terminal():
+            # Not a terminal, just return empty string
+            return ""
         old_settings = termios.tcgetattr(fd)
 
         # For reading UTF-8 characters
@@ -580,14 +583,17 @@ class DisplayTerminal:
                         self.hide_cursor()
                         return "".join(input_chars)
                 elif c == b"\x03":  # Ctrl+C
-                    self.write("^C\r\n")
-                    self.hide_cursor()
-                    raise KeyboardInterrupt()
+                    # Clear input buffer
+                    input_chars = []
+                    cursor_pos = 0
+                    selection_start = None
+                    # Redraw prompt with empty input
+                    redraw_input(input_chars, cursor_pos, styled_prompt, prompt_len)
                 elif c == b"\x04":  # Ctrl+D
                     if not input_chars:
                         self.write("\r\n")
                         self.hide_cursor()
-                        return "exit"
+                        raise KeyboardInterrupt()
                 elif c in (b"\r", b"\n"):  # Enter
                     self.write("\r\n")
                     self.hide_cursor()
@@ -977,7 +983,7 @@ class DisplayTerminal:
             )
 
             # Check for special commands
-            if result in ["edit", "retry", "exit"]:
+            if result in ["edit", "retry"]:
                 return result
 
             # Validate non-empty input
@@ -990,7 +996,7 @@ class DisplayTerminal:
                     prompt_separator,
                     "",  # No default text for retry
                 )
-                if result in ["edit", "retry", "exit"]:
+                if result in ["edit", "retry"]:
                     return result
 
             return result.strip()

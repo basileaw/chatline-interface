@@ -428,11 +428,11 @@ class ConversationActions:
                     self.terminal.write("\r\n")
                     return "rewind"
                 elif c == b"\x03":  # Ctrl+C
-                    self.terminal.write("^C\r\n")
-                    raise KeyboardInterrupt()
+                    # In conclusion mode, Ctrl+C does nothing - just continue listening
+                    pass
                 elif c == b"\x04":  # Ctrl+D
                     self.terminal.write("\r\n")
-                    return "exit"
+                    raise KeyboardInterrupt()
                 # Ignore all other input including Ctrl+P and regular characters
 
         finally:
