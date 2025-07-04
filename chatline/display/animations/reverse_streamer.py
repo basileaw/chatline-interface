@@ -474,6 +474,106 @@ class ReverseStreamer:
                 if line.strip().startswith('>'):
                     user_line_indices.append(i)
     
+    async def fake_reverse_stream_text(
+        self, 
+        user_message: str, 
+        delay: float = 0.08,
+        acceleration_factor: float = 1.15
+    ) -> None:
+        """
+        Continue reverse streaming by removing user message text word by word.
+        
+        Args:
+            user_message: User message like "> How about a joke"
+            delay: Base delay between word removals
+            acceleration_factor: How much to accelerate the animation
+        """
+        # Extract prompt prefix and text content
+        if user_message.startswith("> "):
+            prompt_prefix = "> "
+            text_content = user_message[2:].strip()
+        else:
+            prompt_prefix = ""
+            text_content = user_message.strip()
+        
+        if not text_content:
+            return
+        
+        # Tokenize the text content (not including prompt prefix)
+        tokens = self.tokenize_text(text_content)
+        groups = self.group_tokens_by_word(tokens)
+        
+        # Remove words from the end, similar to existing reverse stream logic
+        chunks_to_remove = 1.0
+        while any(group_type == "word" for group_type, _ in groups):
+            chunks_this_round = round(chunks_to_remove)
+            for _ in range(min(chunks_this_round, len(groups))):
+                # Remove trailing spaces first
+                while groups and groups[-1][0] == "space":
+                    groups.pop()
+                # Then remove the word
+                if groups:
+                    groups.pop()
+            
+            chunks_to_remove *= acceleration_factor
+            
+            # Reassemble remaining tokens
+            remaining_tokens = []
+            for _, grp in groups:
+                remaining_tokens.extend(grp)
+            remaining_text = self.reassemble_tokens(remaining_tokens)
+            
+            # Display prompt prefix + remaining text
+            display_text = prompt_prefix + remaining_text
+            await self.update_display("", display_text, force_full_clear=True)
+            await asyncio.sleep(delay)
+        
+        # Final state: just the prompt prefix
+        await self.update_display("", prompt_prefix, force_full_clear=True)
+
+    async def fake_forward_stream_text(
+        self,
+        previous_message: str,
+        delay: float = 0.06,
+        current_prompt: str = "> "
+    ) -> None:
+        """
+        Stream previous message word by word into the prompt area.
+        
+        Args:
+            previous_message: The previous user message to stream in
+            delay: Base delay between word additions
+            current_prompt: Current prompt prefix (should be "> ")
+        """
+        # Clean the previous message - remove any existing prompt prefix
+        if previous_message.startswith("> "):
+            clean_message = previous_message[2:].strip()
+        else:
+            clean_message = previous_message.strip()
+        
+        if not clean_message:
+            return
+        
+        # Tokenize the message into words
+        tokens = self.tokenize_text(clean_message)
+        groups = self.group_tokens_by_word(tokens)
+        
+        # Build up the message word by word
+        accumulated_tokens = []
+        
+        for group_type, group_tokens in groups:
+            accumulated_tokens.extend(group_tokens)
+            
+            # Reassemble current text
+            current_text = self.reassemble_tokens(accumulated_tokens)
+            display_text = current_prompt + current_text
+            
+            await self.update_display("", display_text, force_full_clear=True)
+            
+            # Only add delay for word groups, not spaces
+            if group_type == "word":
+                await asyncio.sleep(delay)
+    
     async def _yield(self) -> None:
         """Yield briefly to the event loop."""
         await asyncio.sleep(0)

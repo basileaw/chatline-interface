@@ -11,3 +11,4 @@ dist/
 test.py
 messages.json
 .aider*
+__pycache__

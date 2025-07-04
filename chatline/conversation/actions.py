@@ -331,6 +331,7 @@ class ConversationActions:
         """
         Rewind the conversation by multiple exchanges, allowing user to step back
         through conversation history and replay from an earlier point.
+        Enhanced with 3-phase animation: reverse stream, fake reverse, fake forward.
         """
         # Check if we have enough history to rewind
         if len(self.messages.messages) < 3:  # Need at least 2 user messages
@@ -341,13 +342,7 @@ class ConversationActions:
         if len(user_messages) < 2:
             return "", intro_styled, ""
         
-        # Use reverse streaming to remove the last exchange
-        rev_streamer = self.animations.create_reverse_streamer()
-        await rev_streamer.reverse_stream(
-            intro_styled, "", preconversation_text=self.preface.styled_content
-        )
-        
-        # Find the last two user messages
+        # Find the last two user messages before starting animation
         last_user_msg = None
         second_last_user_msg = None
         
@@ -362,7 +357,23 @@ class ConversationActions:
         if not second_last_user_msg:
             return "", intro_styled, ""
         
-        # Remove the last user+assistant pair
+        # Create reverse streamer for all animation phases
+        rev_streamer = self.animations.create_reverse_streamer()
+        
+        # PHASE 1: Standard reverse stream (removes assistant response + dots from user message)
+        await rev_streamer.reverse_stream(
+            intro_styled, "", preconversation_text=self.preface.styled_content
+        )
+        
+        # PHASE 2: Fake reverse stream - remove user message text word by word
+        # This continues from where reverse_stream left off (message without dots)
+        user_msg_without_dots = f"> {last_user_msg.rstrip('?.!')}"
+        await rev_streamer.fake_reverse_stream_text(user_msg_without_dots)
+        
+        # PHASE 3: Fake forward stream - stream in the previous message word by word
+        await rev_streamer.fake_forward_stream_text(second_last_user_msg)
+        
+        # Remove the last user+assistant pair from data structures
         user_indices = []
         for i, msg in enumerate(self.messages.messages):
             if msg.role == "user":
@@ -382,10 +393,8 @@ class ConversationActions:
                 self.history_index -= 1
                 self.history.restore_state_by_index(self.history_index)
         
-        # Clear screen and re-process the second-to-last user message
-        self.terminal.clear_screen()
-        
-        # Re-process the message that's now the last user message
+        # PHASE 4: Continue with normal processing (NO screen clear)
+        # The previous message is now visually in the prompt, ready for processing
         raw, styled = await self._process_message(second_last_user_msg, silent=False)
         
         self.prompt = self.terminal.format_prompt(second_last_user_msg)
