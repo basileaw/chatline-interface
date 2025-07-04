@@ -565,6 +565,10 @@ class DisplayTerminal:
                     self.write("\r\n")
                     self.hide_cursor()
                     return "retry"
+                elif c == b"\x15":  # Ctrl+U
+                    self.write("\r\n")
+                    self.hide_cursor()
+                    return "rewind"
                 elif c == b"\x10":  # Ctrl+P
                     # Only work if input buffer is empty
                     if not input_chars:

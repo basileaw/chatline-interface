@@ -377,6 +377,103 @@ class ReverseStreamer:
             # Show the message without punctuation as the final state
             await self.update_display("", base, force_full_clear=True)
 
+    async def reverse_stream_multiple_exchanges(
+        self,
+        styled_text: str,
+        exchanges_to_remove: int = 1,
+        delay: float = 0.08,
+        preconversation_text: str = "",
+        acceleration_factor: float = 1.15,
+    ) -> None:
+        """
+        Reverse stream multiple exchanges from the conversation.
+        
+        Args:
+            styled_text: The full conversation text to process
+            exchanges_to_remove: Number of user/assistant exchanges to remove
+            delay: Base delay between animations
+            preconversation_text: Text to preserve at the top
+            acceleration_factor: How much to accelerate the animation
+        """
+        # Split the text into lines to identify exchanges
+        lines = styled_text.split('\n')
+        
+        # Find user message lines (they start with ">")
+        user_line_indices = []
+        for i, line in enumerate(lines):
+            if line.strip().startswith('>'):
+                user_line_indices.append(i)
+        
+        # If we don't have enough exchanges to remove, fall back to regular reverse stream
+        if len(user_line_indices) < exchanges_to_remove:
+            await self.reverse_stream(styled_text, delay=delay, 
+                                    preconversation_text=preconversation_text,
+                                    acceleration_factor=acceleration_factor)
+            return
+        
+        # Calculate which exchanges to remove
+        exchanges_to_keep = len(user_line_indices) - exchanges_to_remove
+        
+        if exchanges_to_keep <= 0:
+            # Remove everything except preconversation text
+            await self.update_display(preconversation_text)
+            return
+        
+        # Find the cutoff point - everything after the last exchange we want to keep
+        cutoff_line = user_line_indices[exchanges_to_keep - 1]
+        
+        # Find the start of the next exchange to remove
+        if exchanges_to_keep < len(user_line_indices):
+            next_exchange_start = user_line_indices[exchanges_to_keep]
+        else:
+            next_exchange_start = len(lines)
+        
+        # Build the text to keep and text to remove
+        preserved_lines = lines[:next_exchange_start]
+        preserved_text = '\n'.join(preserved_lines)
+        
+        # Remove each exchange one by one with animation
+        for exchange_idx in range(exchanges_to_remove):
+            current_exchange_idx = len(user_line_indices) - 1 - exchange_idx
+            
+            if current_exchange_idx < 0:
+                break
+            
+            # Find the range of lines for this exchange
+            exchange_start = user_line_indices[current_exchange_idx]
+            
+            # Find the end of this exchange (start of next exchange or end of text)
+            if current_exchange_idx + 1 < len(user_line_indices):
+                exchange_end = user_line_indices[current_exchange_idx + 1]
+            else:
+                exchange_end = len(lines)
+            
+            # Build the text without this exchange
+            remaining_lines = lines[:exchange_start]
+            remaining_text = '\n'.join(remaining_lines)
+            
+            # Animate the removal of this exchange
+            exchange_lines = lines[exchange_start:exchange_end]
+            exchange_text = '\n'.join(exchange_lines)
+            
+            # Use the regular reverse stream for this exchange
+            await self.reverse_stream(
+                exchange_text, 
+                preserved_msg=remaining_text,
+                delay=delay,
+                preconversation_text=preconversation_text,
+                acceleration_factor=acceleration_factor
+            )
+            
+            # Update the lines array for the next iteration
+            lines = remaining_lines
+            
+            # Recalculate user line indices for remaining text
+            user_line_indices = []
+            for i, line in enumerate(lines):
+                if line.strip().startswith('>'):
+                    user_line_indices.append(i)
+    
     async def _yield(self) -> None:
         """Yield briefly to the event loop."""
         await asyncio.sleep(0)

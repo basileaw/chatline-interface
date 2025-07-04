@@ -40,7 +40,7 @@ Chatline is a Python library for building terminal-based LLM chat interfaces. Th
 - Provider pattern for LLM integrations with pluggable backends
 - Streaming architecture supporting both local and remote generation
 - Rich terminal UI with animations and styled text formatting
-- Conversation state management with edit/retry functionality
+- Conversation state management with edit/retry/rewind functionality
 - Message validation ensuring proper user/assistant alternation
 
 ### Configuration
@@ -49,6 +49,15 @@ Chatline is a Python library for building terminal-based LLM chat interfaces. Th
 - Environment variables for API keys (OPENROUTER_API_KEY)
 - Logging system with file output support
 - Conversation history persistence to JSON
+
+### Keyboard Shortcuts
+During conversation input, the following keyboard shortcuts are available:
+- **Ctrl+E** - Edit the last user message
+- **Ctrl+R** - Retry the last user message (regenerate response)
+- **Ctrl+U** - Rewind conversation by one exchange (go back further in history)
+- **Ctrl+P** or **Space** (on empty input) - Insert `[CONTINUE]` command
+- **Ctrl+C** - Exit the conversation
+- **Ctrl+D** - Exit the conversation (on empty input)
 
 ### Dependencies
 - `boto3` - AWS SDK for Bedrock provider

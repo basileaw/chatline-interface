@@ -327,6 +327,70 @@ class ConversationActions:
         self.prompt = self.terminal.format_prompt(last_msg)
         return raw, styled, self.prompt
 
+    async def rewind_conversation(self, intro_styled: str) -> Tuple[str, str, str]:
+        """
+        Rewind the conversation by multiple exchanges, allowing user to step back
+        through conversation history and replay from an earlier point.
+        """
+        # Check if we have enough history to rewind
+        if len(self.messages.messages) < 3:  # Need at least 2 user messages
+            return "", intro_styled, ""
+        
+        # Count user messages to determine how far we can rewind
+        user_messages = [m for m in self.messages.messages if m.role == "user"]
+        if len(user_messages) < 2:
+            return "", intro_styled, ""
+        
+        # Use reverse streaming to remove the last exchange
+        rev_streamer = self.animations.create_reverse_streamer()
+        await rev_streamer.reverse_stream(
+            intro_styled, "", preconversation_text=self.preface.styled_content
+        )
+        
+        # Find the last two user messages
+        last_user_msg = None
+        second_last_user_msg = None
+        
+        for msg in reversed(self.messages.messages):
+            if msg.role == "user":
+                if last_user_msg is None:
+                    last_user_msg = msg.content
+                else:
+                    second_last_user_msg = msg.content
+                    break
+        
+        if not second_last_user_msg:
+            return "", intro_styled, ""
+        
+        # Remove the last user+assistant pair
+        user_indices = []
+        for i, msg in enumerate(self.messages.messages):
+            if msg.role == "user":
+                user_indices.append(i)
+        
+        if len(user_indices) >= 2:
+            # Remove from the second-to-last user message onwards
+            last_user_idx = user_indices[-1]
+            # Remove all messages from the last user message onwards
+            messages_to_remove = len(self.messages.messages) - last_user_idx
+            for _ in range(messages_to_remove):
+                self.messages.messages.pop()
+            
+            # Update turn counter and history
+            self.current_turn -= 1
+            if self.history_index > 0:
+                self.history_index -= 1
+                self.history.restore_state_by_index(self.history_index)
+        
+        # Clear screen and re-process the second-to-last user message
+        self.terminal.clear_screen()
+        
+        # Re-process the message that's now the last user message
+        raw, styled = await self._process_message(second_last_user_msg, silent=False)
+        
+        self.prompt = self.terminal.format_prompt(second_last_user_msg)
+        return raw, styled, self.prompt
+
     def _read_line_raw_conclusion_mode(self) -> str:
         """
         Special raw input mode for conclusion state.
@@ -351,6 +415,9 @@ class ConversationActions:
                 elif c == b"\x12":  # Ctrl+R
                     self.terminal.write("\r\n")
                     return "retry"
+                elif c == b"\x15":  # Ctrl+U
+                    self.terminal.write("\r\n")
+                    return "rewind"
                 elif c == b"\x03":  # Ctrl+C
                     self.terminal.write("^C\r\n")
                     raise KeyboardInterrupt()
@@ -406,6 +473,10 @@ class ConversationActions:
                             intro_styled, is_retry=(user_input == "retry")
                         )
                         self.conclusion_triggered = False  # Reset after edit/retry
+                    elif user_input == "rewind":
+                        # Process rewind
+                        _, intro_styled, _ = await self.rewind_conversation(intro_styled)
+                        self.conclusion_triggered = False  # Reset after rewind
                 else:
                     # Normal input handling
                     user_input = await self.terminal.get_user_input()
@@ -417,6 +488,8 @@ class ConversationActions:
                         _, intro_styled, _ = await self.backtrack_conversation(
                             intro_styled, is_retry=(cmd == "retry")
                         )
+                    elif cmd == "rewind":
+                        _, intro_styled, _ = await self.rewind_conversation(intro_styled)
                     else:
                         _, intro_styled, _ = await self.process_user_message(
                             user_input, intro_styled
