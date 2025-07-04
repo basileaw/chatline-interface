@@ -568,7 +568,7 @@ class ReverseStreamer:
             current_text = self.reassemble_tokens(accumulated_tokens)
             display_text = current_prompt + current_text
             
-            await self.update_display("", display_text, force_full_clear=True)
+            await self.update_display("", display_text, no_spacing=True, force_full_clear=True)
             
             # Only add delay for word groups, not spaces
             if group_type == "word":
