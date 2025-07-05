@@ -69,6 +69,14 @@ class ConversationActions:
                 return msg.content
         return ""
 
+    def _get_last_assistant_response(self) -> str:
+        """Return the last assistant response from messages, else empty."""
+        for msg in reversed(self.messages.messages):
+            if msg.role == "assistant":
+                return msg.content
+        return ""
+
+
     def _handle_state_update(self, new_state: Dict[str, Any]) -> None:
         """Handle conversation state updates from a remote provider."""
         if self.logger:
@@ -495,7 +503,7 @@ class ConversationActions:
                         self.conclusion_triggered = False  # Reset after rewind
                     elif user_input == "save":
                         # Process save
-                        await self._handle_save_command()
+                        _, intro_styled, _ = await self._handle_save_command(intro_styled)
                 else:
                     # Normal input handling
                     user_input = await self.terminal.get_user_input()
@@ -510,7 +518,7 @@ class ConversationActions:
                     elif cmd == "rewind":
                         _, intro_styled, _ = await self.rewind_conversation(intro_styled)
                     elif cmd == "save":
-                        await self._handle_save_command()
+                        _, intro_styled, _ = await self._handle_save_command(intro_styled)
                     else:
                         _, intro_styled, _ = await self.process_user_message(
                             user_input, intro_styled
@@ -598,37 +606,65 @@ class ConversationActions:
             self.logger.error(f"Critical error in conversation: {e}", exc_info=True)
             self.terminal.reset()
 
-    async def _handle_save_command(self) -> None:
-        """Handle the save command by prompting for filename and saving."""
+    async def _handle_save_command(self, intro_styled: str) -> Tuple[str, str, str]:
+        """Handle the save command with smooth animation sequence."""
         try:
-            # Prompt for filename
-            filename = await self._prompt_for_filename()
+            # Store original conversation state for restoration
+            original_user_message = self._get_last_user_input()
             
-            if filename is None:
-                # User cancelled the save operation
-                await self.terminal.update_display("Save cancelled.\n")
-                return
+            if not original_user_message:
+                # No conversation to save
+                await self.terminal.update_display("No conversation to save.\n")
+                return "", intro_styled, ""
             
-            # Get current conversation state
+            # Create reverse streamer for animations
+            rev_streamer = self.animations.create_reverse_streamer()
+            
+            # Phase 1: Reverse stream the current conversation using the actual styled content
+            await rev_streamer.reverse_stream(intro_styled, delay=0.05)
+            
+            # Phase 2: Clear screen and show save prompt
+            self.terminal.clear_screen()
+            filename = await self.terminal.get_user_input(
+                default_text="",  # No prepopulated filename
+                prompt_prefix="> Save As: ",  # Protected prompt prefix
+                add_newline=False,  # Don't add extra spacing
+                hide_cursor=True   # Hide cursor after input
+            )
+            
+            # Check if user cancelled (Ctrl+C returns empty string)
+            if not filename.strip():
+                # User cancelled - restore original conversation
+                await rev_streamer.update_display(intro_styled, "", force_full_clear=True)
+                return "", intro_styled, ""
+            
+            # Clean the filename and perform the save operation
+            clean_filename = self._clean_filename(filename.strip())
             conversation_data = self.history.create_state_snapshot()
+            saved_path, save_error = self.save_manager.save_conversation(clean_filename, conversation_data)
             
-            # Save the conversation
-            saved_path, save_error = self.save_manager.save_conversation(filename, conversation_data)
-            
+            # Phase 5: Show save result briefly, then restore conversation
             if saved_path:
-                # Show success message
                 saved_filename = os.path.basename(saved_path)
-                await self.terminal.update_display(f"Saved as: {saved_filename}\n")
+                # Show success message briefly
+                await self.terminal.update_display(f"Saved as: {saved_filename}")
+                await asyncio.sleep(0.8)  # Brief pause to show success
                 self.logger.info(f"Conversation saved to: {saved_path}")
             else:
-                # Show error message with details
                 error_msg = f"Save failed: {save_error}" if save_error else "Save failed for unknown reason"
-                await self.terminal.update_display("Save failed. Please try again.\n")
+                await self.terminal.update_display("Save failed. Please try again.")
+                await asyncio.sleep(0.8)  # Brief pause to show error
                 self.logger.error(error_msg)
+            
+            # Phase 6: Restore the original conversation
+            await rev_streamer.update_display(intro_styled, "", force_full_clear=True)
+            
+            return "", intro_styled, ""
                 
         except Exception as e:
             self.logger.error(f"Error handling save command: {e}", exc_info=True)
             await self.terminal.update_display("Save failed. Please try again.\n")
+            return "", intro_styled, ""
 
     async def _prompt_for_filename(self) -> Optional[str]:
         """
@@ -665,6 +701,8 @@ class ConversationActions:
             self.logger.error(f"Error prompting for filename: {e}", exc_info=True)
             return None
 
+
+
     async def _get_filename_input(self, default_filename: str) -> Optional[str]:
         """
         Get filename input from the user with default pre-populated.
@@ -685,78 +723,6 @@ class ConversationActions:
             self.logger.error(f"Error getting filename input: {e}", exc_info=True)
             return None
 
-    def _read_filename_raw(self, default_filename: str) -> Optional[str]:
-        """
-        Read filename input in raw mode with default pre-populated.
-        Based on the existing _read_line_raw implementation.
-        """
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        
-        try:
-            tty.setraw(fd, termios.TCSANOW)
-            
-            # Initialize input with default filename
-            input_chars = list(default_filename)
-            cursor_pos = len(input_chars)
-            
-            # Show cursor and initial input
-            self.terminal.show_cursor()
-            
-            while True:
-                c = os.read(fd, 1)
-                
-                if c == b"\x03":  # Ctrl+C - Cancel
-                    self.terminal.write("\r\n")
-                    self.terminal.hide_cursor()
-                    return None
-                elif c in (b"\r", b"\n"):  # Enter - Accept
-                    self.terminal.write("\r\n")
-                    self.terminal.hide_cursor()
-                    return "".join(input_chars)
-                elif c == b"\x7f":  # Backspace
-                    if cursor_pos > 0:
-                        input_chars.pop(cursor_pos - 1)
-                        cursor_pos -= 1
-                        self._redraw_filename_input(input_chars, cursor_pos)
-                elif c == b"\x1b":  # Escape sequences (arrow keys, etc.)
-                    # Read the rest of the escape sequence
-                    try:
-                        next_char = os.read(fd, 1)
-                        if next_char == b"[":
-                            third_char = os.read(fd, 1)
-                            if third_char == b"D":  # Left arrow
-                                if cursor_pos > 0:
-                                    cursor_pos -= 1
-                                    self._redraw_filename_input(input_chars, cursor_pos)
-                            elif third_char == b"C":  # Right arrow
-                                if cursor_pos < len(input_chars):
-                                    cursor_pos += 1
-                                    self._redraw_filename_input(input_chars, cursor_pos)
-                    except:
-                        pass
-                elif 32 <= c[0] <= 126:  # Printable ASCII
-                    char = c.decode('utf-8')
-                    input_chars.insert(cursor_pos, char)
-                    cursor_pos += 1
-                    self._redraw_filename_input(input_chars, cursor_pos)
-                    
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-            self.terminal.hide_cursor()
-
-    def _redraw_filename_input(self, input_chars: List[str], cursor_pos: int) -> None:
-        """Redraw the filename input with cursor at the correct position."""
-        # Clear the line and redraw
-        self.terminal.write("\r\x1b[K")
-        prompt_text = "Save as: "
-        self.terminal.write(prompt_text)
-        self.terminal.write("".join(input_chars))
-        
-        # Move cursor to correct position
-        chars_after_cursor = len(input_chars) - cursor_pos
-        if chars_after_cursor > 0:
-            self.terminal.write(f"\x1b[{chars_after_cursor}D")
 
     def _clean_filename(self, filename: str) -> str:
         """Clean the filename by removing or replacing problematic characters."""
