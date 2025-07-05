@@ -138,7 +138,7 @@ class BedrockProvider(BaseProvider):
         self,
         messages: list,
         model: Optional[str] = None,
-        temperature: float = 0.9,
+        temperature: Optional[float] = None,
         max_gen_len: int = 4096,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
@@ -148,7 +148,7 @@ class BedrockProvider(BaseProvider):
         Args:
             messages: List of conversation messages
             model: Model identifier (takes precedence over provider_config)
-            temperature: Temperature for generation
+            temperature: Temperature for generation (defaults to 0.9 if None)
             max_gen_len: Maximum tokens to generate
             **kwargs: Additional keyword arguments (unused)
 
@@ -166,6 +166,10 @@ class BedrockProvider(BaseProvider):
         
         # Use provided model or fall back to config/default
         model_id = model or self.config.get("model_id") or self.model_id
+
+        # Use provided temperature or fall back to default
+        if temperature is None:
+            temperature = 0.9
 
         # Check if clients were successfully initialized
         if self.bedrock_client is None or self.runtime_client is None:
