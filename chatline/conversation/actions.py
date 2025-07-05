@@ -340,15 +340,12 @@ class ConversationActions:
 
     async def rewind_conversation(self, intro_styled: str) -> Tuple[str, str, str]:
         """
-        Rewind the conversation by multiple exchanges, allowing user to step back
+        Rewind the conversation by one exchange, allowing user to step back
         through conversation history and replay from an earlier point.
         Enhanced with 3-phase animation: reverse stream, fake reverse, fake forward.
+        Supports consecutive rewinds to go back multiple exchanges.
         """
-        # Check if we have enough history to rewind
-        if len(self.messages.messages) < 3:  # Need at least 2 user messages
-            return "", intro_styled, ""
-
-        # Count user messages to determine how far we can rewind
+        # Count user messages to determine if we can rewind
         user_messages = [m for m in self.messages.messages if m.role == "user"]
         if len(user_messages) < 2:
             return "", intro_styled, ""
@@ -365,6 +362,7 @@ class ConversationActions:
                     second_last_user_msg = msg.content
                     break
 
+        # If we don't have a second user message, we can't rewind further
         if not second_last_user_msg:
             return "", intro_styled, ""
 
@@ -384,25 +382,29 @@ class ConversationActions:
         # PHASE 3: Fake forward stream - stream in the previous message word by word
         await rev_streamer.fake_forward_stream_text(second_last_user_msg)
 
-        # Remove the last user+assistant pair from data structures
-        user_indices = []
-        for i, msg in enumerate(self.messages.messages):
-            if msg.role == "user":
-                user_indices.append(i)
-
-        if len(user_indices) >= 2:
-            # Remove from the second-to-last user message onwards
-            last_user_idx = user_indices[-1]
-            # Remove all messages from the last user message onwards
-            messages_to_remove = len(self.messages.messages) - last_user_idx
-            for _ in range(messages_to_remove):
-                self.messages.messages.pop()
-
-            # Update turn counter and history
-            self.current_turn -= 1
-            if self.history_index > 0:
-                self.history_index -= 1
-                self.history.restore_state_by_index(self.history_index)
+        # Restore from history state first, then sync internal messages
+        # Need to go back to state BEFORE last user message was added
+        # This requires going back 2 states: 1 for assistant response, 1 for user message
+        if self.history_index > 1:
+            self.history_index -= 2
+            restored_state = self.history.restore_state_by_index(self.history_index)
+            
+            if restored_state:
+                # Rebuild internal messages from restored history state
+                self.messages.rebuild_from_state(restored_state.messages)
+                
+                # Update turn counter to match restored state
+                user_messages = [m for m in self.messages.messages if m.role == "user"]
+                self.current_turn = len(user_messages)
+        elif self.history_index > 0:
+            # Edge case: only go back 1 if that's all we have
+            self.history_index -= 1
+            restored_state = self.history.restore_state_by_index(self.history_index)
+            
+            if restored_state:
+                self.messages.rebuild_from_state(restored_state.messages)
+                user_messages = [m for m in self.messages.messages if m.role == "user"]
+                self.current_turn = len(user_messages)
 
         # PHASE 4: Continue with normal processing (NO screen clear)
         # The previous message is now visually in the prompt, ready for processing

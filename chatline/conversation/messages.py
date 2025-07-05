@@ -33,3 +33,24 @@ class ConversationMessages:
     def remove_last_n_messages(self, n: int) -> None:
         """Remove the last n messages."""
         self.messages = self.messages[:-n] if n <= len(self.messages) else []
+
+    def rebuild_from_state(self, state_messages: list[dict]) -> None:
+        """Rebuild internal messages from history state messages."""
+        self.messages.clear()
+        
+        # Rebuild messages with turn numbers
+        current_turn = 0
+        for msg_dict in state_messages:
+            role = msg_dict["role"]
+            content = msg_dict["content"]
+            
+            # System message is turn 0, user messages increment turn
+            if role == "system":
+                turn_number = 0
+            elif role == "user":
+                current_turn += 1
+                turn_number = current_turn
+            else:  # assistant
+                turn_number = current_turn
+            
+            self.messages.append(Message(role, content, turn_number))

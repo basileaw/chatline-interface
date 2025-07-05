@@ -24,27 +24,28 @@ class ConversationState:
         Convert the state to a dictionary for serialization.
         
         This returns a dictionary containing all fields from custom_fields
-        in their original order, including messages if present.
+        and the messages array.
         
         Note that frontend-specific tracking (like turn counter) is not included.
         """
-        # Process all custom fields in their original order
-        result = {}
-        for key, value in self.custom_fields.items():
-            if key == "messages":
-                # Format messages if this is the messages field
-                messages = []
-                for m in self.messages:
-                    if isinstance(m, dict):
-                        messages.append(m)
-                    else:
-                        messages.append({
-                            "role": m.role, 
-                            "content": m.content
-                        })
-                result[key] = messages
-            else:
-                result[key] = value
+        # Start with custom fields
+        result = dict(self.custom_fields)
+        
+        # Always include messages (override custom_fields if present)
+        if self.messages:
+            formatted_messages = []
+            for m in self.messages:
+                if isinstance(m, dict):
+                    formatted_messages.append(m)
+                else:
+                    formatted_messages.append({
+                        "role": m.role, 
+                        "content": m.content
+                    })
+            result["messages"] = formatted_messages
+        elif "messages" not in result:
+            # Ensure messages field exists even if empty
+            result["messages"] = []
         
         return result
 
@@ -136,6 +137,10 @@ class ConversationHistory:
             
             # Truncate history to this point
             self.state_history = self.state_history[:index + 1]
+            
+            # Update the JSON logger with the restored state
+            if self.logger and hasattr(self.logger, "write_json"):
+                self.logger.write_json(self.create_state_snapshot())
             
             return self.current_state
         return None
