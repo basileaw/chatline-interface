@@ -48,6 +48,7 @@ class Interface:
             provider_config: Provider-specific configuration
             preface: Optional preface content (string or dict with text, title, border_color, display_type)
             conclusion: Optional conclusion string that terminates input prompts
+            save_directory: Directory where conversation saves will be stored (default: "./saved_conversations/")
         """
         # Build interface config with explicitly passed parameters in their original order
         # kwargs preserves the order the user wrote the parameters in Python 3.7+
@@ -71,6 +72,7 @@ class Interface:
         provider_config = kwargs.get('provider_config', None)
         preface = kwargs.get('preface', None)
         conclusion = kwargs.get('conclusion', None)
+        save_directory = kwargs.get('save_directory', "./saved_conversations/")
         
         # For backward compatibility: if aws_config is provided but provider_config is not,
         # and the provider is 'bedrock', use aws_config as the provider_config
@@ -93,7 +95,8 @@ class Interface:
                               provider_config,
                               preface,
                               conclusion,
-                              interface_config)
+                              interface_config,
+                              save_directory)
 
     def _prepare_messages(self, messages: Optional[List[Dict[str, str]]], endpoint: Optional[str]) -> List[Dict[str, str]]:
         """
@@ -154,7 +157,8 @@ class Interface:
                          provider_config: Optional[Dict[str, Any]] = None,
                          preface: Optional[Union[str, Dict[str, Any]]] = None,
                          conclusion: Optional[str] = None,
-                         interface_config: Optional[Dict[str, Any]] = None) -> None:
+                         interface_config: Optional[Dict[str, Any]] = None,
+                         save_directory: str = "./saved_conversations/") -> None:
         """
         Internal helper to initialize logger, display, stream, and conversation components.
         """
@@ -216,7 +220,8 @@ class Interface:
                 stream=self.stream,
                 logger=self.logger,
                 conclusion_string=conclusion,
-                interface_config=final_interface_config
+                interface_config=final_interface_config,
+                save_directory=save_directory
             )
 
             # Initialize preface if provided

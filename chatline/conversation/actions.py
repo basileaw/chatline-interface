@@ -1,11 +1,13 @@
 # conversation/actions.py
 
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 import asyncio
 import sys
 import termios
 import tty
 import os
+
+from .save_manager import ConversationSaveManager
 
 
 class ConversationActions:
@@ -20,6 +22,7 @@ class ConversationActions:
         preface,
         logger,
         conclusion_string=None,
+        save_directory="./saved_conversations/",
     ):
         self.display = display
         self.terminal = display.terminal
@@ -32,6 +35,7 @@ class ConversationActions:
         self.preface = preface
         self.logger = logger
         self.conclusion_string = conclusion_string
+        self.save_manager = ConversationSaveManager(save_directory)
 
         # UI-specific state
         self.is_silent = False
@@ -427,6 +431,9 @@ class ConversationActions:
                 elif c == b"\x15":  # Ctrl+U
                     self.terminal.write("\r\n")
                     return "rewind"
+                elif c == b"\x13":  # Ctrl+S
+                    self.terminal.write("\r\n")
+                    return "save"
                 elif c == b"\x03":  # Ctrl+C
                     # In conclusion mode, Ctrl+C does nothing - just continue listening
                     pass
@@ -486,6 +493,9 @@ class ConversationActions:
                         # Process rewind
                         _, intro_styled, _ = await self.rewind_conversation(intro_styled)
                         self.conclusion_triggered = False  # Reset after rewind
+                    elif user_input == "save":
+                        # Process save
+                        await self._handle_save_command()
                 else:
                     # Normal input handling
                     user_input = await self.terminal.get_user_input()
@@ -499,6 +509,8 @@ class ConversationActions:
                         )
                     elif cmd == "rewind":
                         _, intro_styled, _ = await self.rewind_conversation(intro_styled)
+                    elif cmd == "save":
+                        await self._handle_save_command()
                     else:
                         _, intro_styled, _ = await self.process_user_message(
                             user_input, intro_styled
@@ -585,6 +597,180 @@ class ConversationActions:
         except Exception as e:
             self.logger.error(f"Critical error in conversation: {e}", exc_info=True)
             self.terminal.reset()
-            raise
+
+    async def _handle_save_command(self) -> None:
+        """Handle the save command by prompting for filename and saving."""
+        try:
+            # Prompt for filename
+            filename = await self._prompt_for_filename()
+            
+            if filename is None:
+                # User cancelled the save operation
+                await self.terminal.update_display("Save cancelled.\n")
+                return
+            
+            # Get current conversation state
+            conversation_data = self.history.create_state_snapshot()
+            
+            # Save the conversation
+            saved_path, save_error = self.save_manager.save_conversation(filename, conversation_data)
+            
+            if saved_path:
+                # Show success message
+                saved_filename = os.path.basename(saved_path)
+                await self.terminal.update_display(f"Saved as: {saved_filename}\n")
+                self.logger.info(f"Conversation saved to: {saved_path}")
+            else:
+                # Show error message with details
+                error_msg = f"Save failed: {save_error}" if save_error else "Save failed for unknown reason"
+                await self.terminal.update_display("Save failed. Please try again.\n")
+                self.logger.error(error_msg)
+                
+        except Exception as e:
+            self.logger.error(f"Error handling save command: {e}", exc_info=True)
+            await self.terminal.update_display("Save failed. Please try again.\n")
+
+    async def _prompt_for_filename(self) -> Optional[str]:
+        """
+        Prompt the user for a filename using the terminal input system.
+        
+        Returns:
+            Filename if provided, None if cancelled
+        """
+        try:
+            # Generate default filename
+            default_filename = self.save_manager.generate_default_filename()
+            
+            # Show the save prompt
+            prompt_text = f"Save as: {default_filename}"
+            await self.terminal.update_display(prompt_text)
+            
+            # Get user input using the existing terminal input system
+            # We'll reuse the _read_line_raw method but with a custom prompt
+            user_input = await self._get_filename_input(default_filename)
+            
+            if user_input is None:
+                # User cancelled with Ctrl+C
+                return None
+            
+            # Use the input if provided, otherwise use default
+            filename = user_input.strip() if user_input.strip() else default_filename
+            
+            # Clean up the filename (remove any potentially problematic characters)
+            filename = self._clean_filename(filename)
+            
+            return filename
+            
+        except Exception as e:
+            self.logger.error(f"Error prompting for filename: {e}", exc_info=True)
+            return None
+
+    async def _get_filename_input(self, default_filename: str) -> Optional[str]:
+        """
+        Get filename input from the user with default pre-populated.
+        
+        Args:
+            default_filename: The default filename to show
+            
+        Returns:
+            User input or None if cancelled
+        """
+        try:
+            # Use the existing terminal input system
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, self._read_filename_raw, default_filename
+            )
+            return result
+        except Exception as e:
+            self.logger.error(f"Error getting filename input: {e}", exc_info=True)
+            return None
+
+    def _read_filename_raw(self, default_filename: str) -> Optional[str]:
+        """
+        Read filename input in raw mode with default pre-populated.
+        Based on the existing _read_line_raw implementation.
+        """
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        
+        try:
+            tty.setraw(fd, termios.TCSANOW)
+            
+            # Initialize input with default filename
+            input_chars = list(default_filename)
+            cursor_pos = len(input_chars)
+            
+            # Show cursor and initial input
+            self.terminal.show_cursor()
+            
+            while True:
+                c = os.read(fd, 1)
+                
+                if c == b"\x03":  # Ctrl+C - Cancel
+                    self.terminal.write("\r\n")
+                    self.terminal.hide_cursor()
+                    return None
+                elif c in (b"\r", b"\n"):  # Enter - Accept
+                    self.terminal.write("\r\n")
+                    self.terminal.hide_cursor()
+                    return "".join(input_chars)
+                elif c == b"\x7f":  # Backspace
+                    if cursor_pos > 0:
+                        input_chars.pop(cursor_pos - 1)
+                        cursor_pos -= 1
+                        self._redraw_filename_input(input_chars, cursor_pos)
+                elif c == b"\x1b":  # Escape sequences (arrow keys, etc.)
+                    # Read the rest of the escape sequence
+                    try:
+                        next_char = os.read(fd, 1)
+                        if next_char == b"[":
+                            third_char = os.read(fd, 1)
+                            if third_char == b"D":  # Left arrow
+                                if cursor_pos > 0:
+                                    cursor_pos -= 1
+                                    self._redraw_filename_input(input_chars, cursor_pos)
+                            elif third_char == b"C":  # Right arrow
+                                if cursor_pos < len(input_chars):
+                                    cursor_pos += 1
+                                    self._redraw_filename_input(input_chars, cursor_pos)
+                    except:
+                        pass
+                elif 32 <= c[0] <= 126:  # Printable ASCII
+                    char = c.decode('utf-8')
+                    input_chars.insert(cursor_pos, char)
+                    cursor_pos += 1
+                    self._redraw_filename_input(input_chars, cursor_pos)
+                    
         finally:
-            self.terminal.reset()
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            self.terminal.hide_cursor()
+
+    def _redraw_filename_input(self, input_chars: List[str], cursor_pos: int) -> None:
+        """Redraw the filename input with cursor at the correct position."""
+        # Clear the line and redraw
+        self.terminal.write("\r\x1b[K")
+        prompt_text = "Save as: "
+        self.terminal.write(prompt_text)
+        self.terminal.write("".join(input_chars))
+        
+        # Move cursor to correct position
+        chars_after_cursor = len(input_chars) - cursor_pos
+        if chars_after_cursor > 0:
+            self.terminal.write(f"\x1b[{chars_after_cursor}D")
+
+    def _clean_filename(self, filename: str) -> str:
+        """Clean the filename by removing or replacing problematic characters."""
+        # Remove or replace characters that are problematic in filenames
+        import re
+        
+        # Replace spaces with underscores
+        filename = filename.replace(' ', '_')
+        
+        # Remove characters that are invalid in filenames
+        filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+        
+        # Ensure filename is not empty
+        if not filename.strip():
+            filename = self.save_manager.generate_default_filename()
+            
+        return filename
