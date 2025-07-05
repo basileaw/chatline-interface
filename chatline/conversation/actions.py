@@ -76,7 +76,6 @@ class ConversationActions:
                 return msg.content
         return ""
 
-
     def _handle_state_update(self, new_state: Dict[str, Any]) -> None:
         """Handle conversation state updates from a remote provider."""
         if self.logger:
@@ -234,17 +233,17 @@ class ConversationActions:
         # First user message is always silent => user text never shown
         raw, assistant_styled = await self._process_message(intro_msg, silent=True)
         full_styled = styled_panel + assistant_styled
-        
+
         # Check if full response exceeds screen height and set flag for future clearing
-        lines = full_styled.split('\n')
+        lines = full_styled.split("\n")
         max_lines = self.terminal.height - 1  # Reserve one line for cursor/prompt
         if len(lines) > max_lines:
             self.terminal._had_long_content = True
-        
+
         # Force scrollback clear to remove duplicate preface from initial display
         self.terminal.clear_screen_and_scrollback()
         self.terminal.write(full_styled)
-        
+
         self.is_silent = True
         self.prompt = ""
         self.preconversation_styled = styled_panel
@@ -262,14 +261,14 @@ class ConversationActions:
         await scroller.scroll_up(intro_styled, f"> {user_input}", 0.02)
 
         raw, styled = await self._process_message(user_input, silent=False)
-        
+
         # Check if the full response content exceeds screen height and set flag for future clearing
         full_content = intro_styled + styled
-        lines = full_content.split('\n')
+        lines = full_content.split("\n")
         max_lines = self.terminal.height - 1  # Reserve one line for cursor/prompt
         if len(lines) > max_lines:
             self.terminal._had_long_content = True
-        
+
         self.is_silent = False
         self.prompt = self.terminal.format_prompt(user_input)
         self.preface.clear()
@@ -348,16 +347,16 @@ class ConversationActions:
         # Check if we have enough history to rewind
         if len(self.messages.messages) < 3:  # Need at least 2 user messages
             return "", intro_styled, ""
-        
+
         # Count user messages to determine how far we can rewind
         user_messages = [m for m in self.messages.messages if m.role == "user"]
         if len(user_messages) < 2:
             return "", intro_styled, ""
-        
+
         # Find the last two user messages before starting animation
         last_user_msg = None
         second_last_user_msg = None
-        
+
         for msg in reversed(self.messages.messages):
             if msg.role == "user":
                 if last_user_msg is None:
@@ -365,32 +364,32 @@ class ConversationActions:
                 else:
                     second_last_user_msg = msg.content
                     break
-        
+
         if not second_last_user_msg:
             return "", intro_styled, ""
-        
+
         # Create reverse streamer for all animation phases
         rev_streamer = self.animations.create_reverse_streamer()
-        
+
         # PHASE 1: Standard reverse stream (removes assistant response + dots from user message)
         await rev_streamer.reverse_stream(
             intro_styled, "", preconversation_text=self.preface.styled_content
         )
-        
+
         # PHASE 2: Fake reverse stream - remove user message text word by word
         # This continues from where reverse_stream left off (message without dots)
         user_msg_without_dots = f"> {last_user_msg.rstrip('?.!')}"
         await rev_streamer.fake_reverse_stream_text(user_msg_without_dots)
-        
+
         # PHASE 3: Fake forward stream - stream in the previous message word by word
         await rev_streamer.fake_forward_stream_text(second_last_user_msg)
-        
+
         # Remove the last user+assistant pair from data structures
         user_indices = []
         for i, msg in enumerate(self.messages.messages):
             if msg.role == "user":
                 user_indices.append(i)
-        
+
         if len(user_indices) >= 2:
             # Remove from the second-to-last user message onwards
             last_user_idx = user_indices[-1]
@@ -398,17 +397,17 @@ class ConversationActions:
             messages_to_remove = len(self.messages.messages) - last_user_idx
             for _ in range(messages_to_remove):
                 self.messages.messages.pop()
-            
+
             # Update turn counter and history
             self.current_turn -= 1
             if self.history_index > 0:
                 self.history_index -= 1
                 self.history.restore_state_by_index(self.history_index)
-        
+
         # PHASE 4: Continue with normal processing (NO screen clear)
         # The previous message is now visually in the prompt, ready for processing
         raw, styled = await self._process_message(second_last_user_msg, silent=False)
-        
+
         self.prompt = self.terminal.format_prompt(second_last_user_msg)
         return raw, styled, self.prompt
 
@@ -499,11 +498,15 @@ class ConversationActions:
                         self.conclusion_triggered = False  # Reset after edit/retry
                     elif user_input == "rewind":
                         # Process rewind
-                        _, intro_styled, _ = await self.rewind_conversation(intro_styled)
+                        _, intro_styled, _ = await self.rewind_conversation(
+                            intro_styled
+                        )
                         self.conclusion_triggered = False  # Reset after rewind
                     elif user_input == "save":
                         # Process save
-                        _, intro_styled, _ = await self._handle_save_command(intro_styled)
+                        _, intro_styled, _ = await self._handle_save_command(
+                            intro_styled
+                        )
                 else:
                     # Normal input handling
                     user_input = await self.terminal.get_user_input()
@@ -516,9 +519,13 @@ class ConversationActions:
                             intro_styled, is_retry=(cmd == "retry")
                         )
                     elif cmd == "rewind":
-                        _, intro_styled, _ = await self.rewind_conversation(intro_styled)
+                        _, intro_styled, _ = await self.rewind_conversation(
+                            intro_styled
+                        )
                     elif cmd == "save":
-                        _, intro_styled, _ = await self._handle_save_command(intro_styled)
+                        _, intro_styled, _ = await self._handle_save_command(
+                            intro_styled
+                        )
                     else:
                         _, intro_styled, _ = await self.process_user_message(
                             user_input, intro_styled
@@ -611,106 +618,118 @@ class ConversationActions:
         try:
             # Store original conversation state for restoration
             original_user_message = self._get_last_user_input()
-            
+
             if not original_user_message:
                 # No conversation to save
                 await self.terminal.update_display("No conversation to save.\n")
                 return "", intro_styled, ""
-            
+
             # Create reverse streamer for animations
             rev_streamer = self.animations.create_reverse_streamer()
-            
+
             # Phase 1: Reverse stream the current conversation using the actual styled content
             await rev_streamer.reverse_stream(intro_styled, delay=0.05)
-            
+
             # Phase 2: Clear screen and show save prompt
             self.terminal.clear_screen()
             filename = await self.terminal.get_user_input(
                 default_text="",  # No prepopulated filename
                 prompt_prefix="> Save As: ",  # Protected prompt prefix
                 add_newline=False,  # Don't add extra spacing
-                hide_cursor=True   # Hide cursor after input
+                hide_cursor=True,  # Hide cursor after input
             )
-            
+
             # Check if user cancelled (Ctrl+C returns empty string)
             if not filename.strip():
-                # User cancelled - restore original conversation
-                await rev_streamer.update_display(intro_styled, "", force_full_clear=True)
+                # User cancelled - restore original conversation with streaming
+                await rev_streamer.fake_forward_stream_styled_content(
+                    intro_styled, delay=0.05
+                )
                 return "", intro_styled, ""
-            
+
             # Phase 3: Perform the save operation (behind the scenes)
             clean_filename = self._clean_filename(filename.strip())
             conversation_data = self.history.create_state_snapshot()
-            saved_path, save_error = self.save_manager.save_conversation(clean_filename, conversation_data)
-            
+            saved_path, save_error = self.save_manager.save_conversation(
+                clean_filename, conversation_data
+            )
+
             # Log the save result
             if saved_path:
                 self.logger.info(f"Conversation saved to: {saved_path}")
             else:
-                error_msg = f"Save failed: {save_error}" if save_error else "Save failed for unknown reason"
+                error_msg = (
+                    f"Save failed: {save_error}"
+                    if save_error
+                    else "Save failed for unknown reason"
+                )
                 self.logger.error(error_msg)
-            
+
             # Phase 4: Reverse stream the save prompt word by word
             full_save_prompt = f"> Save As: {filename.strip()}"
             await rev_streamer.fake_reverse_stream_text(full_save_prompt, delay=0.06)
-            
+
             # Phase 5: Remove the final prompt symbol to get completely clean screen
             await rev_streamer.update_display("", "", force_full_clear=True)
-            
-            # Phase 6: Restore the original conversation
-            await rev_streamer.update_display(intro_styled, "", force_full_clear=True)
-            
+
+            # Phase 6: Stream the original conversation back progressively
+            await rev_streamer.fake_forward_stream_styled_content(
+                intro_styled, delay=0.05
+            )
+
             return "", intro_styled, ""
-                
+
         except Exception as e:
             self.logger.error(f"Error handling save command: {e}", exc_info=True)
-            await self.terminal.update_display("Save failed. Please try again.\n")
+            # On error, restore the conversation with streaming
+            rev_streamer = self.animations.create_reverse_streamer()
+            await rev_streamer.fake_forward_stream_styled_content(
+                intro_styled, delay=0.05
+            )
             return "", intro_styled, ""
 
     async def _prompt_for_filename(self) -> Optional[str]:
         """
         Prompt the user for a filename using the terminal input system.
-        
+
         Returns:
             Filename if provided, None if cancelled
         """
         try:
             # Generate default filename
             default_filename = self.save_manager.generate_default_filename()
-            
+
             # Show the save prompt
             prompt_text = f"Save as: {default_filename}"
             await self.terminal.update_display(prompt_text)
-            
+
             # Get user input using the existing terminal input system
             # We'll reuse the _read_line_raw method but with a custom prompt
             user_input = await self._get_filename_input(default_filename)
-            
+
             if user_input is None:
                 # User cancelled with Ctrl+C
                 return None
-            
+
             # Use the input if provided, otherwise use default
             filename = user_input.strip() if user_input.strip() else default_filename
-            
+
             # Clean up the filename (remove any potentially problematic characters)
             filename = self._clean_filename(filename)
-            
+
             return filename
-            
+
         except Exception as e:
             self.logger.error(f"Error prompting for filename: {e}", exc_info=True)
             return None
 
-
-
     async def _get_filename_input(self, default_filename: str) -> Optional[str]:
         """
         Get filename input from the user with default pre-populated.
-        
+
         Args:
             default_filename: The default filename to show
-            
+
         Returns:
             User input or None if cancelled
         """
@@ -724,20 +743,19 @@ class ConversationActions:
             self.logger.error(f"Error getting filename input: {e}", exc_info=True)
             return None
 
-
     def _clean_filename(self, filename: str) -> str:
         """Clean the filename by removing or replacing problematic characters."""
         # Remove or replace characters that are problematic in filenames
         import re
-        
+
         # Replace spaces with underscores
-        filename = filename.replace(' ', '_')
-        
+        filename = filename.replace(" ", "_")
+
         # Remove characters that are invalid in filenames
-        filename = re.sub(r'[<>:"/\\|?*]', '', filename)
-        
+        filename = re.sub(r'[<>:"/\\|?*]', "", filename)
+
         # Ensure filename is not empty
         if not filename.strip():
             filename = self.save_manager.generate_default_filename()
-            
+
         return filename

@@ -574,6 +574,57 @@ class ReverseStreamer:
             if group_type == "word":
                 await asyncio.sleep(delay)
     
+    async def fake_forward_stream_styled_content(
+        self,
+        styled_content: str,
+        delay: float = 0.02,
+        acceleration_factor: float = 1.15
+    ) -> None:
+        """
+        Stream styled content back progressively with accelerating timing.
+        
+        Args:
+            styled_content: Full styled content with ANSI sequences preserved
+            delay: Base delay between chunk additions
+            acceleration_factor: How much to accelerate the animation
+        """
+        if not styled_content.strip():
+            return
+        
+        # Tokenize the styled content while preserving ANSI sequences
+        tokens = self.tokenize_text(styled_content)
+        groups = self.group_tokens_by_word(tokens)
+        
+        # Filter to only word groups for acceleration logic
+        word_groups = [grp for group_type, grp in groups if group_type == "word"]
+        
+        # Build up the content progressively with acceleration
+        accumulated_tokens = []
+        chunks_to_add = 1.0
+        group_index = 0
+        
+        while group_index < len(groups):
+            chunks_this_round = round(chunks_to_add)
+            
+            # Add chunks for this round
+            for _ in range(min(chunks_this_round, len(groups) - group_index)):
+                group_type, group_tokens = groups[group_index]
+                accumulated_tokens.extend(group_tokens)
+                group_index += 1
+                
+                if group_index >= len(groups):
+                    break
+            
+            # Reassemble current accumulated content
+            current_content = self.reassemble_tokens(accumulated_tokens)
+            
+            # Update display with accumulated content
+            await self.update_display(current_content, "", force_full_clear=True)
+            
+            # Add delay and accelerate for next round
+            await asyncio.sleep(delay)
+            chunks_to_add *= acceleration_factor
+
     async def _yield(self) -> None:
         """Yield briefly to the event loop."""
         await asyncio.sleep(0)
