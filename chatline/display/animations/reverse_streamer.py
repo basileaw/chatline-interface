@@ -618,8 +618,9 @@ class ReverseStreamer:
             # Reassemble current accumulated content
             current_content = self.reassemble_tokens(accumulated_tokens)
             
-            # Update display with accumulated content
-            await self.update_display(current_content, "", force_full_clear=True)
+            # Use smart clearing for intermediate frames, force clear for final frame
+            is_final_frame = (group_index >= len(groups))
+            await self.update_display(current_content, "", force_full_clear=is_final_frame)
             
             # Add delay and accelerate for next round
             await asyncio.sleep(delay)
