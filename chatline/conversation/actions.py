@@ -638,23 +638,24 @@ class ConversationActions:
                 await rev_streamer.update_display(intro_styled, "", force_full_clear=True)
                 return "", intro_styled, ""
             
-            # Clean the filename and perform the save operation
+            # Phase 3: Perform the save operation (behind the scenes)
             clean_filename = self._clean_filename(filename.strip())
             conversation_data = self.history.create_state_snapshot()
             saved_path, save_error = self.save_manager.save_conversation(clean_filename, conversation_data)
             
-            # Phase 5: Show save result briefly, then restore conversation
+            # Log the save result
             if saved_path:
-                saved_filename = os.path.basename(saved_path)
-                # Show success message briefly
-                await self.terminal.update_display(f"Saved as: {saved_filename}")
-                await asyncio.sleep(0.8)  # Brief pause to show success
                 self.logger.info(f"Conversation saved to: {saved_path}")
             else:
                 error_msg = f"Save failed: {save_error}" if save_error else "Save failed for unknown reason"
-                await self.terminal.update_display("Save failed. Please try again.")
-                await asyncio.sleep(0.8)  # Brief pause to show error
                 self.logger.error(error_msg)
+            
+            # Phase 4: Reverse stream the save prompt word by word
+            full_save_prompt = f"> Save As: {filename.strip()}"
+            await rev_streamer.fake_reverse_stream_text(full_save_prompt, delay=0.06)
+            
+            # Phase 5: Remove the final prompt symbol to get completely clean screen
+            await rev_streamer.update_display("", "", force_full_clear=True)
             
             # Phase 6: Restore the original conversation
             await rev_streamer.update_display(intro_styled, "", force_full_clear=True)
