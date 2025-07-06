@@ -18,6 +18,8 @@ terminaide = ">=0.1.6"
 fastapi = "*"
 uvicorn = "*"
 requests = ">=2.32.3"
+pytest = "*"
+pytest-asyncio = "*"
 
 [build-system]
 requires = ["poetry-core"]

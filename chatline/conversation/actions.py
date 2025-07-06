@@ -147,6 +147,10 @@ class ConversationActions:
             state_msgs = await self.messages.get_messages(sys_prompt)
             self.history.update_state(messages=state_msgs)
             self.history_index = self.history.get_latest_state_index()
+            
+            # Validate history index consistency
+            if not self.validate_history_index():
+                self.fix_history_index()
 
             # Output user text if not silent
             self.style.set_output_color("GREEN")
@@ -183,6 +187,10 @@ class ConversationActions:
                 new_state_msgs = await self.messages.get_messages(sys_prompt)
                 self.history.update_state(messages=new_state_msgs)
                 self.history_index = self.history.get_latest_state_index()
+                
+                # Validate history index consistency
+                if not self.validate_history_index():
+                    self.fix_history_index()
 
                 # Check for conclusion string
                 if self.conclusion_string:
@@ -217,6 +225,109 @@ class ConversationActions:
         except Exception as e:
             self.logger.error(f"Message processing error: {e}", exc_info=True)
             return "", ""
+
+    def find_target_user_message(self) -> Optional[str]:
+        """
+        Find the target user message for rewind operation.
+        Returns the second-to-last user message content, or None if not enough history.
+        """
+        user_messages = [m.content for m in self.messages.messages if m.role == "user"]
+        if len(user_messages) < 2:
+            return None
+        return user_messages[-2]  # Second-to-last user message
+
+    def find_state_before_user_message(self, target_user_content: str) -> Optional[Tuple[int, Dict[str, Any]]]:
+        """
+        Find the history state that ends just before the target user message was added.
+        
+        Args:
+            target_user_content: The content of the user message we want to rewind to
+            
+        Returns:
+            Tuple of (state_index, state_data) or None if not found
+        """
+        if not self.history.state_history:
+            return None
+            
+        # Search through history states to find the one that ends just before 
+        # the target user message was added
+        for i in range(len(self.history.state_history) - 1, -1, -1):
+            state = self.history.state_history[i]
+            messages = state.get("messages", [])
+            
+            if not messages:
+                continue
+                
+            # Get all user messages in this state
+            user_messages = [msg["content"] for msg in messages if msg["role"] == "user"]
+            
+            # If this state contains the target user message, we need to find
+            # the previous state that ends just before it
+            if target_user_content in user_messages:
+                # Look for the last state before this target message was added
+                target_user_index = user_messages.index(target_user_content)
+                
+                # We want a state that has all user messages up to (but not including) the target
+                desired_user_count = target_user_index
+                
+                # Search backwards for a state with exactly the desired user count
+                for j in range(i, -1, -1):
+                    check_state = self.history.state_history[j]
+                    check_messages = check_state.get("messages", [])
+                    check_user_messages = [msg["content"] for msg in check_messages if msg["role"] == "user"]
+                    
+                    if len(check_user_messages) == desired_user_count:
+                        return j, check_state
+        
+        return None
+
+    def find_previous_user_message(self, current_user_content: str) -> Optional[str]:
+        """
+        Find the user message that came before the given user message.
+        
+        Args:
+            current_user_content: Content of the current user message
+            
+        Returns:
+            Content of the previous user message, or None if not found
+        """
+        user_messages = [m.content for m in self.messages.messages if m.role == "user"]
+        
+        try:
+            current_index = user_messages.index(current_user_content)
+            if current_index > 0:
+                return user_messages[current_index - 1]
+        except ValueError:
+            pass
+            
+        return None
+
+    def validate_history_index(self) -> bool:
+        """
+        Validate that history_index is consistent with actual history state.
+        
+        Returns:
+            True if history_index is valid, False otherwise
+        """
+        if self.history_index < -1:
+            self.logger.warning(f"Invalid history_index: {self.history_index} (below -1)")
+            return False
+            
+        history_length = len(self.history.state_history)
+        if self.history_index >= history_length:
+            self.logger.warning(f"Invalid history_index: {self.history_index} (beyond history length {history_length})")
+            return False
+            
+        return True
+
+    def fix_history_index(self) -> None:
+        """
+        Fix history_index if it's out of bounds by setting it to the latest valid state.
+        """
+        if not self.validate_history_index():
+            old_index = self.history_index
+            self.history_index = self.history.get_latest_state_index()
+            self.logger.info(f"Fixed history_index: {old_index} -> {self.history_index}")
 
     async def introduce_conversation(self, intro_msg: str) -> Tuple[str, str, str]:
         """
@@ -340,78 +451,91 @@ class ConversationActions:
 
     async def rewind_conversation(self, intro_styled: str) -> Tuple[str, str, str]:
         """
-        Rewind the conversation by one exchange, allowing user to step back
-        through conversation history and replay from an earlier point.
-        Enhanced with 3-phase animation: reverse stream, fake reverse, fake forward.
-        Supports consecutive rewinds to go back multiple exchanges.
+        Rewind the conversation by one exchange using content-based state resolution.
+        This implementation decouples animation from state management and supports
+        unlimited consecutive rewind operations.
+        
+        Process:
+        1. Pre-flight: Extract animation data and validate rewind possibility
+        2. Animation: Execute 3-phase animation using pre-extracted data  
+        3. State Restoration: Jump to content-identified target state
+        4. Message Processing: Generate new response for target message
         """
-        # Count user messages to determine if we can rewind
-        user_messages = [m for m in self.messages.messages if m.role == "user"]
-        if len(user_messages) < 2:
-            return "", intro_styled, ""
+        try:
+            # PHASE 1: PRE-FLIGHT - Extract all data before any state changes
+            target_user_msg = self.find_target_user_message()
+            if not target_user_msg:
+                self.logger.debug("Rewind failed: insufficient conversation history (need at least 2 user messages)")
+                return "", intro_styled, ""
 
-        # Find the last two user messages before starting animation
-        last_user_msg = None
-        second_last_user_msg = None
-
-        for msg in reversed(self.messages.messages):
-            if msg.role == "user":
-                if last_user_msg is None:
-                    last_user_msg = msg.content
-                else:
-                    second_last_user_msg = msg.content
+            # Find the user message we're currently showing (for animation)
+            current_user_msg = None
+            for msg in reversed(self.messages.messages):
+                if msg.role == "user":
+                    current_user_msg = msg.content
                     break
+            
+            if not current_user_msg:
+                self.logger.debug("Rewind failed: no current user message found")
+                return "", intro_styled, ""
 
-        # If we don't have a second user message, we can't rewind further
-        if not second_last_user_msg:
+            # Find the target state before any animations
+            target_state_result = self.find_state_before_user_message(target_user_msg)
+            if not target_state_result:
+                self.logger.debug(f"Rewind failed: could not find state before user message: {target_user_msg[:50]}...")
+                return "", intro_styled, ""
+            
+            target_state_index, _ = target_state_result
+            
+            # Validate that target state is sane
+            if target_state_index < 0 or target_state_index >= len(self.history.state_history):
+                self.logger.error(f"Rewind failed: invalid target state index {target_state_index}")
+                return "", intro_styled, ""
+
+            self.logger.debug(f"Rewind: current_user='{current_user_msg[:30]}...', target_user='{target_user_msg[:30]}...', target_state_index={target_state_index}")
+
+            # PHASE 2: ANIMATION - Execute 3-phase animation with pre-extracted data
+            rev_streamer = self.animations.create_reverse_streamer()
+
+            # Phase 2a: Standard reverse stream (removes assistant response + dots from user message)
+            await rev_streamer.reverse_stream(
+                intro_styled, "", preconversation_text=self.preface.styled_content
+            )
+
+            # Phase 2b: Fake reverse stream - remove current user message text word by word
+            current_user_msg_without_dots = f"> {current_user_msg.rstrip('?.!')}"
+            await rev_streamer.fake_reverse_stream_text(current_user_msg_without_dots)
+
+            # Phase 2c: Fake forward stream - stream in the target message word by word
+            await rev_streamer.fake_forward_stream_text(target_user_msg)
+
+            # PHASE 3: STATE RESTORATION - Jump to content-identified target state
+            restored_state = self.history.restore_state_by_index(target_state_index)
+            if not restored_state:
+                self.logger.error(f"Rewind failed: could not restore state at index {target_state_index}")
+                return "", intro_styled, ""
+
+            # Rebuild internal messages from restored history state
+            self.messages.rebuild_from_state(restored_state.messages)
+            
+            # Update turn counter and history index to match restored state
+            user_messages = [m for m in self.messages.messages if m.role == "user"]
+            self.current_turn = len(user_messages)
+            self.history_index = target_state_index
+
+            self.logger.debug(f"Rewind: restored to state {target_state_index}, turn={self.current_turn}, messages={len(self.messages.messages)}")
+
+            # PHASE 4: MESSAGE PROCESSING - Generate new response for target message
+            raw, styled = await self._process_message(target_user_msg, silent=False)
+
+            self.prompt = self.terminal.format_prompt(target_user_msg)
+            self.logger.debug("Rewind completed successfully")
+            return raw, styled, self.prompt
+
+        except Exception as e:
+            self.logger.error(f"Rewind operation failed with exception: {e}", exc_info=True)
+            # Return original state on error
             return "", intro_styled, ""
-
-        # Create reverse streamer for all animation phases
-        rev_streamer = self.animations.create_reverse_streamer()
-
-        # PHASE 1: Standard reverse stream (removes assistant response + dots from user message)
-        await rev_streamer.reverse_stream(
-            intro_styled, "", preconversation_text=self.preface.styled_content
-        )
-
-        # PHASE 2: Fake reverse stream - remove user message text word by word
-        # This continues from where reverse_stream left off (message without dots)
-        user_msg_without_dots = f"> {last_user_msg.rstrip('?.!')}"
-        await rev_streamer.fake_reverse_stream_text(user_msg_without_dots)
-
-        # PHASE 3: Fake forward stream - stream in the previous message word by word
-        await rev_streamer.fake_forward_stream_text(second_last_user_msg)
-
-        # Restore from history state first, then sync internal messages
-        # Need to go back to state BEFORE last user message was added
-        # This requires going back 2 states: 1 for assistant response, 1 for user message
-        if self.history_index > 1:
-            self.history_index -= 2
-            restored_state = self.history.restore_state_by_index(self.history_index)
-            
-            if restored_state:
-                # Rebuild internal messages from restored history state
-                self.messages.rebuild_from_state(restored_state.messages)
-                
-                # Update turn counter to match restored state
-                user_messages = [m for m in self.messages.messages if m.role == "user"]
-                self.current_turn = len(user_messages)
-        elif self.history_index > 0:
-            # Edge case: only go back 1 if that's all we have
-            self.history_index -= 1
-            restored_state = self.history.restore_state_by_index(self.history_index)
-            
-            if restored_state:
-                self.messages.rebuild_from_state(restored_state.messages)
-                user_messages = [m for m in self.messages.messages if m.role == "user"]
-                self.current_turn = len(user_messages)
-
-        # PHASE 4: Continue with normal processing (NO screen clear)
-        # The previous message is now visually in the prompt, ready for processing
-        raw, styled = await self._process_message(second_last_user_msg, silent=False)
-
-        self.prompt = self.terminal.format_prompt(second_last_user_msg)
-        return raw, styled, self.prompt
 
     def _read_line_raw_conclusion_mode(self) -> str:
         """

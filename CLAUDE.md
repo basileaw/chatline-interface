@@ -13,8 +13,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `make remote-same-origin` - Run client with auto-detected same-origin endpoint
 - `make release` - Release new version using utilities/release.py
 
-### Testing Provider Generators
+### Testing Commands
 - `python chatline/generator.py` - Test both Bedrock and OpenRouter providers directly
+- `poetry install --with dev` - Install development dependencies including pytest
+- `python -m pytest tests/ -v` - Run all tests with verbose output
+- `python -m pytest tests/test_consecutive_rewind.py -v` - Run consecutive rewind functionality tests
 
 ## Architecture
 
@@ -40,8 +43,10 @@ Chatline is a Python library for building terminal-based LLM chat interfaces. Th
 - Provider pattern for LLM integrations with pluggable backends
 - Streaming architecture supporting both local and remote generation
 - Rich terminal UI with animations and styled text formatting
-- Conversation state management with edit/retry/rewind functionality
+- Robust conversation state management with edit/retry/rewind functionality
+- Content-based state resolution for reliable consecutive rewind operations
 - Message validation ensuring proper user/assistant alternation
+- Atomic operation design with comprehensive error handling and rollback
 
 ### Configuration
 - Uses Poetry for dependency management
@@ -54,10 +59,60 @@ Chatline is a Python library for building terminal-based LLM chat interfaces. Th
 During conversation input, the following keyboard shortcuts are available:
 - **Ctrl+E** - Edit the last user message
 - **Ctrl+R** - Retry the last user message (regenerate response)
-- **Ctrl+U** - Rewind conversation by one exchange (go back further in history)
+- **Ctrl+U** - Rewind conversation by one exchange (supports unlimited consecutive rewinds)
 - **Ctrl+P** or **Space** (on empty input) - Insert `[CONTINUE]` command
 - **Ctrl+C** - Exit the conversation
 - **Ctrl+D** - Exit the conversation (on empty input)
+
+### Rewind Functionality
+The rewind feature allows users to step back through conversation history and replay from earlier points:
+
+#### Architecture
+- **Content-Based State Resolution**: Uses message content to identify target states rather than fragile index arithmetic
+- **Pre-Animation Data Extraction**: Decouples animation from state management for reliable operation
+- **Atomic Operations**: Four-phase approach with comprehensive error handling and rollback
+- **Unlimited Consecutive Rewinds**: Supports multiple rewind operations in sequence
+
+#### Operation Phases
+1. **Pre-flight**: Extract animation data and validate rewind possibility
+2. **Animation**: Execute 3-phase visual feedback (reverse, fake reverse, fake forward)
+3. **State Restoration**: Jump to content-identified target state in conversation history
+4. **Message Processing**: Generate new response for the target message
+
+#### State Management
+- **Dual Message Storage**: Internal Message objects with JSON state synchronization
+- **History Index Validation**: Automatic bounds checking and recovery
+- **State Truncation**: History pruned at restoration point for consistency
+
+### Testing
+Comprehensive test suite covers core functionality and edge cases:
+
+#### Test Structure
+- **Unit Tests**: Individual component testing with mocked dependencies
+- **Integration Tests**: End-to-end conversation flow validation
+- **Rewind Tests**: Extensive consecutive rewind scenario coverage
+
+#### Key Test Areas
+- Single and multiple consecutive rewind operations
+- State restoration and message synchronization
+- History index validation and recovery
+- Edge cases (insufficient history, empty conversations)
+- Helper method validation (target message discovery, state finding)
+
+#### Running Tests
+```bash
+# Install test dependencies
+poetry install --with dev
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Run specific test suite
+python -m pytest tests/test_consecutive_rewind.py -v
+
+# Run with coverage (if configured)
+python -m pytest tests/ --cov=chatline
+```
 
 ### Dependencies
 - `boto3` - AWS SDK for Bedrock provider
@@ -65,3 +120,5 @@ During conversation input, the following keyboard shortcuts are available:
 - `rich` - Terminal styling and formatting
 - `prompt-toolkit` - Terminal input handling
 - `terminaide` - Terminal utilities (>=0.1.6)
+- `pytest` - Testing framework (dev dependency)
+- `pytest-asyncio` - Async test support (dev dependency)
