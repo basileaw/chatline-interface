@@ -164,24 +164,27 @@ class StyleEngine:
                     i += 1
                     continue
 
-            # Check for multi-character delimiters first
+            # Check for multi-character delimiters first (longest to shortest)
             found_match = False
+            max_delimiter_length = self.definitions.get_max_delimiter_length()
 
-            # Check if this could be the start of a multi-char delimiter
-            if i + 1 < len(text):
-                # Try two-character sequences (like ** or __)
-                two_chars = text[i : i + 2]
-                pattern_roles = self.definitions.get_pattern_by_delimiter(two_chars)
+            # Try delimiters from longest to shortest (greedy matching)
+            for delimiter_length in range(max_delimiter_length, 1, -1):
+                if i + delimiter_length - 1 >= len(text):
+                    continue  # Not enough characters left
+                
+                delimiter = text[i : i + delimiter_length]
+                pattern_roles = self.definitions.get_pattern_by_delimiter(delimiter)
 
                 # Check for active pattern end with multi-char delimiter
                 if self._active_patterns:
                     active_pattern = self.definitions.get_pattern(
                         self._active_patterns[-1]
                     )
-                    if active_pattern and two_chars in active_pattern.get_end_chars():
+                    if active_pattern and delimiter in active_pattern.get_end_chars():
                         # End pattern if delimiter matches
                         if not active_pattern.remove_delimiters:
-                            out.append(self._get_current_style() + two_chars)
+                            out.append(self._get_current_style() + delimiter)
 
                         # Check what styles need to be turned off
                         pattern_to_remove = self.definitions.get_pattern(
@@ -192,6 +195,7 @@ class StyleEngine:
                             if pattern_to_remove and pattern_to_remove.style
                             else set()
                         )
+                        had_color = pattern_to_remove and pattern_to_remove.color
 
                         self._active_patterns.pop()
 
@@ -199,11 +203,15 @@ class StyleEngine:
                         for style_name in styles_to_remove:
                             out.append(self.definitions.get_format(f"{style_name}_OFF"))
 
+                        # If pattern had color, explicitly reset color before rebuilding style
+                        if had_color:
+                            out.append(self.definitions.get_format("COLOR_RESET"))
+
                         # Now apply current style state
                         out.append(self._get_current_style())
-                        i += 2  # Skip both characters
+                        i += delimiter_length  # Skip all characters in delimiter
                         found_match = True
-                        continue
+                        break  # Exit delimiter length loop
 
                 # Check for new pattern start with multi-char delimiter
                 start_pattern = None
@@ -217,10 +225,14 @@ class StyleEngine:
                     self._active_patterns.append(start_pattern.name)
                     out.append(self._get_current_style())
                     if not start_pattern.remove_delimiters:
-                        out.append(two_chars)
-                    i += 2  # Skip both characters
+                        out.append(delimiter)
+                    i += delimiter_length  # Skip all characters in delimiter
                     found_match = True
-                    continue
+                    break  # Exit delimiter length loop
+            
+            # If we found a match, continue to next character
+            if found_match:
+                continue
 
             # If no multi-char match was found, check for single-char delimiters
             if not found_match:
@@ -245,12 +257,17 @@ class StyleEngine:
                             if pattern_to_remove and pattern_to_remove.style
                             else set()
                         )
+                        had_color = pattern_to_remove and pattern_to_remove.color
 
                         self._active_patterns.pop()
 
                         # Emit OFF codes for removed styles
                         for style_name in styles_to_remove:
                             out.append(self.definitions.get_format(f"{style_name}_OFF"))
+
+                        # If pattern had color, explicitly reset color before rebuilding style
+                        if had_color:
+                            out.append(self.definitions.get_format("COLOR_RESET"))
 
                         # Now apply current style state
                         out.append(self._get_current_style())
