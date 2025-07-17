@@ -121,6 +121,11 @@ class StyleEngine:
                     self.terminal.write(char)  # Write space or newline
                     styled_out += char
                     if char == "\n":
+                        # Reset quote patterns on newlines to prevent runaway styling
+                        reset_codes = self._reset_quote_patterns()
+                        if reset_codes:
+                            self.terminal.write(reset_codes)
+                            styled_out += reset_codes
                         self._current_line_length = 0
                     else:
                         self._current_line_length += 1
@@ -132,6 +137,129 @@ class StyleEngine:
 
         finally:
             self.terminal.hide_cursor()
+
+    def _is_apostrophe(self, text: str, pos: int) -> bool:
+        """
+        Check if a single quote at the given position is an apostrophe.
+        
+        An apostrophe is typically within a word (letters/digits on both sides)
+        or at the end of a word for possessives/contractions.
+        
+        Args:
+            text: The text string
+            pos: Position of the single quote character
+            
+        Returns:
+            True if the single quote is likely an apostrophe, False if it's a quote
+        """
+        if pos < 0 or pos >= len(text) or text[pos] != "'":
+            return False
+            
+        # Check if preceded by a word character
+        has_word_before = pos > 0 and (text[pos - 1].isalnum())
+        
+        # Check if followed by a word character
+        has_word_after = pos < len(text) - 1 and (text[pos + 1].isalnum())
+        
+        # An apostrophe is:
+        # 1. Between two word characters (e.g., "don't", "they're")
+        # 2. At the end of a word preceded by a letter (e.g., "dogs'", "James'")
+        if has_word_before and has_word_after:
+            return True
+        
+        # Possessive apostrophe: preceded by letter, followed by 's', whitespace, or end of text
+        if has_word_before:
+            if pos == len(text) - 1:  # End of text (e.g., "dogs'")
+                return True
+            elif pos < len(text) - 1:
+                next_char = text[pos + 1]
+                if next_char == 's' or next_char.isspace():  # "James's" or "dogs' toys"
+                    return True
+                
+        return False
+
+    def _is_apostrophe_in_nested_quote(self, text: str, pos: int) -> bool:
+        """
+        Check if a single quote is an apostrophe when we're inside a nested quote.
+        
+        This is more restrictive than the general apostrophe detection because
+        when inside a nested quote, single quotes are more likely to be closing
+        quotes than possessive apostrophes.
+        
+        Args:
+            text: The text string
+            pos: Position of the single quote character
+            
+        Returns:
+            True if the single quote is definitely an apostrophe (like in contractions)
+        """
+        if pos < 0 or pos >= len(text) or text[pos] != "'":
+            return False
+            
+        # Check if preceded by a word character
+        has_word_before = pos > 0 and (text[pos - 1].isalnum())
+        
+        # Check if followed by a word character
+        has_word_after = pos < len(text) - 1 and (text[pos + 1].isalnum())
+        
+        # When inside nested quotes, only treat as apostrophe if it's clearly a contraction
+        # (between two word characters) or followed by 's' in possessive
+        if has_word_before and has_word_after:
+            return True  # Contractions like "don't", "they're"
+        
+        # Be more restrictive about possessive apostrophes inside nested quotes
+        if has_word_before and pos < len(text) - 1:
+            next_char = text[pos + 1]
+            if next_char == 's':  # Only "James's" style possessives
+                return True
+        
+        # Don't treat quotes followed by spaces as apostrophes when inside nested quotes
+        # These are more likely to be closing quotes
+        return False
+
+    def _reset_quote_patterns(self) -> str:
+        """
+        Reset quote-related patterns from active patterns stack.
+        
+        Returns ANSI codes to properly reset styles when quote patterns are removed.
+        This is used as a safety valve to prevent runaway quote styling across line breaks.
+        """
+        if not self._active_patterns:
+            return ""
+            
+        quote_patterns = ["quotes", "nested_quotes"]
+        patterns_to_remove = []
+        reset_codes = []
+        
+        # Find quote patterns in the active stack (from top to bottom)
+        for i in range(len(self._active_patterns) - 1, -1, -1):
+            pattern_name = self._active_patterns[i]
+            if pattern_name in quote_patterns:
+                patterns_to_remove.append(i)
+                
+        # Remove quote patterns and collect reset codes
+        for index in patterns_to_remove:
+            pattern_name = self._active_patterns[index]
+            pattern = self.definitions.get_pattern(pattern_name)
+            
+            if pattern:
+                # Emit OFF codes for removed styles
+                if pattern.style:
+                    for style_name in pattern.style:
+                        reset_codes.append(self.definitions.get_format(f"{style_name}_OFF"))
+                
+                # Reset color if pattern had one
+                if pattern.color:
+                    reset_codes.append(self.definitions.get_format("COLOR_RESET"))
+            
+            # Remove from active patterns
+            self._active_patterns.pop(index)
+        
+        # Rebuild current style state for remaining patterns
+        if reset_codes:
+            reset_codes.append(self._get_current_style())
+            
+        return "".join(reset_codes)
 
     def _style_chunk(self, text: str) -> str:
         """Return text with applied active styles and handled delimiters."""
@@ -174,7 +302,7 @@ class StyleEngine:
                     continue  # Not enough characters left
                 
                 delimiter = text[i : i + delimiter_length]
-                pattern_roles = self.definitions.get_pattern_by_delimiter(delimiter)
+                pattern_roles = self.definitions.get_pattern_by_delimiter(delimiter, self._active_patterns)
 
                 # Check for active pattern end with multi-char delimiter
                 if self._active_patterns:
@@ -244,6 +372,13 @@ class StyleEngine:
                         self._active_patterns[-1]
                     )
                     if active_pattern and char in active_pattern.get_end_chars():
+                        # Don't end nested_quotes pattern for apostrophes
+                        if char == "'" and active_pattern.name == "nested_quotes" and self._is_apostrophe_in_nested_quote(text, i):
+                            # This is an apostrophe, not a closing quote - treat as regular char
+                            out.append(char)
+                            i += 1
+                            found_match = True
+                            continue
                         # End pattern if delimiter matches
                         if not active_pattern.remove_delimiters:
                             out.append(self._get_current_style() + char)
@@ -276,7 +411,7 @@ class StyleEngine:
                         continue
 
                 # Check if char is a start delimiter for a new pattern
-                pattern_roles = self.definitions.get_pattern_by_delimiter(char)
+                pattern_roles = self.definitions.get_pattern_by_delimiter(char, self._active_patterns)
                 start_pattern = None
 
                 # Check for quote marks in contexts where they shouldn't be styled
@@ -284,6 +419,16 @@ class StyleEngine:
                     # Don't style quotes that appear after numbers or in other non-dialogue contexts
                     if i > 0 and (text[i - 1].isdigit() or text[i - 1] == "'"):
                         # This is likely a measurement or similar - treat as regular char
+                        out.append(char)
+                        i += 1
+                        found_match = True
+                        continue
+
+                # Check for single quotes that are apostrophes
+                if char == "'":
+                    # Don't style apostrophes in contractions
+                    if self._is_apostrophe(text, i):
+                        # This is an apostrophe, not a quote - treat as regular char
                         out.append(char)
                         i += 1
                         found_match = True

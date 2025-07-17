@@ -14,6 +14,7 @@ class Pattern:
     color: Optional[str] = None
     style: Optional[List[str]] = None
     remove_delimiters: bool = False
+    context_pattern: Optional[str] = None  # Pattern that must be active for this pattern to work
 
     def get_start_chars(self) -> List[str]:
         """Return start delimiters as a list."""
@@ -141,6 +142,14 @@ class StyleDefinitions:
                 "style": ["BOLD", "ITALIC"],
                 "remove_delimiters": True,
             },
+            "nested_quotes": {
+                "start": ["'"],
+                "end": ["'"],
+                "color": "PURPLE",
+                "style": ["ITALIC"],
+                "remove_delimiters": False,
+                "context_pattern": "quotes",
+            },
         }
         # First pattern: keep delimiters and no style
         base_patterns.update(
@@ -158,8 +167,8 @@ class StyleDefinitions:
             pattern = Pattern(name=name, **cfg)
 
             # Special case for patterns where same character can be both start and end
-            # (like quotes, emphasis, strong, and strong_emphasis)
-            if name in ["quotes", "emphasis", "strong", "strong_emphasis"]:
+            # (like quotes, emphasis, strong, strong_emphasis, and nested_quotes)
+            if name in ["quotes", "emphasis", "strong", "strong_emphasis", "nested_quotes"]:
                 # For these patterns, we know the same character is used for both start and end
                 # Track start and end delimiters separately to allow the same character in both
                 start_chars = set(pattern.get_start_chars())
@@ -259,17 +268,18 @@ class StyleDefinitions:
         return self.patterns.get(name)
 
     def get_pattern_by_delimiter(
-        self, char: str
+        self, char: str, active_patterns: Optional[List[str]] = None
     ) -> List[Tuple[Optional[Pattern], bool]]:
         """
         Get all patterns that use this delimiter character.
 
         Args:
             char: The delimiter character to look up
+            active_patterns: List of currently active pattern names for context checking
 
         Returns:
             List of tuples (pattern, is_start_delimiter) for all patterns
-            that use this character as a delimiter
+            that use this character as a delimiter and meet context requirements
         """
         if char not in self._delimiter_to_pattern_map:
             return []
@@ -278,6 +288,11 @@ class StyleDefinitions:
         for pattern_name, is_start in self._delimiter_to_pattern_map[char]:
             pattern = self.patterns.get(pattern_name)
             if pattern:
+                # Check if pattern has context requirements
+                if pattern.context_pattern is not None:
+                    # Only include this pattern if its required context pattern is active
+                    if active_patterns is None or pattern.context_pattern not in active_patterns:
+                        continue
                 result.append((pattern, is_start))
         return result
 
