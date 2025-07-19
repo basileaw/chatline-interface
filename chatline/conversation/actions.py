@@ -367,7 +367,7 @@ class ConversationActions:
             rev_streamer = self.animations.create_reverse_streamer()
 
             # Stream the loading message word by word
-            loading_prompt = f"> {self.loading_message}"
+            loading_prompt = self.loading_message
             await rev_streamer.fake_forward_stream_text(
                 loading_prompt, delay=0.06, current_prompt=""  # Start with empty prompt
             )
@@ -460,6 +460,8 @@ class ConversationActions:
                             await animation_task
                             # Now add spacing
                             self.terminal.write("\n\n")
+                            # Set the output color for response chunks
+                            self.style.set_output_color("GREEN")
 
                         # Process chunk only after animation is done
                         if (
@@ -496,6 +498,8 @@ class ConversationActions:
                             await animation_task
                             # Now add spacing
                             self.terminal.write("\n\n")
+                            # Set the output color for response chunks
+                            self.style.set_output_color("GREEN")
 
                         # Process chunk only after animation is done
                         if (
