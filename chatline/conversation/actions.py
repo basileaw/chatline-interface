@@ -363,15 +363,13 @@ class ConversationActions:
         if not styled_panel.strip() and self.loading_message:
             used_loading_animation = True
 
-            # No preface, but we have a loading message
-            rev_streamer = self.animations.create_reverse_streamer(
-                "GRAY"
-            )  # Create with GRAY base color
+            # Create reverse streamer with GRAY base color
+            rev_streamer = self.animations.create_reverse_streamer("GRAY")
 
-            # Stream the loading message word by word (streamer will handle gray color)
+            # Stream the loading message word by word with GRAY color
             loading_prompt = self.loading_message
             await rev_streamer.fake_forward_stream_text(
-                loading_prompt, delay=0.06, current_prompt=""  # Start with empty prompt
+                loading_prompt, delay=0.06, current_prompt="", base_color="GRAY"
             )
 
             # Now animate dots on the already-displayed loading message
@@ -380,21 +378,25 @@ class ConversationActions:
             animation_complete = asyncio.Event()
             first_chunk_received = False
 
+            # Get gray color for dots
+            gray_color = self.style.get_color("GRAY")
+            reset_color = self.style.get_format("RESET")
+
             async def animate_dots():
                 nonlocal dot_count
                 resolved = False
 
                 try:
                     while True:
-                        # Just append/remove dots at cursor position
+                        # Just append/remove dots at cursor position with gray color
                         if dot_count == 0:
-                            self.terminal.write(".")
+                            self.terminal.write(f"{gray_color}.{reset_color}")
                             dot_count = 1
                         elif dot_count == 1:
-                            self.terminal.write(".")
+                            self.terminal.write(f"{gray_color}.{reset_color}")
                             dot_count = 2
                         elif dot_count == 2:
-                            self.terminal.write(".")
+                            self.terminal.write(f"{gray_color}.{reset_color}")
                             dot_count = 3
                         else:  # dot_count == 3
                             # Check if we should stop on 3 dots
@@ -411,10 +413,13 @@ class ConversationActions:
 
                         await asyncio.sleep(0.4)
                 except asyncio.CancelledError:
-                    # Clean up - ensure we always end with 3 dots
+                    # Clean up - ensure we always end with 3 gray dots
                     if dot_count < 3:
                         # Add remaining dots to get to 3
-                        self.terminal.write("." * (3 - dot_count))
+                        remaining_dots = "." * (3 - dot_count)
+                        self.terminal.write(
+                            f"{gray_color}{remaining_dots}{reset_color}"
+                        )
                     raise
 
             # Start dot animation
@@ -548,14 +553,16 @@ class ConversationActions:
                 if not self.validate_history_index():
                     self.fix_history_index()
 
-            # Build final styled output (for retry/rewind operations)
-            # Format: gray loading message with dots on same line, then spacing
+            # Build final styled output for proper storage
+            # Format: gray loading message with dots inline, then spacing
             gray_color = self.style.get_color("GRAY")
             reset_color = self.style.get_format("RESET")
             styled_panel = f"{gray_color}{loading_prompt}...{reset_color}\n\n"
 
-            # CRITICAL: Store loading message in preconversation_styled so retry can use it
+            # CRITICAL: Store in BOTH places for consistency
             self.preconversation_styled = styled_panel
+            # Also add to preface so retry/rewind can find it
+            self.preface.styled_content = styled_panel
 
             full_styled = styled_panel + assistant_styled
 
@@ -621,10 +628,16 @@ class ConversationActions:
         then re-process or let the user edit it.
         """
         rev_streamer = self.animations.create_reverse_streamer()
+
+        # Use whichever preconversation content is available
+        preconversation_content = (
+            self.preface.styled_content or self.preconversation_styled
+        )
+
         await rev_streamer.reverse_stream(
             intro_styled,
             "",
-            preconversation_text=self.preconversation_styled,  # Use preconversation_styled
+            preconversation_text=preconversation_content,
         )
 
         last_msg = next(
@@ -662,9 +675,9 @@ class ConversationActions:
             raw, styled = await self._process_message(last_msg, silent=True)
             return (
                 raw,
-                f"{self.preconversation_styled}{styled}",
+                f"{preconversation_content}{styled}",
                 "",
-            )  # Use preconversation_styled
+            )
 
         self.terminal.clear_screen()
         if is_retry:

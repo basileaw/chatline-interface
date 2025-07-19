@@ -532,7 +532,11 @@ class ReverseStreamer:
         await self.update_display("", prompt_prefix, force_full_clear=True)
 
     async def fake_forward_stream_text(
-        self, previous_message: str, delay: float = 0.06, current_prompt: str = "> "
+        self,
+        previous_message: str,
+        delay: float = 0.06,
+        current_prompt: str = "> ",
+        base_color: str = None,
     ) -> None:
         """
         Stream previous message word by word into the prompt area.
@@ -541,6 +545,7 @@ class ReverseStreamer:
             previous_message: The previous user message to stream in
             delay: Base delay between word additions
             current_prompt: Current prompt prefix (should be "> ")
+            base_color: Color to apply to the streamed text (e.g., 'GRAY')
         """
         # Clean the previous message - remove any existing prompt prefix
         if previous_message.startswith("> "):
@@ -550,6 +555,13 @@ class ReverseStreamer:
 
         if not clean_message:
             return
+
+        # Get the color code if specified
+        color_code = ""
+        reset_code = ""
+        if base_color:
+            color_code = self.style.get_color(base_color)
+            reset_code = self.style.get_format("RESET")
 
         # Tokenize the message into words
         tokens = self.tokenize_text(clean_message)
@@ -563,7 +575,12 @@ class ReverseStreamer:
 
             # Reassemble current text
             current_text = self.reassemble_tokens(accumulated_tokens)
-            display_text = current_prompt + current_text
+
+            # Apply color to the entire display text if specified
+            if base_color:
+                display_text = color_code + current_prompt + current_text + reset_code
+            else:
+                display_text = current_prompt + current_text
 
             await self.update_display(
                 "", display_text, no_spacing=True, force_full_clear=True
