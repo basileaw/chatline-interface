@@ -94,9 +94,9 @@ class ReverseStreamer:
             output += content
 
         # Check if content might exceed terminal height
-        lines = output.split('\n') if output else []
+        lines = output.split("\n") if output else []
         content_exceeds_height = len(lines) > (self.terminal.height - 1)
-        
+
         # Always use full clear if content exceeds height or when explicitly requested
         if force_full_clear or content_exceeds_height:
             self.terminal.clear_screen()
@@ -387,7 +387,7 @@ class ReverseStreamer:
     ) -> None:
         """
         Reverse stream multiple exchanges from the conversation.
-        
+
         Args:
             styled_text: The full conversation text to process
             exchanges_to_remove: Number of user/assistant exchanges to remove
@@ -396,93 +396,93 @@ class ReverseStreamer:
             acceleration_factor: How much to accelerate the animation
         """
         # Split the text into lines to identify exchanges
-        lines = styled_text.split('\n')
-        
+        lines = styled_text.split("\n")
+
         # Find user message lines (they start with ">")
         user_line_indices = []
         for i, line in enumerate(lines):
-            if line.strip().startswith('>'):
+            if line.strip().startswith(">"):
                 user_line_indices.append(i)
-        
+
         # If we don't have enough exchanges to remove, fall back to regular reverse stream
         if len(user_line_indices) < exchanges_to_remove:
-            await self.reverse_stream(styled_text, delay=delay, 
-                                    preconversation_text=preconversation_text,
-                                    acceleration_factor=acceleration_factor)
+            await self.reverse_stream(
+                styled_text,
+                delay=delay,
+                preconversation_text=preconversation_text,
+                acceleration_factor=acceleration_factor,
+            )
             return
-        
+
         # Calculate which exchanges to remove
         exchanges_to_keep = len(user_line_indices) - exchanges_to_remove
-        
+
         if exchanges_to_keep <= 0:
             # Remove everything except preconversation text
             await self.update_display(preconversation_text)
             return
-        
+
         # Find the cutoff point - everything after the last exchange we want to keep
         cutoff_line = user_line_indices[exchanges_to_keep - 1]
-        
+
         # Find the start of the next exchange to remove
         if exchanges_to_keep < len(user_line_indices):
             next_exchange_start = user_line_indices[exchanges_to_keep]
         else:
             next_exchange_start = len(lines)
-        
+
         # Build the text to keep and text to remove
         preserved_lines = lines[:next_exchange_start]
-        preserved_text = '\n'.join(preserved_lines)
-        
+        preserved_text = "\n".join(preserved_lines)
+
         # Remove each exchange one by one with animation
         for exchange_idx in range(exchanges_to_remove):
             current_exchange_idx = len(user_line_indices) - 1 - exchange_idx
-            
+
             if current_exchange_idx < 0:
                 break
-            
+
             # Find the range of lines for this exchange
             exchange_start = user_line_indices[current_exchange_idx]
-            
+
             # Find the end of this exchange (start of next exchange or end of text)
             if current_exchange_idx + 1 < len(user_line_indices):
                 exchange_end = user_line_indices[current_exchange_idx + 1]
             else:
                 exchange_end = len(lines)
-            
+
             # Build the text without this exchange
             remaining_lines = lines[:exchange_start]
-            remaining_text = '\n'.join(remaining_lines)
-            
+            remaining_text = "\n".join(remaining_lines)
+
             # Animate the removal of this exchange
             exchange_lines = lines[exchange_start:exchange_end]
-            exchange_text = '\n'.join(exchange_lines)
-            
+            exchange_text = "\n".join(exchange_lines)
+
             # Use the regular reverse stream for this exchange
             await self.reverse_stream(
-                exchange_text, 
+                exchange_text,
                 preserved_msg=remaining_text,
                 delay=delay,
                 preconversation_text=preconversation_text,
-                acceleration_factor=acceleration_factor
+                acceleration_factor=acceleration_factor,
             )
-            
+
             # Update the lines array for the next iteration
             lines = remaining_lines
-            
+
             # Recalculate user line indices for remaining text
             user_line_indices = []
             for i, line in enumerate(lines):
-                if line.strip().startswith('>'):
+                if line.strip().startswith(">"):
                     user_line_indices.append(i)
-    
+
     async def fake_reverse_stream_text(
-        self, 
-        user_message: str, 
-        delay: float = 0.08,
-        acceleration_factor: float = 1.15
+        self, user_message: str, delay: float = 0.08, acceleration_factor: float = 1.15
     ) -> None:
         """
         Continue reverse streaming by removing user message text word by word.
-        
+
         Args:
             user_message: User message like "> How about a joke"
             delay: Base delay between word removals
@@ -495,14 +495,14 @@ class ReverseStreamer:
         else:
             prompt_prefix = ""
             text_content = user_message.strip()
-        
+
         if not text_content:
             return
-        
+
         # Tokenize the text content (not including prompt prefix)
         tokens = self.tokenize_text(text_content)
         groups = self.group_tokens_by_word(tokens)
-        
+
         # Remove words from the end, similar to existing reverse stream logic
         chunks_to_remove = 1.0
         while any(group_type == "word" for group_type, _ in groups):
@@ -514,32 +514,29 @@ class ReverseStreamer:
                 # Then remove the word
                 if groups:
                     groups.pop()
-            
+
             chunks_to_remove *= acceleration_factor
-            
+
             # Reassemble remaining tokens
             remaining_tokens = []
             for _, grp in groups:
                 remaining_tokens.extend(grp)
             remaining_text = self.reassemble_tokens(remaining_tokens)
-            
+
             # Display prompt prefix + remaining text
             display_text = prompt_prefix + remaining_text
             await self.update_display("", display_text, force_full_clear=True)
             await asyncio.sleep(delay)
-        
+
         # Final state: just the prompt prefix
         await self.update_display("", prompt_prefix, force_full_clear=True)
 
     async def fake_forward_stream_text(
-        self,
-        previous_message: str,
-        delay: float = 0.06,
-        current_prompt: str = "> "
+        self, previous_message: str, delay: float = 0.06, current_prompt: str = "> "
     ) -> None:
         """
         Stream previous message word by word into the prompt area.
-        
+
         Args:
             previous_message: The previous user message to stream in
             delay: Base delay between word additions
@@ -550,39 +547,41 @@ class ReverseStreamer:
             clean_message = previous_message[2:].strip()
         else:
             clean_message = previous_message.strip()
-        
+
         if not clean_message:
             return
-        
+
         # Tokenize the message into words
         tokens = self.tokenize_text(clean_message)
         groups = self.group_tokens_by_word(tokens)
-        
+
         # Build up the message word by word
         accumulated_tokens = []
-        
+
         for group_type, group_tokens in groups:
             accumulated_tokens.extend(group_tokens)
-            
+
             # Reassemble current text
             current_text = self.reassemble_tokens(accumulated_tokens)
             display_text = current_prompt + current_text
-            
-            await self.update_display("", display_text, no_spacing=True, force_full_clear=True)
-            
+
+            await self.update_display(
+                "", display_text, no_spacing=True, force_full_clear=True
+            )
+
             # Only add delay for word groups, not spaces
             if group_type == "word":
                 await asyncio.sleep(delay)
-    
+
     async def fake_forward_stream_styled_content(
         self,
         styled_content: str,
         delay: float = 0.02,
-        acceleration_factor: float = 1.15
+        acceleration_factor: float = 1.15,
     ) -> None:
         """
         Stream styled content back progressively with accelerating timing.
-        
+
         Args:
             styled_content: Full styled content with ANSI sequences preserved
             delay: Base delay between chunk additions
@@ -590,38 +589,40 @@ class ReverseStreamer:
         """
         if not styled_content.strip():
             return
-        
+
         # Tokenize the styled content while preserving ANSI sequences
         tokens = self.tokenize_text(styled_content)
         groups = self.group_tokens_by_word(tokens)
-        
+
         # Filter to only word groups for acceleration logic
         word_groups = [grp for group_type, grp in groups if group_type == "word"]
-        
+
         # Build up the content progressively with acceleration
         accumulated_tokens = []
         chunks_to_add = 1.0
         group_index = 0
-        
+
         while group_index < len(groups):
             chunks_this_round = round(chunks_to_add)
-            
+
             # Add chunks for this round
             for _ in range(min(chunks_this_round, len(groups) - group_index)):
                 group_type, group_tokens = groups[group_index]
                 accumulated_tokens.extend(group_tokens)
                 group_index += 1
-                
+
                 if group_index >= len(groups):
                     break
-            
+
             # Reassemble current accumulated content
             current_content = self.reassemble_tokens(accumulated_tokens)
-            
+
             # Use smart clearing for intermediate frames, force clear for final frame
-            is_final_frame = (group_index >= len(groups))
-            await self.update_display(current_content, "", force_full_clear=is_final_frame)
-            
+            is_final_frame = group_index >= len(groups)
+            await self.update_display(
+                current_content, "", force_full_clear=is_final_frame
+            )
+
             # Add delay and accelerate for next round
             await asyncio.sleep(delay)
             chunks_to_add *= acceleration_factor

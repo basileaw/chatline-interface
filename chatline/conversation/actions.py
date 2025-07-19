@@ -6,6 +6,7 @@ import sys
 import termios
 import tty
 import os
+import json
 
 from .save_manager import ConversationSaveManager
 
@@ -22,6 +23,7 @@ class ConversationActions:
         preface,
         logger,
         conclusion_string=None,
+        loading_message=None,
         save_directory="./saved_conversations/",
     ):
         self.display = display
@@ -35,6 +37,7 @@ class ConversationActions:
         self.preface = preface
         self.logger = logger
         self.conclusion_string = conclusion_string
+        self.loading_message = loading_message
         self.save_manager = ConversationSaveManager(save_directory)
 
         # UI-specific state
@@ -147,7 +150,7 @@ class ConversationActions:
             state_msgs = await self.messages.get_messages(sys_prompt)
             self.history.update_state(messages=state_msgs)
             self.history_index = self.history.get_latest_state_index()
-            
+
             # Validate history index consistency
             if not self.validate_history_index():
                 self.fix_history_index()
@@ -187,7 +190,7 @@ class ConversationActions:
                 new_state_msgs = await self.messages.get_messages(sys_prompt)
                 self.history.update_state(messages=new_state_msgs)
                 self.history_index = self.history.get_latest_state_index()
-                
+
                 # Validate history index consistency
                 if not self.validate_history_index():
                     self.fix_history_index()
@@ -236,88 +239,100 @@ class ConversationActions:
             return None
         return user_messages[-2]  # Second-to-last user message
 
-    def find_state_before_user_message(self, target_user_content: str) -> Optional[Tuple[int, Dict[str, Any]]]:
+    def find_state_before_user_message(
+        self, target_user_content: str
+    ) -> Optional[Tuple[int, Dict[str, Any]]]:
         """
         Find the history state that ends just before the target user message was added.
-        
+
         Args:
             target_user_content: The content of the user message we want to rewind to
-            
+
         Returns:
             Tuple of (state_index, state_data) or None if not found
         """
         if not self.history.state_history:
             return None
-            
-        # Search through history states to find the one that ends just before 
+
+        # Search through history states to find the one that ends just before
         # the target user message was added
         for i in range(len(self.history.state_history) - 1, -1, -1):
             state = self.history.state_history[i]
             messages = state.get("messages", [])
-            
+
             if not messages:
                 continue
-                
+
             # Get all user messages in this state
-            user_messages = [msg["content"] for msg in messages if msg["role"] == "user"]
-            
+            user_messages = [
+                msg["content"] for msg in messages if msg["role"] == "user"
+            ]
+
             # If this state contains the target user message, we need to find
             # the previous state that ends just before it
             if target_user_content in user_messages:
                 # Look for the last state before this target message was added
                 target_user_index = user_messages.index(target_user_content)
-                
+
                 # We want a state that has all user messages up to (but not including) the target
                 desired_user_count = target_user_index
-                
+
                 # Search backwards for a state with exactly the desired user count
                 for j in range(i, -1, -1):
                     check_state = self.history.state_history[j]
                     check_messages = check_state.get("messages", [])
-                    check_user_messages = [msg["content"] for msg in check_messages if msg["role"] == "user"]
-                    
+                    check_user_messages = [
+                        msg["content"]
+                        for msg in check_messages
+                        if msg["role"] == "user"
+                    ]
+
                     if len(check_user_messages) == desired_user_count:
                         return j, check_state
-        
+
         return None
 
     def find_previous_user_message(self, current_user_content: str) -> Optional[str]:
         """
         Find the user message that came before the given user message.
-        
+
         Args:
             current_user_content: Content of the current user message
-            
+
         Returns:
             Content of the previous user message, or None if not found
         """
         user_messages = [m.content for m in self.messages.messages if m.role == "user"]
-        
+
         try:
             current_index = user_messages.index(current_user_content)
             if current_index > 0:
                 return user_messages[current_index - 1]
         except ValueError:
             pass
-            
+
         return None
 
     def validate_history_index(self) -> bool:
         """
         Validate that history_index is consistent with actual history state.
-        
+
         Returns:
             True if history_index is valid, False otherwise
         """
         if self.history_index < -1:
-            self.logger.warning(f"Invalid history_index: {self.history_index} (below -1)")
+            self.logger.warning(
+                f"Invalid history_index: {self.history_index} (below -1)"
+            )
             return False
-            
+
         history_length = len(self.history.state_history)
         if self.history_index >= history_length:
-            self.logger.warning(f"Invalid history_index: {self.history_index} (beyond history length {history_length})")
+            self.logger.warning(
+                f"Invalid history_index: {self.history_index} (beyond history length {history_length})"
+            )
             return False
-            
+
         return True
 
     def fix_history_index(self) -> None:
@@ -327,23 +342,214 @@ class ConversationActions:
         if not self.validate_history_index():
             old_index = self.history_index
             self.history_index = self.history.get_latest_state_index()
-            self.logger.info(f"Fixed history_index: {old_index} -> {self.history_index}")
+            self.logger.info(
+                f"Fixed history_index: {old_index} -> {self.history_index}"
+            )
 
     async def introduce_conversation(self, intro_msg: str) -> Tuple[str, str, str]:
         """
-        Show a preface panel (if any), then process the first user message silently.
+        Show a preface panel (if any) or loading message, then process the first user message silently.
         Returns (raw_assistant_reply, combined_styled_text, empty_string_for_prompt).
         """
         self.terminal.hide_cursor()
 
         styled_panel = await self.preface.format_content(self.style)
         styled_panel = self.style.append_single_blank_line(styled_panel)
-        if styled_panel.strip():
-            await self.terminal.update_display(styled_panel, preserve_cursor=False)
 
-        # First user message is always silent => user text never shown
-        raw, assistant_styled = await self._process_message(intro_msg, silent=True)
-        full_styled = styled_panel + assistant_styled
+        # Track if we used loading animation
+        used_loading_animation = False
+
+        # Check if we should show loading message
+        if not styled_panel.strip() and self.loading_message:
+            used_loading_animation = True
+
+            # No preface, but we have a loading message
+            rev_streamer = self.animations.create_reverse_streamer()
+
+            # Stream the loading message word by word
+            loading_prompt = f"> {self.loading_message}"
+            await rev_streamer.fake_forward_stream_text(
+                loading_prompt, delay=0.06, current_prompt=""  # Start with empty prompt
+            )
+
+            # Now animate dots on the already-displayed loading message
+            dot_count = 0
+            animation_task = None
+            animation_complete = asyncio.Event()
+            first_chunk_received = False
+
+            async def animate_dots():
+                nonlocal dot_count
+                resolved = False
+
+                try:
+                    while True:
+                        # Just append/remove dots at cursor position
+                        if dot_count == 0:
+                            self.terminal.write(".")
+                            dot_count = 1
+                        elif dot_count == 1:
+                            self.terminal.write(".")
+                            dot_count = 2
+                        elif dot_count == 2:
+                            self.terminal.write(".")
+                            dot_count = 3
+                        else:  # dot_count == 3
+                            # Check if we should stop on 3 dots
+                            if resolved:
+                                break
+                            # Otherwise, clear dots and restart cycle
+                            self.terminal.write("\b\b\b   \b\b\b")
+                            dot_count = 0
+
+                        # Check if animation should resolve after this iteration
+                        if animation_complete.is_set() and not resolved:
+                            resolved = True
+                            # If we're not at 3 dots yet, continue the cycle
+
+                        await asyncio.sleep(0.4)
+                except asyncio.CancelledError:
+                    # Clean up - ensure we always end with 3 dots
+                    if dot_count < 3:
+                        # Add remaining dots to get to 3
+                        self.terminal.write("." * (3 - dot_count))
+                    raise
+
+            # Start dot animation
+            animation_task = asyncio.create_task(animate_dots())
+
+            # Process the message while dots are animating
+            self.current_turn += 1
+            self.messages.add_message("user", intro_msg, self.current_turn)
+
+            sys_prompt = self._get_system_prompt()
+            state_msgs = await self.messages.get_messages(sys_prompt)
+            self.history.update_state(messages=state_msgs)
+            self.history_index = self.history.get_latest_state_index()
+
+            if not self.validate_history_index():
+                self.fix_history_index()
+
+            # Prepare generator call
+            current_state = self.history.create_state_snapshot()
+            msgs_for_generation = await self.messages.get_messages(sys_prompt)
+
+            # Call generator and process response
+            raw = ""
+            assistant_styled = ""
+
+            try:
+                if self.is_remote_mode:
+                    self.logger.debug(
+                        "Calling remote generator with state and callback"
+                    )
+                    async for chunk in self.generator(
+                        messages=msgs_for_generation,
+                        state=current_state,
+                        state_callback=self._handle_state_update,
+                    ):
+                        # First chunk - stop animation and wait for it to complete
+                        if (
+                            not first_chunk_received
+                            and chunk.strip().startswith("data: ")
+                            and chunk != "data: [DONE]"
+                        ):
+                            first_chunk_received = True
+                            animation_complete.set()
+                            # Wait for animation to finish on 3 dots
+                            await animation_task
+                            # Now add spacing
+                            self.terminal.write("\n\n")
+
+                        # Process chunk only after animation is done
+                        if (
+                            first_chunk_received
+                            and chunk.strip().startswith("data: ")
+                            and chunk != "data: [DONE]"
+                        ):
+                            try:
+                                data = json.loads(chunk[6:])
+                                if "choices" in data and len(data["choices"]) > 0:
+                                    content = (
+                                        data["choices"][0]
+                                        .get("delta", {})
+                                        .get("content", "")
+                                    )
+                                    if content:
+                                        r, s = await self.style.write_styled(content)
+                                        raw += r
+                                        assistant_styled += s
+                            except json.JSONDecodeError:
+                                pass
+                else:
+                    self.logger.debug("Calling embedded generator with messages only")
+                    async for chunk in self.generator(messages=msgs_for_generation):
+                        # First chunk - stop animation and wait for it to complete
+                        if (
+                            not first_chunk_received
+                            and chunk.strip().startswith("data: ")
+                            and chunk != "data: [DONE]"
+                        ):
+                            first_chunk_received = True
+                            animation_complete.set()
+                            # Wait for animation to finish on 3 dots
+                            await animation_task
+                            # Now add spacing
+                            self.terminal.write("\n\n")
+
+                        # Process chunk only after animation is done
+                        if (
+                            first_chunk_received
+                            and chunk.strip().startswith("data: ")
+                            and chunk != "data: [DONE]"
+                        ):
+                            try:
+                                data = json.loads(chunk[6:])
+                                if "choices" in data and len(data["choices"]) > 0:
+                                    content = (
+                                        data["choices"][0]
+                                        .get("delta", {})
+                                        .get("content", "")
+                                    )
+                                    if content:
+                                        r, s = await self.style.write_styled(content)
+                                        raw += r
+                                        assistant_styled += s
+                            except json.JSONDecodeError:
+                                pass
+            finally:
+                # Ensure animation is stopped
+                animation_complete.set()
+                if animation_task and not animation_task.done():
+                    await animation_task
+
+                # Flush any remaining styled content
+                r, s = await self.style.flush_styled()
+                raw += r
+                assistant_styled += s
+
+            # Store assistant reply
+            if raw:
+                self.messages.add_message("assistant", raw, self.current_turn)
+                new_state_msgs = await self.messages.get_messages(sys_prompt)
+                self.history.update_state(messages=new_state_msgs)
+                self.history_index = self.history.get_latest_state_index()
+
+                if not self.validate_history_index():
+                    self.fix_history_index()
+
+            # Build final styled output (for retry/rewind operations)
+            styled_panel = f"{loading_prompt}...\n\n"
+            full_styled = styled_panel + assistant_styled
+
+        else:
+            # Original preface logic or no preface/loading
+            if styled_panel.strip():
+                await self.terminal.update_display(styled_panel, preserve_cursor=False)
+
+            # Process message silently as before
+            raw, assistant_styled = await self._process_message(intro_msg, silent=True)
+            full_styled = styled_panel + assistant_styled
 
         # Check if full response exceeds screen height and set flag for future clearing
         lines = full_styled.split("\n")
@@ -351,9 +557,11 @@ class ConversationActions:
         if len(lines) > max_lines:
             self.terminal._had_long_content = True
 
-        # Force scrollback clear to remove duplicate preface from initial display
-        self.terminal.clear_screen_and_scrollback()
-        self.terminal.write(full_styled)
+        # Only clear and rewrite if we didn't use loading animation
+        if not used_loading_animation:
+            # Force scrollback clear to remove duplicate preface from initial display
+            self.terminal.clear_screen_and_scrollback()
+            self.terminal.write(full_styled)
 
         self.is_silent = True
         self.prompt = ""
@@ -454,10 +662,10 @@ class ConversationActions:
         Rewind the conversation by one exchange using content-based state resolution.
         This implementation decouples animation from state management and supports
         unlimited consecutive rewind operations.
-        
+
         Process:
         1. Pre-flight: Extract animation data and validate rewind possibility
-        2. Animation: Execute 3-phase animation using pre-extracted data  
+        2. Animation: Execute 3-phase animation using pre-extracted data
         3. State Restoration: Jump to content-identified target state
         4. Message Processing: Generate new response for target message
         """
@@ -465,7 +673,9 @@ class ConversationActions:
             # PHASE 1: PRE-FLIGHT - Extract all data before any state changes
             target_user_msg = self.find_target_user_message()
             if not target_user_msg:
-                self.logger.debug("Rewind failed: insufficient conversation history (need at least 2 user messages)")
+                self.logger.debug(
+                    "Rewind failed: insufficient conversation history (need at least 2 user messages)"
+                )
                 return "", intro_styled, ""
 
             # Find the user message we're currently showing (for animation)
@@ -474,7 +684,7 @@ class ConversationActions:
                 if msg.role == "user":
                     current_user_msg = msg.content
                     break
-            
+
             if not current_user_msg:
                 self.logger.debug("Rewind failed: no current user message found")
                 return "", intro_styled, ""
@@ -482,17 +692,25 @@ class ConversationActions:
             # Find the target state before any animations
             target_state_result = self.find_state_before_user_message(target_user_msg)
             if not target_state_result:
-                self.logger.debug(f"Rewind failed: could not find state before user message: {target_user_msg[:50]}...")
-                return "", intro_styled, ""
-            
-            target_state_index, _ = target_state_result
-            
-            # Validate that target state is sane
-            if target_state_index < 0 or target_state_index >= len(self.history.state_history):
-                self.logger.error(f"Rewind failed: invalid target state index {target_state_index}")
+                self.logger.debug(
+                    f"Rewind failed: could not find state before user message: {target_user_msg[:50]}..."
+                )
                 return "", intro_styled, ""
 
-            self.logger.debug(f"Rewind: current_user='{current_user_msg[:30]}...', target_user='{target_user_msg[:30]}...', target_state_index={target_state_index}")
+            target_state_index, _ = target_state_result
+
+            # Validate that target state is sane
+            if target_state_index < 0 or target_state_index >= len(
+                self.history.state_history
+            ):
+                self.logger.error(
+                    f"Rewind failed: invalid target state index {target_state_index}"
+                )
+                return "", intro_styled, ""
+
+            self.logger.debug(
+                f"Rewind: current_user='{current_user_msg[:30]}...', target_user='{target_user_msg[:30]}...', target_state_index={target_state_index}"
+            )
 
             # PHASE 2: ANIMATION - Execute 3-phase animation with pre-extracted data
             rev_streamer = self.animations.create_reverse_streamer()
@@ -512,18 +730,22 @@ class ConversationActions:
             # PHASE 3: STATE RESTORATION - Jump to content-identified target state
             restored_state = self.history.restore_state_by_index(target_state_index)
             if not restored_state:
-                self.logger.error(f"Rewind failed: could not restore state at index {target_state_index}")
+                self.logger.error(
+                    f"Rewind failed: could not restore state at index {target_state_index}"
+                )
                 return "", intro_styled, ""
 
             # Rebuild internal messages from restored history state
             self.messages.rebuild_from_state(restored_state.messages)
-            
+
             # Update turn counter and history index to match restored state
             user_messages = [m for m in self.messages.messages if m.role == "user"]
             self.current_turn = len(user_messages)
             self.history_index = target_state_index
 
-            self.logger.debug(f"Rewind: restored to state {target_state_index}, turn={self.current_turn}, messages={len(self.messages.messages)}")
+            self.logger.debug(
+                f"Rewind: restored to state {target_state_index}, turn={self.current_turn}, messages={len(self.messages.messages)}"
+            )
 
             # PHASE 4: MESSAGE PROCESSING - Generate new response for target message
             raw, styled = await self._process_message(target_user_msg, silent=False)
@@ -533,7 +755,9 @@ class ConversationActions:
             return raw, styled, self.prompt
 
         except Exception as e:
-            self.logger.error(f"Rewind operation failed with exception: {e}", exc_info=True)
+            self.logger.error(
+                f"Rewind operation failed with exception: {e}", exc_info=True
+            )
             # Return original state on error
             return "", intro_styled, ""
 

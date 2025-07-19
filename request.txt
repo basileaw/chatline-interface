@@ -1,0 +1,41 @@
+I need your help implementing a loading animation for the first response in chatline when no preface text is provided.
+
+When a chatline Interface is instantiated without preface text, there's a significant blank screen period while waiting for the first streamed response chunk. This creates an awkward user experience where nothing is visible in the terminal during what can be a long initial wait time.
+
+I would like to implement a loading animation that simulates a "fake stream" of a string word by word, like fake_forward_stream_text(),  along with a dot loading animation. Essentially, I am very happy with the rweind animations (fake streaming text, dot loading animation) and it's integration with other animations, like _process_message() , and i want the ability to start a conversation like that. Unfortunately, Chatline is poorly designed/ maintained, so even implementing a simple feature like this cleanly is really challenging.
+
+## API Requirements
+- Add loading_message parameter to Interface constructor
+- Only show loading animation when no preface is provided
+- Maintain full backward compatibility
+
+## Critical Requirements
+- The loading message must participate in terminal buffer calculations and screen height logic
+- The loading message should NOT be added to conversation history/state
+- The transition from loading to real response must be seamless
+- Preserve all existing behavior when preface text IS provided
+- Maintain proper spacing: loading message, empty line, then real response
+
+## Key Integration Points
+- Logic should be added to introduce_conversation() in /chatline/conversation/actions.py
+- Leverage fake_forward_stream_text() from reverse_streamer.py (proven to work with any text length)
+- Use existing _process_message() flow with dot_loader for continuous animation
+- Ensure retry functionality works without duplication
+
+## Expected Behavior
+
+When `Interface(loading_message="Initializing AI assistant...")` is used with no preface:
+
+1. Screen shows nothing initially
+2. Loading message streams in word by word: "> Initializing", "> Initializing AI", "> Initializing AI assistant..."
+3. Dots start animating after the loading message: "> Initializing AI assistant.", "> Initializing AI assistant..", "> Initializing AI assistant..."
+4. When first response chunk arrives, dots stop and response streams in two lines below
+5. Final display shows: "> Initializing AI assistant...\n\n[assistant response]"
+6. Loading message persists in conversation display but is NOT in conversation history
+7. Retry/edit/rewind functionality works correctly
+
+The goal is to create the same professional, movie-like experience as the rewind animation but for initial loading.
+
+I don't want to reinvent the wheel. I feel like there must be a way to recreate some of the animations that are working perfectly in other contexts in this new context cleanly. 
+
+What do you think is the best way to go about this? 
