@@ -364,9 +364,11 @@ class ConversationActions:
             used_loading_animation = True
 
             # No preface, but we have a loading message
-            rev_streamer = self.animations.create_reverse_streamer()
+            rev_streamer = self.animations.create_reverse_streamer(
+                "GRAY"
+            )  # Create with GRAY base color
 
-            # Stream the loading message word by word
+            # Stream the loading message word by word (streamer will handle gray color)
             loading_prompt = self.loading_message
             await rev_streamer.fake_forward_stream_text(
                 loading_prompt, delay=0.06, current_prompt=""  # Start with empty prompt
@@ -458,7 +460,9 @@ class ConversationActions:
                             animation_complete.set()
                             # Wait for animation to finish on 3 dots
                             await animation_task
-                            # Now add spacing
+                            # Reset color before spacing
+                            self.terminal.write(self.style.get_format("RESET"))
+                            # Add spacing
                             self.terminal.write("\n\n")
                             # Set the output color for response chunks
                             self.style.set_output_color("GREEN")
@@ -496,7 +500,9 @@ class ConversationActions:
                             animation_complete.set()
                             # Wait for animation to finish on 3 dots
                             await animation_task
-                            # Now add spacing
+                            # Reset color before spacing
+                            self.terminal.write(self.style.get_format("RESET"))
+                            # Add spacing
                             self.terminal.write("\n\n")
                             # Set the output color for response chunks
                             self.style.set_output_color("GREEN")
@@ -543,7 +549,14 @@ class ConversationActions:
                     self.fix_history_index()
 
             # Build final styled output (for retry/rewind operations)
-            styled_panel = f"{loading_prompt}...\n\n"
+            # Format: gray loading message with dots on same line, then spacing
+            gray_color = self.style.get_color("GRAY")
+            reset_color = self.style.get_format("RESET")
+            styled_panel = f"{gray_color}{loading_prompt}...{reset_color}\n\n"
+
+            # CRITICAL: Store loading message in preconversation_styled so retry can use it
+            self.preconversation_styled = styled_panel
+
             full_styled = styled_panel + assistant_styled
 
         else:
@@ -569,7 +582,9 @@ class ConversationActions:
 
         self.is_silent = True
         self.prompt = ""
-        self.preconversation_styled = styled_panel
+        # Don't override preconversation_styled if we set it for loading message
+        if not used_loading_animation:
+            self.preconversation_styled = styled_panel
         self.terminal.hide_cursor()
 
         return raw, full_styled, ""
@@ -607,7 +622,9 @@ class ConversationActions:
         """
         rev_streamer = self.animations.create_reverse_streamer()
         await rev_streamer.reverse_stream(
-            intro_styled, "", preconversation_text=self.preface.styled_content
+            intro_styled,
+            "",
+            preconversation_text=self.preconversation_styled,  # Use preconversation_styled
         )
 
         last_msg = next(
@@ -643,7 +660,11 @@ class ConversationActions:
 
         if self.is_silent:
             raw, styled = await self._process_message(last_msg, silent=True)
-            return raw, f"{self.preface.styled_content}\n{styled}", ""
+            return (
+                raw,
+                f"{self.preconversation_styled}{styled}",
+                "",
+            )  # Use preconversation_styled
 
         self.terminal.clear_screen()
         if is_retry:
